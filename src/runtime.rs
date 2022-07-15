@@ -102,6 +102,7 @@ mod sys {
     }
 }
 
+#[derive(Debug)]
 pub struct Error;
 
 #[derive(Debug, PartialEq, Eq)]
