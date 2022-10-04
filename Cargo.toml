@@ -8,3 +8,7 @@ edition = "2021"
 [dependencies]
 bytemuck = { version = "1.9.1", features = ["derive", "min_const_generics"] }
 time = { version = "0.3.5", default-features = false }
+itoa = { version = "1.0.1", default-features = false, optional = true }
+
+[features]
+integer-vars = ["itoa"]

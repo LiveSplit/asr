@@ -269,6 +269,12 @@ pub mod timer {
             sys::timer_set_game_time(time.whole_seconds(), time.subsec_nanoseconds());
         }
     }
+
+    #[cfg(feature = "integer-vars")]
+    pub fn set_variable_int(key: &str, value: impl itoa::Integer) {
+        let mut buf = itoa::Buffer::new();
+        set_variable(key, buf.format(value));
+    }
 }
 
 pub fn set_tick_rate(ticks_per_second: f64) {
