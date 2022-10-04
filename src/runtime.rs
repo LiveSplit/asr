@@ -110,17 +110,20 @@ pub struct Error;
 pub struct Process(ProcessId);
 
 impl Drop for Process {
+    #[inline]
     fn drop(&mut self) {
         unsafe { sys::process_detach(self.0) }
     }
 }
 
 impl Process {
+    #[inline]
     pub fn attach(name: &str) -> Option<Self> {
         let id = unsafe { sys::process_attach(name.as_ptr(), name.len()) };
         id.map(Self)
     }
 
+    #[inline]
     pub fn get_module(&self, name: &str) -> Result<Address, Error> {
         unsafe {
             let address = sys::process_get_module_address(self.0, name.as_ptr(), name.len());
@@ -132,6 +135,7 @@ impl Process {
         }
     }
 
+    #[inline]
     pub fn scan_signature(&self, signature: &str) -> Result<Address, Error> {
         unsafe {
             let address = sys::process_scan_signature(self.0, signature.as_ptr(), signature.len());
@@ -143,6 +147,7 @@ impl Process {
         }
     }
 
+    #[inline]
     pub fn read_into_buf(&self, address: Address, buf: &mut [u8]) -> Result<(), Error> {
         unsafe {
             if sys::process_read(self.0, address, buf.as_mut_ptr(), buf.len()) {
@@ -153,6 +158,7 @@ impl Process {
         }
     }
 
+    #[inline]
     pub fn read<T: Pod>(&self, address: Address) -> Result<T, Error> {
         unsafe {
             let mut value = MaybeUninit::<T>::uninit();
@@ -184,6 +190,7 @@ impl Process {
         self.read_into_buf(address, bytemuck::cast_slice_mut(slice))
     }
 
+    #[inline]
     pub fn is_open(&self) -> bool {
         unsafe { sys::process_is_open(self.0) }
     }
@@ -228,30 +235,37 @@ pub mod timer {
         Ended,
     }
 
+    #[inline]
     pub fn start() {
         unsafe { sys::timer_start() }
     }
 
+    #[inline]
     pub fn split() {
         unsafe { sys::timer_split() }
     }
 
+    #[inline]
     pub fn reset() {
         unsafe { sys::timer_reset() }
     }
 
+    #[inline]
     pub fn pause_game_time() {
         unsafe { sys::timer_pause_game_time() }
     }
 
+    #[inline]
     pub fn resume_game_time() {
         unsafe { sys::timer_resume_game_time() }
     }
 
+    #[inline]
     pub fn set_variable(key: &str, value: &str) {
         unsafe { sys::timer_set_variable(key.as_ptr(), key.len(), value.as_ptr(), value.len()) }
     }
 
+    #[inline]
     pub fn state() -> TimerState {
         unsafe {
             match sys::timer_get_state() {
@@ -264,6 +278,7 @@ pub mod timer {
         }
     }
 
+    #[inline]
     pub fn set_game_time(time: time::Duration) {
         unsafe {
             sys::timer_set_game_time(time.whole_seconds(), time.subsec_nanoseconds());
@@ -277,10 +292,12 @@ pub mod timer {
     }
 }
 
+#[inline]
 pub fn set_tick_rate(ticks_per_second: f64) {
     unsafe { sys::runtime_set_tick_rate(ticks_per_second) }
 }
 
+#[inline]
 pub fn print_message(text: &str) {
     unsafe { sys::runtime_print_message(text.as_ptr(), text.len()) }
 }
