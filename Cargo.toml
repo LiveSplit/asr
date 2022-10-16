@@ -12,3 +12,4 @@ itoa = { version = "1.0.1", default-features = false, optional = true }
 
 [features]
 integer-vars = ["itoa"]
+gba = []
