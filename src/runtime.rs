@@ -88,11 +88,6 @@ mod sys {
             name_ptr: *const u8,
             name_len: usize,
         ) -> Option<NonZeroAddress>;
-        pub fn process_scan_signature(
-            process: ProcessId,
-            signature_ptr: *const u8,
-            signature_len: usize,
-        ) -> Option<NonZeroAddress>;
 
         /// Sets the tick rate of the runtime. This influences the amount of
         /// times the `update` function is called per second.
@@ -136,18 +131,6 @@ impl Process {
     }
 
     #[inline]
-    pub fn scan_signature(&self, signature: &str) -> Result<Address, Error> {
-        unsafe {
-            let address = sys::process_scan_signature(self.0, signature.as_ptr(), signature.len());
-            if let Some(address) = address {
-                Ok(Address(address.0.get()))
-            } else {
-                Err(Error)
-            }
-        }
-    }
-
-    #[inline]
     pub fn read_into_buf(&self, address: Address, buf: &mut [u8]) -> Result<(), Error> {
         unsafe {
             if sys::process_read(self.0, address, buf.as_mut_ptr(), buf.len()) {
@@ -159,10 +142,28 @@ impl Process {
     }
 
     #[inline]
+    pub fn read_into_uninit_buf<'buf>(
+        &self,
+        address: Address,
+        buf: &'buf mut [MaybeUninit<u8>],
+    ) -> Result<&'buf mut [u8], Error> {
+        unsafe {
+            if sys::process_read(self.0, address, buf.as_mut_ptr().cast(), buf.len()) {
+                Ok(slice::from_raw_parts_mut(
+                    buf.as_mut_ptr().cast(),
+                    buf.len(),
+                ))
+            } else {
+                Err(Error)
+            }
+        }
+    }
+
+    #[inline]
     pub fn read<T: Pod>(&self, address: Address) -> Result<T, Error> {
         unsafe {
             let mut value = MaybeUninit::<T>::uninit();
-            self.read_into_buf(
+            self.read_into_uninit_buf(
                 address,
                 slice::from_raw_parts_mut(value.as_mut_ptr().cast(), mem::size_of::<T>()),
             )?;
