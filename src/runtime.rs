@@ -88,6 +88,12 @@ mod sys {
             name_ptr: *const u8,
             name_len: usize,
         ) -> Option<NonZeroAddress>;
+        /// Gets the size of a module in a process.
+        pub fn process_get_module_size(
+            process: ProcessId,
+            name_ptr: *const u8,
+            name_len: usize,
+        ) -> Option<NonZeroU64>;
 
         /// Sets the tick rate of the runtime. This influences the amount of
         /// times the `update` function is called per second.
@@ -100,7 +106,7 @@ mod sys {
 #[derive(Debug)]
 pub struct Error;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 #[repr(transparent)]
 pub struct Process(ProcessId);
 
@@ -119,11 +125,23 @@ impl Process {
     }
 
     #[inline]
-    pub fn get_module(&self, name: &str) -> Result<Address, Error> {
+    pub fn get_module_address(&self, name: &str) -> Result<Address, Error> {
         unsafe {
             let address = sys::process_get_module_address(self.0, name.as_ptr(), name.len());
             if let Some(address) = address {
                 Ok(Address(address.0.get()))
+            } else {
+                Err(Error)
+            }
+        }
+    }
+
+    #[inline]
+    pub fn get_module_size(&self, name: &str) -> Result<u64, Error> {
+        unsafe {
+            let size = sys::process_get_module_size(self.0, name.as_ptr(), name.len());
+            if let Some(size) = size {
+                Ok(size.get())
             } else {
                 Err(Error)
             }
