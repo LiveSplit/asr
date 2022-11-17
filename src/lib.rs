@@ -1,6 +1,8 @@
 #![no_std]
 
 mod runtime;
+#[cfg(feature = "signature")]
+pub mod signature;
 pub mod time_util;
 pub mod watcher;
 
