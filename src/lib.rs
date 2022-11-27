@@ -11,3 +11,6 @@ pub mod gba;
 
 pub use self::runtime::*;
 pub use time;
+
+#[cfg(feature = "derive")]
+pub use asr_derive::Settings;

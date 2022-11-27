@@ -100,6 +100,16 @@ mod sys {
         pub fn runtime_set_tick_rate(ticks_per_second: f64);
         /// Prints a log message for debugging purposes.
         pub fn runtime_print_message(text_ptr: *const u8, text_len: usize);
+
+        /// Adds a new setting that the user can modify. This will return either
+        /// the specified default value or the value that the user has set.
+        pub fn user_settings_add_bool(
+            key_ptr: *const u8,
+            key_len: usize,
+            description_ptr: *const u8,
+            description_len: usize,
+            default_value: bool,
+        ) -> bool;
     }
 }
 
@@ -299,15 +309,40 @@ pub mod timer {
 
     #[inline]
     pub fn set_game_time(time: time::Duration) {
-        unsafe {
-            sys::timer_set_game_time(time.whole_seconds(), time.subsec_nanoseconds());
-        }
+        unsafe { sys::timer_set_game_time(time.whole_seconds(), time.subsec_nanoseconds()) }
     }
 
     #[cfg(feature = "integer-vars")]
     pub fn set_variable_int(key: &str, value: impl itoa::Integer) {
         let mut buf = itoa::Buffer::new();
         set_variable(key, buf.format(value));
+    }
+}
+
+pub mod user_settings {
+    use super::sys;
+
+    #[inline]
+    pub fn add_bool(key: &str, description: &str, default_value: bool) -> bool {
+        unsafe {
+            sys::user_settings_add_bool(
+                key.as_ptr(),
+                key.len(),
+                description.as_ptr(),
+                description.len(),
+                default_value,
+            )
+        }
+    }
+}
+
+pub trait Setting {
+    fn register(key: &str, description: &str, default_value: Self) -> Self;
+}
+
+impl Setting for bool {
+    fn register(key: &str, description: &str, default_value: Self) -> Self {
+        user_settings::add_bool(key, description, default_value)
     }
 }
 
