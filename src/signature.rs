@@ -33,7 +33,7 @@ impl Parser<'_> {
                     b'a'..=b'f' => b - b'a' + 0xA,
                     b'A'..=b'F' => b - b'A' + 0xA,
                     b'?' => 0x10,
-                    b' ' => continue,
+                    b' ' | b'\r' | b'\n' | b'\t' => continue,
                     _ => panic!("Invalid byte"),
                 }),
                 self,

@@ -6,12 +6,14 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+asr-derive = { path = "asr-derive", optional = true }
 bytemuck = { version = "1.9.1", features = ["derive", "min_const_generics"] }
-time = { version = "0.3.5", default-features = false }
 itoa = { version = "1.0.1", default-features = false, optional = true }
 memchr = { version = "2.5.0", default-features = false, optional = true }
+time = { version = "0.3.5", default-features = false }
 
 [features]
 integer-vars = ["itoa"]
 gba = []
 signature = ["memchr"]
+derive = ["asr-derive"]
