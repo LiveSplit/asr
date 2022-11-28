@@ -317,6 +317,12 @@ pub mod timer {
         let mut buf = itoa::Buffer::new();
         set_variable(key, buf.format(value));
     }
+
+    #[cfg(feature = "float-vars")]
+    pub fn set_variable_float(key: &str, value: impl ryu::Float) {
+        let mut buf = ryu::Buffer::new();
+        set_variable(key, buf.format(value));
+    }
 }
 
 pub mod user_settings {

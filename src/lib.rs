@@ -14,3 +14,9 @@ pub use time;
 
 #[cfg(feature = "derive")]
 pub use asr_derive::Settings;
+
+#[cfg(feature = "itoa")]
+pub use itoa;
+
+#[cfg(feature = "ryu")]
+pub use ryu;
