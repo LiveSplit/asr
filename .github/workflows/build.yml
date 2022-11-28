@@ -1,0 +1,71 @@
+name: Build
+
+on:
+  pull_request:
+  push:
+    branches:
+      - 'master'
+    tags:
+      - '*'
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        label:
+          - WebAssembly Unknown
+
+        include:
+          - label: WebAssembly Unknown
+            target: wasm32-unknown-unknown
+            os: ubuntu-latest
+            install_target: true
+
+    steps:
+      - name: Checkout Commit
+        uses: actions/checkout@v2
+
+      - name: Install Rust
+        uses: hecrj/setup-rust-action@v1
+        with:
+          rust-version: ${{ matrix.toolchain || 'stable' }}
+
+      - name: Install Target
+        if: matrix.install_target != ''
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Build
+        run: |
+          cargo build --target ${{ matrix.target }}
+
+  clippy:
+    name: Check clippy lints
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Commit
+        uses: actions/checkout@v2
+
+      - name: Install Rust
+        uses: hecrj/setup-rust-action@v1
+        with:
+          components: clippy
+
+      - name: Run Clippy
+        run: cargo clippy --all-features
+
+  format:
+    name: Check formatting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Commit
+        uses: actions/checkout@v2
+
+      - name: Install Rust
+        uses: hecrj/setup-rust-action@v1
+        with:
+          components: rustfmt
+
+      - name: Run cargo fmt
+        run: cargo fmt -- --check || true
