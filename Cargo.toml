@@ -10,10 +10,13 @@ asr-derive = { path = "asr-derive", optional = true }
 bytemuck = { version = "1.9.1", features = ["derive", "min_const_generics"] }
 itoa = { version = "1.0.1", default-features = false, optional = true }
 memchr = { version = "2.5.0", default-features = false, optional = true }
+ryu = { version = "1.0.11", default-features = false, optional = true }
 time = { version = "0.3.5", default-features = false }
 
 [features]
 integer-vars = ["itoa"]
+float-vars = ["ryu"]
+float-vars-small = ["float-vars", "ryu/small"]
 gba = []
 signature = ["memchr"]
 derive = ["asr-derive"]
