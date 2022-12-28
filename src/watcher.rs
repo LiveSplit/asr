@@ -1,5 +1,7 @@
 use core::{mem, ops};
 
+use bytemuck::{bytes_of, Pod};
+
 #[derive(Copy, Clone, Default)]
 pub struct Watcher<T> {
     pair: Option<Pair<T>>,
@@ -29,6 +31,15 @@ impl<T: Copy> Watcher<T> {
         }
         self.pair.as_ref()
     }
+
+    pub fn update_infallible(&mut self, value: T) -> &Pair<T> {
+        let pair = self.pair.get_or_insert_with(|| Pair {
+            old: value,
+            current: value,
+        });
+        pair.old = mem::replace(&mut pair.current, value);
+        pair
+    }
 }
 
 #[derive(Copy, Clone, Default)]
@@ -48,5 +59,66 @@ impl<T> ops::Deref for Pair<T> {
 impl<T> Pair<T> {
     pub fn check(&self, mut f: impl FnMut(&T) -> bool) -> bool {
         !f(&self.old) && f(&self.current)
+    }
+
+    pub fn map<U>(self, mut f: impl FnMut(T) -> U) -> Pair<U> {
+        Pair {
+            old: f(self.old),
+            current: f(self.current),
+        }
+    }
+}
+
+impl<T: Eq> Pair<T> {
+    pub fn changed(&self) -> bool {
+        self.old != self.current
+    }
+
+    pub fn unchanged(&self) -> bool {
+        self.old == self.current
+    }
+
+    pub fn changed_to(&self, value: &T) -> bool {
+        self.check(|v| v == value)
+    }
+
+    pub fn changed_from(&self, value: &T) -> bool {
+        self.check(|v| v != value)
+    }
+
+    pub fn changed_from_to(&self, old: &T, current: &T) -> bool {
+        &self.old == old && &self.current == current
+    }
+}
+
+impl<T: Pod> Pair<T> {
+    pub fn bytes_changed(&self) -> bool {
+        bytes_of(&self.old) != bytes_of(&self.current)
+    }
+
+    pub fn bytes_unchanged(&self) -> bool {
+        bytes_of(&self.old) == bytes_of(&self.current)
+    }
+
+    pub fn bytes_changed_to(&self, value: &T) -> bool {
+        self.check(|v| bytes_of(v) == bytes_of(value))
+    }
+
+    pub fn bytes_changed_from(&self, value: &T) -> bool {
+        self.check(|v| bytes_of(v) != bytes_of(value))
+    }
+
+    pub fn bytes_changed_from_to(&self, old: &T, current: &T) -> bool {
+        bytes_of(&self.old) == bytes_of(old) && bytes_of(&self.current) == bytes_of(current)
+    }
+}
+
+impl<T: PartialOrd> Pair<T> {
+    pub fn increased(&self) -> bool {
+        self.old < self.current
+    }
+
+    pub fn decreased(&self) -> bool {
+        self.old > self.current
     }
 }
