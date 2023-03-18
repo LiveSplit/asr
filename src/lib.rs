@@ -20,3 +20,6 @@ pub use itoa;
 
 #[cfg(feature = "ryu")]
 pub use ryu;
+
+#[cfg(feature = "arrayvec")]
+pub use arrayvec;

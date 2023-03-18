@@ -100,6 +100,22 @@ mod sys {
         pub fn runtime_set_tick_rate(ticks_per_second: f64);
         /// Prints a log message for debugging purposes.
         pub fn runtime_print_message(text_ptr: *const u8, text_len: usize);
+        /// Stores the name of the operating system that the runtime is running
+        /// on in the buffer given. Returns `false` if the buffer is too small.
+        /// After this call, no matter whether it was successful or not, the
+        /// `buf_len_ptr` will be set to the required buffer size. The name is
+        /// guaranteed to be valid UTF-8 and is not nul-terminated.
+        /// Example values: `windows`, `linux`, `macos`
+        #[cfg(feature = "arrayvec")]
+        pub fn runtime_get_os(buf_ptr: *mut u8, buf_len_ptr: *mut usize) -> bool;
+        /// Stores the name of the architecture that the runtime is running on
+        /// in the buffer given. Returns `false` if the buffer is too small.
+        /// After this call, no matter whether it was successful or not, the
+        /// `buf_len_ptr` will be set to the required buffer size. The name is
+        /// guaranteed to be valid UTF-8 and is not nul-terminated.
+        /// Example values: `x86`, `x86_64`, `arm`, `aarch64`
+        #[cfg(feature = "arrayvec")]
+        pub fn runtime_get_arch(buf_ptr: *mut u8, buf_len_ptr: *mut usize) -> bool;
 
         /// Adds a new setting that the user can modify. This will return either
         /// the specified default value or the value that the user has set.
@@ -360,4 +376,34 @@ pub fn set_tick_rate(ticks_per_second: f64) {
 #[inline]
 pub fn print_message(text: &str) {
     unsafe { sys::runtime_print_message(text.as_ptr(), text.len()) }
+}
+
+#[inline]
+#[cfg(feature = "strings")]
+pub fn get_os() -> Result<arrayvec::ArrayString<16>, Error> {
+    let mut buf = arrayvec::ArrayString::<16>::new();
+    unsafe {
+        let mut len = buf.capacity();
+        let success = sys::runtime_get_os(buf.as_mut_ptr(), &mut len);
+        if !success {
+            return Err(Error);
+        }
+        buf.set_len(len);
+    }
+    Ok(buf)
+}
+
+#[inline]
+#[cfg(feature = "strings")]
+pub fn get_arch() -> Result<arrayvec::ArrayString<16>, Error> {
+    let mut buf = arrayvec::ArrayString::<16>::new();
+    unsafe {
+        let mut len = buf.capacity();
+        let success = sys::runtime_get_arch(buf.as_mut_ptr(), &mut len);
+        if !success {
+            return Err(Error);
+        }
+        buf.set_len(len);
+    }
+    Ok(buf)
 }
