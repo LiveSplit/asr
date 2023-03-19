@@ -4,7 +4,7 @@ use bytemuck::{bytes_of, Pod};
 
 #[derive(Copy, Clone, Default)]
 pub struct Watcher<T> {
-    pair: Option<Pair<T>>,
+    pub pair: Option<Pair<T>>,
 }
 
 impl<T> Watcher<T> {
