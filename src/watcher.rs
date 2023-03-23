@@ -9,6 +9,7 @@ pub struct Watcher<T> {
 
 // We need to impl Default manually here because the derive implmentation adds the unnecessary `T: Default` bound
 impl<T> Default for Watcher<T> {
+    #[inline]
     fn default() -> Self {
         Self { pair: None }
     }
