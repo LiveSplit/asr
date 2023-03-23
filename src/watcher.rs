@@ -2,9 +2,16 @@ use core::{mem, ops};
 
 use bytemuck::{bytes_of, Pod};
 
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone)]
 pub struct Watcher<T> {
     pub pair: Option<Pair<T>>,
+}
+
+// We need to impl Default manually here because the derive implmentation adds the unnecessary `T: Default` bound
+impl<T> Default for Watcher<T> {
+    fn default() -> Self {
+        Self { pair: None }
+    }
 }
 
 impl<T> Watcher<T> {
