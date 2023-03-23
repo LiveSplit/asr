@@ -28,17 +28,14 @@ pub fn mono_class_binding(input: TokenStream) -> TokenStream {
                 .attrs
                 .iter()
                 .find_map(|x| {
-                    let nv = match x.parse_meta().ok()? {
-                        Meta::NameValue(nv) => nv,
-                        _ => return None,
-                    };
+                    let Meta::NameValue(nv) = &x.meta else { return None };
                     if nv.path.get_ident()? != "doc" {
                         return None;
                     }
-                    let lit = match nv.lit {
-                        Lit::Str(s) => LitStr::new(s.value().trim(), s.span()),
-                        _ => return None,
-                    };
+                    let Expr::Lit(ExprLit {
+                        lit: Lit::Str(s), ..
+                    }) = &nv.value else { return None };
+                    let lit = LitStr::new(s.value().trim(), s.span());
                     Some(Expr::Lit(ExprLit {
                         attrs: Vec::new(),
                         lit: Lit::Str(lit),
@@ -57,17 +54,11 @@ pub fn mono_class_binding(input: TokenStream) -> TokenStream {
                 .attrs
                 .iter()
                 .find_map(|x| {
-                    let nv = match x.parse_meta().ok()? {
-                        Meta::NameValue(nv) => nv,
-                        _ => return None,
-                    };
-                    if nv.path.get_ident()? != "default" {
+                    let Meta::NameValue(nv) = &x.meta else { return None };
+                    if !nv.path.is_ident("default") {
                         return None;
                     }
-                    Some(Expr::Lit(ExprLit {
-                        attrs: Vec::new(),
-                        lit: nv.lit,
-                    }))
+                    Some(nv.value.clone())
                 })
                 .unwrap_or_else(|| {
                     syn::parse(quote! { ::core::default::Default::default() }.into()).unwrap()
