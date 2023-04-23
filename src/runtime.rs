@@ -9,7 +9,7 @@ pub use self::sys::Address;
 use self::sys::ProcessId;
 
 mod sys {
-    use core::num::NonZeroU64;
+    use core::num::{NonZeroU32, NonZeroU64};
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     #[repr(transparent)]
@@ -94,29 +94,19 @@ mod sys {
             name_ptr: *const u8,
             name_len: usize,
         ) -> Option<NonZeroU64>;
-        /// Gets the address of the first memory page matching a given size
-        pub fn process_get_page_address_by_size(
-            process: ProcessId,
-            size: u64,
-        ) -> Option<NonZeroAddress>;
-        /// Gets the address of the last memory page matching a given size
-        pub fn process_get_last_page_address_by_size(
-            process: ProcessId,
-            size: u64,
-        ) -> Option<NonZeroAddress>;
         /// Gets the number of memory pages in a given process
-        pub fn process_get_pages_count(
+        pub fn process_get_map_count(
             process: ProcessId,
-        ) -> Option<NonZeroU64>;
+        ) -> Option<NonZeroU32>;
         /// Gets the address of a memory page, sorted by ID
-        pub fn process_get_page_address_by_id(
+        pub fn process_get_map_address_by_id(
             process: ProcessId,
-            id: u64,
+            id: u32,
         ) -> Option<NonZeroAddress>;
         /// Gets the size of a memory page, sorted by ID
-        pub fn process_get_page_size_by_id(
+        pub fn process_get_map_size_by_id(
             process: ProcessId,
-            id: u64,
+            id: u32,
         ) -> Option<NonZeroU64>;
 
         /// Sets the tick rate of the runtime. This influences the amount of
@@ -199,33 +189,9 @@ impl Process {
     }
 
     #[inline]
-    pub fn get_page_address_by_size(&self, size: u64) -> Result<Address, Error> {
+    pub fn get_map_count(&self) -> Result<u32, Error> {
         unsafe {
-            let address = sys::process_get_page_address_by_size(self.0, size);
-            if let Some(address) = address {
-                Ok(Address(address.0.get()))
-            } else {
-                Err(Error)
-            }
-        }
-    }
-
-    #[inline]
-    pub fn get_last_page_address_by_size(&self, size: u64) -> Result<Address, Error> {
-        unsafe {
-            let address = sys::process_get_last_page_address_by_size(self.0, size);
-            if let Some(address) = address {
-                Ok(Address(address.0.get()))
-            } else {
-                Err(Error)
-            }
-        }
-    }
-
-    #[inline]
-    pub fn get_pages_count(&self) -> Result<u64, Error> {
-        unsafe {
-            let count = sys::process_get_pages_count(self.0);
+            let count = sys::process_get_map_count(self.0);
             if let Some(count) = count {
                 Ok(count.get())
             } else {
@@ -235,9 +201,9 @@ impl Process {
     }
 
     #[inline]
-    pub fn get_page_address_by_id(&self, id: u64) -> Result<Address, Error> {
+    pub fn get_map_address_by_id(&self, id: u32) -> Result<Address, Error> {
         unsafe {
-            let address = sys::process_get_page_address_by_id(self.0, id);
+            let address = sys::process_get_map_address_by_id(self.0, id);
             if let Some(address) = address {
                 Ok(Address(address.0.get()))
             } else {
@@ -247,9 +213,9 @@ impl Process {
     }
 
     #[inline]
-    pub fn get_page_size_by_id(&self, id: u64) -> Result<u64, Error> {
+    pub fn get_map_size_by_id(&self, id: u32) -> Result<u64, Error> {
         unsafe {
-            let size = sys::process_get_page_size_by_id(self.0, id);
+            let size = sys::process_get_map_size_by_id(self.0, id);
             if let Some(size) = size {
                 Ok(size.get())
             } else {
