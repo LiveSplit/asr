@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 arrayvec = { version = "0.7.2", default-features = false, optional = true }
 asr-derive = { path = "asr-derive", optional = true }
+bitflags = { version = "2.2.1", optional = true }
 bytemuck = { version = "1.9.1", features = ["derive", "min_const_generics"] }
 itoa = { version = "1.0.1", default-features = false, optional = true }
 memchr = { version = "2.5.0", default-features = false, optional = true }
@@ -18,6 +19,7 @@ time = { version = "0.3.5", default-features = false }
 integer-vars = ["itoa"]
 float-vars = ["ryu"]
 float-vars-small = ["float-vars", "ryu/small"]
+flags = ["bitflags"]
 strings = ["arrayvec"]
 gba = []
 signature = ["memchr"]
