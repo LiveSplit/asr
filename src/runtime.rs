@@ -8,6 +8,21 @@ use core::{
 pub use self::sys::Address;
 use self::sys::ProcessId;
 
+#[cfg(feature = "flags")]
+bitflags::bitflags! {
+    #[derive(Clone, Copy, Debug, Default)]
+    pub struct MemoryRangeFlags: u64 {
+        /// The memory range is readable.
+        const READ = 1 << 1;
+        /// The memory range is writable.
+        const WRITE = 1 << 2;
+        /// The memory range is executable.
+        const EXECUTE = 1 << 3;
+        /// The memory range has a file path.
+        const PATH = 1 << 4;
+    }
+}
+
 mod sys {
     use core::num::NonZeroU64;
 
@@ -82,6 +97,7 @@ mod sys {
             buf_ptr: *mut u8,
             buf_len: usize,
         ) -> bool;
+
         /// Gets the address of a module in a process.
         pub fn process_get_module_address(
             process: ProcessId,
@@ -94,6 +110,19 @@ mod sys {
             name_ptr: *const u8,
             name_len: usize,
         ) -> Option<NonZeroU64>;
+
+        /// Gets the number of memory ranges in a given process.
+        pub fn process_get_memory_range_count(process: ProcessId) -> Option<NonZeroU64>;
+        /// Gets the start address of a memory range by its index.
+        pub fn process_get_memory_range_address(
+            process: ProcessId,
+            idx: u64,
+        ) -> Option<NonZeroAddress>;
+        /// Gets the size of a memory range by its index.
+        pub fn process_get_memory_range_size(process: ProcessId, idx: u64) -> Option<NonZeroU64>;
+        /// Gets the flags of a memory range by its index.
+        #[cfg(feature = "flags")]
+        pub fn process_get_memory_range_flags(process: ProcessId, idx: u64) -> Option<NonZeroU64>;
 
         /// Sets the tick rate of the runtime. This influences the amount of
         /// times the `update` function is called per second.
@@ -175,6 +204,12 @@ impl Process {
     }
 
     #[inline]
+    pub fn memory_ranges(&self) -> impl DoubleEndedIterator<Item = MemoryRange<'_>> {
+        let count = unsafe { sys::process_get_memory_range_count(self.0).map_or(0, |c| c.get()) };
+        (0..count).map(|i| MemoryRange(self, i))
+    }
+
+    #[inline]
     pub fn read_into_buf(&self, address: Address, buf: &mut [u8]) -> Result<(), Error> {
         unsafe {
             if sys::process_read(self.0, address, buf.as_mut_ptr(), buf.len()) {
@@ -238,6 +273,47 @@ impl Process {
     #[inline]
     pub fn is_open(&self) -> bool {
         unsafe { sys::process_is_open(self.0) }
+    }
+}
+
+pub struct MemoryRange<'a>(&'a Process, u64);
+
+impl MemoryRange<'_> {
+    #[inline]
+    pub fn address(&self) -> Result<Address, Error> {
+        unsafe {
+            let address = sys::process_get_memory_range_address(self.0 .0, self.1);
+            if let Some(address) = address {
+                Ok(Address(address.0.get()))
+            } else {
+                Err(Error)
+            }
+        }
+    }
+
+    #[inline]
+    pub fn size(&self) -> Result<u64, Error> {
+        unsafe {
+            let size = sys::process_get_memory_range_size(self.0 .0, self.1);
+            if let Some(size) = size {
+                Ok(size.get())
+            } else {
+                Err(Error)
+            }
+        }
+    }
+
+    #[cfg(feature = "flags")]
+    #[inline]
+    pub fn flags(&self) -> Result<MemoryRangeFlags, Error> {
+        unsafe {
+            let flags = sys::process_get_memory_range_flags(self.0 .0, self.1);
+            if let Some(flags) = flags {
+                Ok(MemoryRangeFlags::from_bits_truncate(flags.get()))
+            } else {
+                Err(Error)
+            }
+        }
     }
 }
 
