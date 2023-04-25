@@ -242,7 +242,7 @@ fn matches<const N: usize>(scan: &[u8; N], needle: &[u8; N], mask: &[u8; N]) -> 
             needle = needle.add(2);
             i += 2;
         }
-        while i + 1 <= N {
+        while i < N {
             if *scan & *mask != *needle {
                 return false;
             }

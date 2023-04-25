@@ -7,7 +7,8 @@ pub struct Watcher<T> {
     pub pair: Option<Pair<T>>,
 }
 
-// We need to impl Default manually here because the derive implmentation adds the unnecessary `T: Default` bound
+// We need to impl Default manually here because the derive implementation adds
+// the unnecessary `T: Default` bound
 impl<T> Default for Watcher<T> {
     #[inline]
     fn default() -> Self {
@@ -41,7 +42,7 @@ impl<T: Copy> Watcher<T> {
     }
 
     pub fn update_infallible(&mut self, value: T) -> &Pair<T> {
-        let pair = self.pair.get_or_insert_with(|| Pair {
+        let pair = self.pair.get_or_insert(Pair {
             old: value,
             current: value,
         });
