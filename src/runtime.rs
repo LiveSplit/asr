@@ -1,4 +1,4 @@
-use bytemuck::Pod;
+use bytemuck::{AnyBitPattern, CheckedBitPattern};
 use core::{
     mem::{self, MaybeUninit},
     ops::Add,
@@ -206,13 +206,17 @@ impl Process {
     #[inline]
     pub fn memory_ranges(&self) -> impl DoubleEndedIterator<Item = MemoryRange<'_>> {
         let count = unsafe { sys::process_get_memory_range_count(self.0).map_or(0, |c| c.get()) };
-        (0..count).map(|i| MemoryRange(self, i))
+        (0..count).map(|index| MemoryRange {
+            process: self,
+            index,
+        })
     }
 
     #[inline]
     pub fn read_into_buf(&self, address: Address, buf: &mut [u8]) -> Result<(), Error> {
         unsafe {
-            if sys::process_read(self.0, address, buf.as_mut_ptr(), buf.len()) {
+            let buf_len = buf.len();
+            if sys::process_read(self.0, address, buf.as_mut_ptr(), buf_len) {
                 Ok(())
             } else {
                 Err(Error)
@@ -227,11 +231,9 @@ impl Process {
         buf: &'buf mut [MaybeUninit<u8>],
     ) -> Result<&'buf mut [u8], Error> {
         unsafe {
-            if sys::process_read(self.0, address, buf.as_mut_ptr().cast(), buf.len()) {
-                Ok(slice::from_raw_parts_mut(
-                    buf.as_mut_ptr().cast(),
-                    buf.len(),
-                ))
+            let buf_len = buf.len();
+            if sys::process_read(self.0, address, buf.as_mut_ptr().cast(), buf_len) {
+                Ok(slice::from_raw_parts_mut(buf.as_mut_ptr().cast(), buf_len))
             } else {
                 Err(Error)
             }
@@ -239,18 +241,25 @@ impl Process {
     }
 
     #[inline]
-    pub fn read<T: Pod>(&self, address: Address) -> Result<T, Error> {
+    pub fn read<T: CheckedBitPattern>(&self, address: Address) -> Result<T, Error> {
         unsafe {
             let mut value = MaybeUninit::<T>::uninit();
             self.read_into_uninit_buf(
                 address,
                 slice::from_raw_parts_mut(value.as_mut_ptr().cast(), mem::size_of::<T>()),
             )?;
+            if !T::is_valid_bit_pattern(&*value.as_ptr().cast::<T::Bits>()) {
+                return Err(Error);
+            }
             Ok(value.assume_init())
         }
     }
 
-    pub fn read_pointer_path64<T: Pod>(&self, mut address: u64, path: &[u64]) -> Result<T, Error> {
+    pub fn read_pointer_path64<T: CheckedBitPattern>(
+        &self,
+        mut address: u64,
+        path: &[u64],
+    ) -> Result<T, Error> {
         let (&last, path) = path.split_last().ok_or(Error)?;
         for &offset in path {
             address = self.read(Address(address.wrapping_add(offset)))?;
@@ -258,7 +267,11 @@ impl Process {
         self.read(Address(address.wrapping_add(last)))
     }
 
-    pub fn read_pointer_path32<T: Pod>(&self, mut address: u32, path: &[u32]) -> Result<T, Error> {
+    pub fn read_pointer_path32<T: CheckedBitPattern>(
+        &self,
+        mut address: u32,
+        path: &[u32],
+    ) -> Result<T, Error> {
         let (&last, path) = path.split_last().ok_or(Error)?;
         for &offset in path {
             address = self.read(Address(address.wrapping_add(offset) as u64))?;
@@ -266,8 +279,21 @@ impl Process {
         self.read(Address(address.wrapping_add(last) as u64))
     }
 
-    pub fn read_into_slice<T: Pod>(&self, address: Address, slice: &mut [T]) -> Result<(), Error> {
-        self.read_into_buf(address, bytemuck::cast_slice_mut(slice))
+    // We can't do CheckedBitPattern here because if the read itself succeeds,
+    // but the validity check doesn't, we can't undo our changes to the slice.
+    pub fn read_into_slice<T: AnyBitPattern>(
+        &self,
+        address: Address,
+        slice: &mut [T],
+    ) -> Result<(), Error> {
+        unsafe {
+            let len = mem::size_of_val(slice);
+            self.read_into_uninit_buf(
+                address,
+                slice::from_raw_parts_mut(slice.as_mut_ptr().cast(), len),
+            )?;
+            Ok(())
+        }
     }
 
     #[inline]
@@ -276,13 +302,17 @@ impl Process {
     }
 }
 
-pub struct MemoryRange<'a>(&'a Process, u64);
+#[derive(Copy, Clone)]
+pub struct MemoryRange<'a> {
+    process: &'a Process,
+    index: u64,
+}
 
 impl MemoryRange<'_> {
     #[inline]
     pub fn address(&self) -> Result<Address, Error> {
         unsafe {
-            let address = sys::process_get_memory_range_address(self.0 .0, self.1);
+            let address = sys::process_get_memory_range_address(self.process.0, self.index);
             if let Some(address) = address {
                 Ok(Address(address.0.get()))
             } else {
@@ -294,7 +324,7 @@ impl MemoryRange<'_> {
     #[inline]
     pub fn size(&self) -> Result<u64, Error> {
         unsafe {
-            let size = sys::process_get_memory_range_size(self.0 .0, self.1);
+            let size = sys::process_get_memory_range_size(self.process.0, self.index);
             if let Some(size) = size {
                 Ok(size.get())
             } else {
@@ -307,7 +337,7 @@ impl MemoryRange<'_> {
     #[inline]
     pub fn flags(&self) -> Result<MemoryRangeFlags, Error> {
         unsafe {
-            let flags = sys::process_get_memory_range_flags(self.0 .0, self.1);
+            let flags = sys::process_get_memory_range_flags(self.process.0, self.index);
             if let Some(flags) = flags {
                 Ok(MemoryRangeFlags::from_bits_truncate(flags.get()))
             } else {
@@ -455,7 +485,7 @@ pub fn print_message(text: &str) {
 }
 
 #[inline]
-#[cfg(feature = "strings")]
+#[cfg(feature = "arrayvec")]
 pub fn get_os() -> Result<arrayvec::ArrayString<16>, Error> {
     let mut buf = arrayvec::ArrayString::<16>::new();
     unsafe {
@@ -470,7 +500,7 @@ pub fn get_os() -> Result<arrayvec::ArrayString<16>, Error> {
 }
 
 #[inline]
-#[cfg(feature = "strings")]
+#[cfg(feature = "arrayvec")]
 pub fn get_arch() -> Result<arrayvec::ArrayString<16>, Error> {
     let mut buf = arrayvec::ArrayString::<16>::new();
     unsafe {
@@ -482,4 +512,12 @@ pub fn get_arch() -> Result<arrayvec::ArrayString<16>, Error> {
         buf.set_len(len);
     }
     Ok(buf)
+}
+
+#[inline(never)]
+#[cfg(feature = "arrayvec")]
+pub fn print_limited<const N: usize>(message: &dyn core::fmt::Display) {
+    let mut buf = arrayvec::ArrayString::<N>::new();
+    let _ = core::fmt::Write::write_fmt(&mut buf, format_args!("{message}"));
+    print_message(&buf);
 }
