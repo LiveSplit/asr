@@ -1,7 +1,10 @@
-use bytemuck::Pod;
+//! Support for attaching to Game Boy Advance emulators.
+
+use bytemuck::CheckedBitPattern;
 
 use crate::{runtime, Address, Process};
 
+/// A Game Boy Advance emulator that the auto splitter is attached to.
 pub struct Emulator {
     process: Process,
     ewram: u64,
@@ -9,20 +12,25 @@ pub struct Emulator {
 }
 
 impl Emulator {
+    /// Attaches to a Game Boy Advance emulator. Currently only certain versions
+    /// of mGBA and Visual Boy Advance on Windows are supported.
     pub fn attach() -> Option<Self> {
         look_for_mgba().or_else(look_for_vba)
     }
 
+    /// Checks whether the emulator is still open. If it is not open anymore, you
+    /// should drop the emulator.
     pub fn is_open(&self) -> bool {
         self.process.is_open()
     }
 
-    pub fn read<T: Pod>(&self, address: u32) -> Result<T, runtime::Error> {
+    /// Reads a value from the emulator's memory.
+    pub fn read<T: CheckedBitPattern>(&self, address: u32) -> Result<T, runtime::Error> {
         let memory_section = address >> 24;
         let ram_addr = match memory_section {
             2 => self.ewram,
             3 => self.iwram,
-            _ => return Err(runtime::Error),
+            _ => return Err(runtime::Error {}),
         };
         let addr = ram_addr + (address & 0xFF_FF_FF) as u64;
         self.process.read(Address(addr))

@@ -2,6 +2,24 @@
 
 Helper crate to write auto splitters for LiveSplit One's auto splitting runtime.
 
+## Example
+
+```rust
+#[no_mangle]
+pub extern "C" fn update() {
+    if let Some(process) = Process::attach("Notepad.exe") {
+        asr::print_message("Hello World!");
+        if let Ok(address) = process.get_module_address("Notepad.exe") {
+            if let Ok(value) = process.read::<u32>(address) {
+                if value > 0 {
+                    asr::timer::start();
+                }
+            }
+        }
+    }
+}
+```
+
 ## License
 
 Licensed under either of

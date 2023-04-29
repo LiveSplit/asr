@@ -3,8 +3,31 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{Data, DeriveInput, Expr, ExprLit, Lit, LitStr, Meta};
 
+/// Generates a `register` method for a struct that automatically registers its
+/// fields as settings and returns the struct with the user's settings applied.
+///
+/// # Example
+///
+/// ```no_run
+/// #[derive(Settings)]
+/// struct MySettings {
+///     /// Use Game Time
+///     use_game_time: bool,
+/// }
+/// ```
+///
+/// This will generate the following code:
+///
+/// ```no_run
+/// impl MySettings {
+///    fn register() -> Self {
+///       let use_game_time = asr::Setting::register("use_game_time", "Use Game Time", false);
+///       Self { use_game_time }
+///    }
+/// }
+/// ```
 #[proc_macro_derive(Settings, attributes(default))]
-pub fn mono_class_binding(input: TokenStream) -> TokenStream {
+pub fn settings_macro(input: TokenStream) -> TokenStream {
     let ast: DeriveInput = syn::parse(input).unwrap();
 
     let struct_data = match ast.data {
