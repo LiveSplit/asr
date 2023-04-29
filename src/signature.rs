@@ -1,3 +1,5 @@
+//! Support for finding patterns in a process's memory.
+
 use core::mem::{self, MaybeUninit};
 
 use bytemuck::AnyBitPattern;
@@ -6,13 +8,23 @@ use crate::{Address, Process};
 
 type Offset = u8;
 
+/// A signature that can be used to find a pattern in a process. It is
+/// recommended to store this in a `static` or `const` variable to ensure that
+/// the signature is parsed at compile time, which enables the code to be
+/// optimized a lot more. Additionally it is recommend to compile the code with
+/// the `simd128` target feature to enable the use of SIMD instructions.
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum Signature<const N: usize> {
+    /// A simple signature that does not contain any wildcards.
     Simple([u8; N]),
+    /// A complex signature that contains wildcards.
     Complex {
+        /// The signature itself.
         needle: [u8; N],
+        /// The mask that indicates which bytes are wildcards.
         mask: [u8; N],
+        /// A lookup table of offsets to jump forward by when certain bytes are encountered.
         skip_offsets: [Offset; 256],
     },
 }
@@ -55,6 +67,22 @@ const fn contains(mut bytes: &[u8], search_byte: u8) -> bool {
 }
 
 impl<const N: usize> Signature<N> {
+    /// Creates a new signature from a string. The string must be a hexadecimal
+    /// string with `?` as wildcard. It is recommended to store this in a
+    /// `static` or `const` variable to ensure that the signature is parsed at
+    /// compile time, which enables the code to be optimized a lot more.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if the signature is invalid. It also panics if the
+    /// signature is longer than 255 bytes.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use asr::signature::Signature;
+    /// static SIG: Signature<8> = Signature::new("3A 45 FF ?? ?? B? 00 12");
+    /// ```
     pub const fn new(signature: &str) -> Self {
         // We only support u8 offsets atm and thus signatures can't be 256 bytes
         // or longer.
@@ -158,6 +186,9 @@ impl<const N: usize> Signature<N> {
         }
     }
 
+    /// Scans a process for the signature. This will scan the address range of
+    /// the process given. If the signature is found, the address of the start
+    /// of the signature is returned.
     pub fn scan_process_range(
         &self,
         process: &Process,
@@ -188,6 +219,9 @@ impl<const N: usize> Signature<N> {
 }
 
 fn matches<const N: usize>(scan: &[u8; N], needle: &[u8; N], mask: &[u8; N]) -> bool {
+    // SAFETY: Before reading individual chunks from the arrays, we check that
+    // we can still read values of that size. We also read them unaligned as the
+    // original arrays are entirely unaligned.
     unsafe {
         let mut i = 0;
         let (mut scan, mut needle, mut mask) = (scan.as_ptr(), needle.as_ptr(), mask.as_ptr());
