@@ -174,3 +174,73 @@ pub mod little_endian {
     define_float!(#[doc = "little endian 32-bit"] F32 => f32, to_le_bytes, from_le_bytes);
     define_float!(#[doc = "little endian 64-bit"] F64 => f64, to_le_bytes, from_le_bytes);
 }
+
+/// Support for converting from big or little endian dynamically.
+pub mod dynamic_endian {
+    /// The endianness of a value.
+    #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+    pub enum Endian {
+        /// Big endian.
+        Big,
+        /// Little endian.
+        Little,
+    }
+
+    use core::array;
+
+    #[cfg(feature = "derive")]
+    pub use asr_derive::FromEndian;
+
+    /// A trait for converting from big or little endian.
+    #[allow(clippy::wrong_self_convention)]
+    pub trait FromEndian: Sized {
+        /// Converts the value from big endian.
+        fn from_be(&self) -> Self;
+        /// Converts the value from little endian.
+        fn from_le(&self) -> Self;
+        /// Converts the value from the given endian.
+        fn from_endian(&self, endian: Endian) -> Self {
+            match endian {
+                Endian::Big => self.from_be(),
+                Endian::Little => self.from_le(),
+            }
+        }
+    }
+
+    macro_rules! define {
+        ($name:ident) => {
+            impl FromEndian for $name {
+                fn from_be(&self) -> Self {
+                    $name::from_be_bytes(bytemuck::cast(*self))
+                }
+                fn from_le(&self) -> Self {
+                    $name::from_le_bytes(bytemuck::cast(*self))
+                }
+            }
+        };
+    }
+
+    define!(u8);
+    define!(u16);
+    define!(u32);
+    define!(u64);
+    define!(u128);
+    define!(i8);
+    define!(i16);
+    define!(i32);
+    define!(i64);
+    define!(i128);
+    define!(f32);
+    define!(f64);
+
+    impl<T: FromEndian, const N: usize> FromEndian for [T; N] {
+        fn from_be(&self) -> Self {
+            let mut iter = self.iter();
+            array::from_fn(|_| iter.next().unwrap().from_be())
+        }
+        fn from_le(&self) -> Self {
+            let mut iter = self.iter();
+            array::from_fn(|_| iter.next().unwrap().from_le())
+        }
+    }
+}
