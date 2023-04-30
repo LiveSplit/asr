@@ -31,6 +31,7 @@
 //! }
 //! ```
 
+pub mod primitives;
 mod runtime;
 #[cfg(feature = "signature")]
 pub mod signature;
