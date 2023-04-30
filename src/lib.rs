@@ -36,6 +36,7 @@ mod runtime;
 #[cfg(feature = "signature")]
 pub mod signature;
 pub mod string;
+pub mod sync;
 pub mod time_util;
 pub mod watcher;
 
