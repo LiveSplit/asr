@@ -20,7 +20,7 @@ use syn::{Data, DeriveInput, Expr, ExprLit, Lit, LitStr, Meta};
 ///
 /// ```no_run
 /// impl MySettings {
-///    fn register() -> Self {
+///    pub fn register() -> Self {
 ///       let use_game_time = asr::Setting::register("use_game_time", "Use Game Time", false);
 ///       Self { use_game_time }
 ///    }
@@ -94,6 +94,74 @@ pub fn settings_macro(input: TokenStream) -> TokenStream {
             pub fn register() -> Self {
                 Self {
                     #(#field_names: asr::Setting::register(#field_name_strings, #field_descs, #field_defaults),)*
+                }
+            }
+        }
+    }
+    .into()
+}
+
+/// Generates an implementation of the `FromEndian` trait for a struct. This
+/// allows converting values from a given endianness to the host's endianness.
+///
+/// # Example
+///
+/// ```no_run
+/// #[derive(FromEndian)]
+/// struct MyStruct {
+///     a: u32,
+///     b: u16,
+/// }
+/// ```
+///
+/// This will generate the following code:
+///
+/// ```no_run
+/// impl FromEndian for MyStruct {
+///     fn from_be(&self) -> Self {
+///         Self {
+///             a: self.a.from_be(),
+///             b: self.b.from_be(),
+///         }
+///     }
+///     fn from_le(&self) -> Self {
+///         Self {
+///             a: self.a.from_le(),
+///             b: self.b.from_le(),
+///         }
+///     }
+/// }
+/// ```
+#[proc_macro_derive(FromEndian)]
+pub fn from_endian_macro(input: TokenStream) -> TokenStream {
+    let ast: DeriveInput = syn::parse(input).unwrap();
+
+    let struct_data = match ast.data {
+        Data::Struct(s) => s,
+        _ => panic!("Only structs are supported"),
+    };
+
+    let struct_name = ast.ident;
+
+    let mut field_names = Vec::new();
+    for field in struct_data.fields {
+        field_names.push(field.ident);
+    }
+
+    quote! {
+        impl asr::primitives::dynamic_endian::FromEndian for #struct_name {
+            fn from_be(&self) -> Self {
+                Self {
+                    #(#field_names: asr::primitives::dynamic_endian::FromEndian::from_be(
+                        &self.#field_names,
+                    ),)*
+                }
+            }
+            fn from_le(&self) -> Self {
+                Self {
+                    #(#field_names: asr::primitives::dynamic_endian::FromEndian::from_le(
+                        &self.#field_names,
+                    ),)*
                 }
             }
         }
