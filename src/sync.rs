@@ -32,6 +32,7 @@ pub struct TryLockError<T> {
 
 impl<T> Mutex<T> {
     /// Creates a new mutex in an unlocked state ready for use.
+    #[inline]
     pub const fn new(value: T) -> Self {
         Self(RefCell::new(value))
     }
@@ -39,6 +40,8 @@ impl<T> Mutex<T> {
 
 impl<T: ?Sized> Mutex<T> {
     /// Acquires a mutex, panics if it is unable to do so.
+    #[track_caller]
+    #[inline]
     pub fn lock(&self) -> MutexGuard<'_, T> {
         MutexGuard(self.0.borrow_mut())
     }
@@ -50,6 +53,7 @@ impl<T: ?Sized> Mutex<T> {
     /// guard is dropped.
     //
     /// This function does not block.
+    #[inline]
     pub fn try_lock(&self) -> TryLockResult<MutexGuard<'_, T>> {
         Ok(MutexGuard(self.0.try_borrow_mut().map_err(|_| {
             TryLockError {
@@ -59,6 +63,7 @@ impl<T: ?Sized> Mutex<T> {
     }
 
     /// Consumes this mutex, returning the underlying data.
+    #[inline]
     pub fn into_inner(self) -> T
     where
         T: Sized,
@@ -67,6 +72,7 @@ impl<T: ?Sized> Mutex<T> {
     }
 
     /// Returns a mutable reference to the underlying data.
+    #[inline]
     pub fn get_mut(&mut self) -> &mut T {
         self.0.get_mut()
     }
@@ -75,12 +81,14 @@ impl<T: ?Sized> Mutex<T> {
 impl<T: ?Sized> Deref for MutexGuard<'_, T> {
     type Target = T;
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
 impl<T: ?Sized> DerefMut for MutexGuard<'_, T> {
+    #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
