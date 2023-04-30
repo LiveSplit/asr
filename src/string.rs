@@ -1,11 +1,11 @@
-//! Support for string types that can be read from a Process's memory.
+//! Support for string types that can be read from a process's memory.
 
 use core::{ops, str};
 
 use bytemuck::{Pod, Zeroable};
 
 /// A nul-terminated string that is stored in an array of a fixed size `N`. This
-/// can be read from a Process's memory.
+/// can be read from a process's memory.
 #[derive(Copy, Clone)]
 #[repr(transparent)]
 pub struct ArrayCString<const N: usize>([u8; N]);
