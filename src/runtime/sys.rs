@@ -108,7 +108,6 @@ extern "C" {
     /// `buf_len_ptr` will be set to the required buffer size. The name is
     /// guaranteed to be valid UTF-8 and is not nul-terminated.
     /// Example values: `windows`, `linux`, `macos`
-    #[cfg(feature = "arrayvec")]
     pub fn runtime_get_os(buf_ptr: *mut u8, buf_len_ptr: *mut usize) -> bool;
     /// Stores the name of the architecture that the runtime is running on
     /// in the buffer given. Returns `false` if the buffer is too small.
@@ -116,7 +115,6 @@ extern "C" {
     /// `buf_len_ptr` will be set to the required buffer size. The name is
     /// guaranteed to be valid UTF-8 and is not nul-terminated.
     /// Example values: `x86`, `x86_64`, `arm`, `aarch64`
-    #[cfg(feature = "arrayvec")]
     pub fn runtime_get_arch(buf_ptr: *mut u8, buf_len_ptr: *mut usize) -> bool;
 
     /// Adds a new setting that the user can modify. This will return either

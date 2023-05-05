@@ -55,7 +55,6 @@ pub fn print_message(text: &str) {
 /// asr::print_limited::<128>(&format_args!("Hello, {}!", "world"));
 /// ```
 #[inline(never)]
-#[cfg(feature = "arrayvec")]
 pub fn print_limited<const CAP: usize>(message: &dyn core::fmt::Display) {
     let mut buf = arrayvec::ArrayString::<CAP>::new();
     let _ = core::fmt::Write::write_fmt(&mut buf, format_args!("{message}"));
@@ -68,7 +67,6 @@ pub fn print_limited<const CAP: usize>(message: &dyn core::fmt::Display) {
 ///
 /// Example values: `windows`, `linux`, `macos`
 #[inline]
-#[cfg(feature = "arrayvec")]
 pub fn get_os() -> Result<arrayvec::ArrayString<16>, Error> {
     let mut buf = arrayvec::ArrayString::<16>::new();
     // SAFETY: We provide a valid pointer and length to the buffer. We check
@@ -93,7 +91,6 @@ pub fn get_os() -> Result<arrayvec::ArrayString<16>, Error> {
 ///
 /// Example values: `x86`, `x86_64`, `arm`, `aarch64`
 #[inline]
-#[cfg(feature = "arrayvec")]
 pub fn get_arch() -> Result<arrayvec::ArrayString<16>, Error> {
     let mut buf = arrayvec::ArrayString::<16>::new();
     // SAFETY: We provide a valid pointer and length to the buffer. We check
