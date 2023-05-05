@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-arrayvec = { version = "0.7.2", default-features = false, optional = true }
+arrayvec = { version = "0.7.2", default-features = false }
 asr-derive = { path = "asr-derive", optional = true }
 bitflags = { version = "2.2.1", optional = true }
 bytemuck = { version = "1.13.1", features = ["derive", "min_const_generics"] }
@@ -20,7 +20,6 @@ integer-vars = ["itoa"]
 float-vars = ["ryu"]
 float-vars-small = ["float-vars", "ryu/small"]
 flags = ["bitflags"]
-strings = ["arrayvec"]
 gba = []
 signature = ["memchr"]
 derive = ["asr-derive"]

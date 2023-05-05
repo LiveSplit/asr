@@ -44,6 +44,7 @@ pub mod watcher;
 pub mod gba;
 
 pub use self::runtime::*;
+pub use arrayvec;
 pub use time;
 
 #[cfg(feature = "derive")]
@@ -55,5 +56,5 @@ pub use itoa;
 #[cfg(feature = "ryu")]
 pub use ryu;
 
-#[cfg(feature = "arrayvec")]
-pub use arrayvec;
+#[macro_use]
+mod panic;
