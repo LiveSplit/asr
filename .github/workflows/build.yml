@@ -36,9 +36,17 @@ jobs:
         if: matrix.install_target != ''
         run: rustup target add ${{ matrix.target }}
 
-      - name: Build
+      - name: Build (No Default Features)
+        run: |
+          cargo build --no-default-features --target ${{ matrix.target }}
+
+      - name: Build (Default Features)
         run: |
           cargo build --target ${{ matrix.target }}
+
+      - name: Build (All Features)
+        run: |
+          cargo build --all-features --target ${{ matrix.target }}
 
   clippy:
     name: Check clippy lints
