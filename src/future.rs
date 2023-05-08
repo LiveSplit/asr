@@ -264,8 +264,10 @@ impl<F: Future<Output = ()>> Future for UntilProcessCloses<'_, F> {
 #[macro_export]
 macro_rules! async_main {
     (nightly) => {
+        /// # Safety
+        /// Invoking this function yourself causes Undefined Behavior.
         #[no_mangle]
-        pub extern "C" fn update() {
+        pub unsafe extern "C" fn update() {
             use core::{
                 future::Future,
                 pin::Pin,
@@ -280,6 +282,11 @@ macro_rules! async_main {
                 }
             }
             static mut STATE: MainFuture = main_type();
+            static mut FINISHED: bool = false;
+
+            if unsafe { FINISHED } {
+                return;
+            }
 
             static VTABLE: RawWakerVTable = RawWakerVTable::new(
                 |_| RawWaker::new(ptr::null(), &VTABLE),
@@ -290,12 +297,17 @@ macro_rules! async_main {
             let raw_waker = RawWaker::new(ptr::null(), &VTABLE);
             let waker = unsafe { Waker::from_raw(raw_waker) };
             let mut cx = Context::from_waker(&waker);
-            let _ = unsafe { Pin::new_unchecked(&mut STATE).poll(&mut cx) };
+            unsafe {
+                FINISHED = Pin::new_unchecked(&mut STATE).poll(&mut cx).is_ready();
+            }
         }
     };
     (stable) => {
+        /// # Safety
+        /// Invoking this function yourself causes Undefined Behavior.
         #[no_mangle]
-        pub extern "C" fn update() {
+        #[cfg(target_family = "wasm")]
+        pub unsafe extern "C" fn update() {
             use core::{
                 future::Future,
                 mem::{self, ManuallyDrop},
@@ -305,6 +317,11 @@ macro_rules! async_main {
             };
 
             static mut STATE: Option<Pin<&'static mut dyn Future<Output = ()>>> = None;
+            static mut FINISHED: bool = false;
+
+            if unsafe { FINISHED } {
+                return;
+            }
 
             static VTABLE: RawWakerVTable = RawWakerVTable::new(
                 |_| RawWaker::new(ptr::null(), &VTABLE),
@@ -315,8 +332,8 @@ macro_rules! async_main {
             let raw_waker = RawWaker::new(ptr::null(), &VTABLE);
             let waker = unsafe { Waker::from_raw(raw_waker) };
             let mut cx = Context::from_waker(&waker);
-            let _ = unsafe {
-                Pin::new_unchecked(STATE.get_or_insert_with(|| {
+            unsafe {
+                FINISHED = Pin::new_unchecked(STATE.get_or_insert_with(|| {
                     fn allocate<F: Future<Output = ()> + 'static>(
                         f: ManuallyDrop<F>,
                     ) -> Pin<&'static mut dyn Future<Output = ()>> {
@@ -345,6 +362,7 @@ macro_rules! async_main {
                     allocate(ManuallyDrop::new(main()))
                 }))
                 .poll(&mut cx)
+                .is_ready();
             };
         }
     };
