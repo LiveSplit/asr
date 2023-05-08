@@ -18,8 +18,8 @@ impl Emulator {
         look_for_mgba().or_else(look_for_vba)
     }
 
-    /// Checks whether the emulator is still open. If it is not open anymore, you
-    /// should drop the emulator.
+    /// Checks whether the emulator is still open. If it is not open anymore,
+    /// you should drop the emulator.
     pub fn is_open(&self) -> bool {
         self.process.is_open()
     }
