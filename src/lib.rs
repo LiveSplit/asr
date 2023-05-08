@@ -69,7 +69,10 @@
 //! So if you wanted to attach to a Process you could for example write:
 //!
 //! ```no_run
+//! # use asr::{Process, future::retry};
+//! # async fn example() {
 //! let process = retry(|| Process::attach("MyGame.exe")).await;
+//! # }
 //! ```
 //!
 //! This will try to attach to the process every tick until it succeeds. This
@@ -78,9 +81,12 @@
 //! could for example write:
 //!
 //! ```no_run
+//! # use asr::{Process, future::retry};
+//! # async fn example() {
 //! let process = retry(|| {
 //!    ["a.exe", "b.exe"].into_iter().find_map(Process::attach)
 //! }).await;
+//! # }
 //! ```
 //!
 //! ## Example
@@ -89,19 +95,19 @@
 //! [`async_main`] macro:
 //!
 //! Usage on stable Rust:
-//! ```no_run
+//! ```ignore
 //! async_main!(stable);
 //! ```
 //!
 //! Usage on nightly Rust:
-//! ```no_run
+//! ```ignore
 //! #![feature(type_alias_impl_trait, const_async_blocks)]
 //!
 //! async_main!(nightly);
 //! ```
 //!
 //! The asynchronous main function itself:
-//! ```no_run
+//! ```ignore
 //! async fn main() {
 //!     // TODO: Set up some general state and settings.
 //!     loop {
