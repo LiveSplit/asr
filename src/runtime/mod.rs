@@ -1,6 +1,5 @@
 pub use memory_range::*;
 pub use process::Process;
-pub use sys::Address;
 
 mod memory_range;
 mod process;

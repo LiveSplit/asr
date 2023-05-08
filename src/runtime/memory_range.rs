@@ -1,4 +1,6 @@
-use super::{sys, Address, Error, Process};
+use crate::Address;
+
+use super::{sys, Error, Process};
 
 #[cfg(feature = "flags")]
 bitflags::bitflags! {
@@ -32,7 +34,7 @@ impl MemoryRange<'_> {
         unsafe {
             let address = sys::process_get_memory_range_address(self.process.0, self.index);
             if let Some(address) = address {
-                Ok(Address(address.0.get()))
+                Ok(Address::new(address.0.get()))
             } else {
                 Err(Error {})
             }

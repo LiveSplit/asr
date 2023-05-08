@@ -1,9 +1,6 @@
-use core::{num::NonZeroU64, ops::Add};
+use core::num::NonZeroU64;
 
-/// An address in the process' memory.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[repr(transparent)]
-pub struct Address(pub u64);
+use crate::Address;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(transparent)]
@@ -126,32 +123,4 @@ extern "C" {
         description_len: usize,
         default_value: bool,
     ) -> bool;
-}
-
-impl From<u32> for Address {
-    fn from(addr: u32) -> Self {
-        Self(addr as u64)
-    }
-}
-
-impl From<u64> for Address {
-    fn from(addr: u64) -> Self {
-        Self(addr)
-    }
-}
-
-impl Add<u32> for Address {
-    type Output = Self;
-
-    fn add(self, rhs: u32) -> Self::Output {
-        Self(self.0 + rhs as u64)
-    }
-}
-
-impl Add<u64> for Address {
-    type Output = Self;
-
-    fn add(self, rhs: u64) -> Self::Output {
-        Self(self.0 + rhs)
-    }
 }

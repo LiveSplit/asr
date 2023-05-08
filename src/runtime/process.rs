@@ -4,9 +4,11 @@ use core::{
     slice,
 };
 
+use crate::{Address, Address32, Address64};
+
 use super::{
     sys::{self, ProcessId},
-    Address, Error, MemoryRange,
+    Error, MemoryRange,
 };
 
 /// A process that the auto splitter is attached to.
@@ -53,7 +55,7 @@ impl Process {
         unsafe {
             let address = sys::process_get_module_address(self.0, name.as_ptr(), name.len());
             if let Some(address) = address {
-                Ok(Address(address.0.get()))
+                Ok(Address::new(address.0.get()))
             } else {
                 Err(Error {})
             }
@@ -154,6 +156,7 @@ impl Process {
     /// Reads a range of bytes from the process at the address given into the
     /// buffer provided. This is a convenience method for reading into a slice
     /// of a specific type.
+    #[inline]
     pub fn read_into_slice<T: AnyBitPattern>(
         &self,
         address: Address,
@@ -180,14 +183,14 @@ impl Process {
     /// pointers.
     pub fn read_pointer_path64<T: CheckedBitPattern>(
         &self,
-        mut address: u64,
+        mut address: Address,
         path: &[u64],
     ) -> Result<T, Error> {
         let (&last, path) = path.split_last().ok_or(Error {})?;
         for &offset in path {
-            address = self.read(Address(address.wrapping_add(offset)))?;
+            address = self.read::<Address64>(address + offset)?.into();
         }
-        self.read(Address(address.wrapping_add(last)))
+        self.read(address + last)
     }
 
     /// Follows a path of pointers from the address given and reads a value of
@@ -196,13 +199,13 @@ impl Process {
     /// pointers.
     pub fn read_pointer_path32<T: CheckedBitPattern>(
         &self,
-        mut address: u32,
+        mut address: Address,
         path: &[u32],
     ) -> Result<T, Error> {
         let (&last, path) = path.split_last().ok_or(Error {})?;
         for &offset in path {
-            address = self.read(Address(address.wrapping_add(offset) as u64))?;
+            address = self.read::<Address32>(address + offset)?.into();
         }
-        self.read(Address(address.wrapping_add(last) as u64))
+        self.read(address + last)
     }
 }
