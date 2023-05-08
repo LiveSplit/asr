@@ -117,11 +117,13 @@
 //! }
 //! ```
 
+mod primitives;
 mod runtime;
+
+pub use primitives::*;
 
 #[macro_use]
 pub mod future;
-pub mod primitives;
 #[cfg(feature = "signature")]
 pub mod signature;
 pub mod string;
@@ -137,7 +139,7 @@ pub use arrayvec;
 pub use time;
 
 #[cfg(feature = "derive")]
-pub use asr_derive::Settings;
+pub use asr_derive::*;
 
 #[cfg(feature = "itoa")]
 pub use itoa;

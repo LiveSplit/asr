@@ -197,22 +197,22 @@ impl<const N: usize> Signature<N> {
     ) -> Option<Address> {
         // TODO: Handle the case where a signature may be cut in half by a page
         // boundary.
-        let overall_end = addr.0 + len;
+        let overall_end = addr.value() + len;
         let mut buf = [MaybeUninit::uninit(); 4 << 10];
-        while addr.0 < overall_end {
+        while addr.value() < overall_end {
             // We round up to the 4 KiB address boundary as that's a single
             // page, which is safe to read either fully or not at all. We do
             // this to do a single read rather than many small ones as the
             // syscall overhead is a quite high.
-            let end = (addr.0 & !((4 << 10) - 1)) + (4 << 10).min(overall_end);
-            let len = end - addr.0;
+            let end = (addr.value() & !((4 << 10) - 1)) + (4 << 10).min(overall_end);
+            let len = end - addr.value();
             let current_read_buf = &mut buf[..len as usize];
             if let Ok(current_read_buf) = process.read_into_uninit_buf(addr, current_read_buf) {
                 if let Some(pos) = self.scan(current_read_buf) {
-                    return Some(addr + pos as u64);
+                    return Some(addr.add(pos as u64));
                 }
             };
-            addr = Address(end);
+            addr = Address::new(end);
         }
         None
     }
