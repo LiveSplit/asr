@@ -5,7 +5,7 @@
 ///
 /// # Usage
 ///
-/// ```no_run
+/// ```ignore
 /// asr::panic_handler! {
 ///     /// When to print the panic message.
 ///     /// Default: debug

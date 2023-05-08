@@ -1,7 +1,7 @@
 //! Futures support for writing auto splitters with asynchronous code.
 //!
 //! If you want to write an auto splitter that uses asynchronous code, you can
-//! use the [`async_main`] macro to define an asynchronous `main` function
+//! use the [`async_main`](crate::async_main) macro to define an asynchronous `main` function
 //! instead of defining an `update` function as the entrypoint for your auto
 //! splitter.
 //!
@@ -19,7 +19,10 @@
 //! So if you wanted to attach to a Process you could for example write:
 //!
 //! ```no_run
+//! # use asr::{Process, future::retry};
+//! # async fn example() {
 //! let process = retry(|| Process::attach("MyGame.exe")).await;
+//! # }
 //! ```
 //!
 //! This will try to attach to the process every tick until it succeeds. This
@@ -28,30 +31,33 @@
 //! could for example write:
 //!
 //! ```no_run
+//! # use asr::{Process, future::retry};
+//! # async fn example() {
 //! let process = retry(|| {
 //!    ["a.exe", "b.exe"].into_iter().find_map(Process::attach)
 //! }).await;
+//! # }
 //! ```
 //!
 //! # Example
 //!
 //! Here is a full example of how an auto splitter could look like using the
-//! [`async_main`] macro:
+//! [`async_main`](crate::async_main) macro:
 //!
 //! Usage on stable Rust:
-//! ```no_run
-//! async_main!(stable);
+//! ```ignore
+//! asr::async_main!(stable);
 //! ```
 //!
 //! Usage on nightly Rust:
-//! ```no_run
+//! ```ignore
 //! #![feature(type_alias_impl_trait, const_async_blocks)]
 //!
-//! async_main!(nightly);
+//! asr::async_main!(nightly);
 //! ```
 //!
 //! The asynchronous main function itself:
-//! ```no_run
+//! ```ignore
 //! async fn main() {
 //!     // TODO: Set up some general state and settings.
 //!     loop {
@@ -119,10 +125,13 @@ impl<T, F: FnMut() -> Option<T> + Unpin> Future for Retry<F> {
 /// # Example
 ///
 /// ```no_run
+/// # use asr::{Process, future::next_tick};
+/// # async fn example() {
 /// loop {
 ///     // TODO: Do something on every tick.
 ///     next_tick().await;
 /// }
+/// # }
 /// ```
 #[must_use = "You need to await this future."]
 pub const fn next_tick() -> NextTick {
@@ -137,7 +146,10 @@ pub const fn next_tick() -> NextTick {
 /// If you wanted to attach to a Process you could for example write:
 ///
 /// ```no_run
+/// # use asr::{Process, future::retry};
+/// # async fn example() {
 /// let process = retry(|| Process::attach("MyGame.exe")).await;
+/// # }
 /// ```
 ///
 /// This will try to attach to the process every tick until it succeeds. This
@@ -146,9 +158,12 @@ pub const fn next_tick() -> NextTick {
 /// could for example write:
 ///
 /// ```no_run
+/// # use asr::{Process, future::retry};
+/// # async fn example() {
 /// let process = retry(|| {
 ///    ["a.exe", "b.exe"].into_iter().find_map(Process::attach)
 /// }).await;
+/// # }
 /// ```
 #[must_use = "You need to await this future."]
 pub const fn retry<T, F: FnMut() -> Option<T>>(f: F) -> Retry<F> {
@@ -234,19 +249,19 @@ impl<F: Future<Output = ()>> Future for UntilProcessCloses<'_, F> {
 /// # Example
 ///
 /// Usage on stable Rust:
-/// ```no_run
+/// ```ignore
 /// async_main!(stable);
 /// ```
 ///
 /// Usage on nightly Rust:
-/// ```no_run
+/// ```ignore
 /// #![feature(type_alias_impl_trait, const_async_blocks)]
 ///
 /// async_main!(nightly);
 /// ```
 ///
 /// Example of an asynchronous `main` function:
-/// ```no_run
+/// ```ignore
 /// async fn main() {
 ///     // TODO: Set up some general state and settings.
 ///     loop {
