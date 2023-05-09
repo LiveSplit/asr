@@ -2,3 +2,5 @@
 
 #[cfg(feature = "gba")]
 pub mod gba;
+#[cfg(feature = "genesis")]
+pub mod genesis;
