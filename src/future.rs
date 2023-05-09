@@ -188,12 +188,7 @@ impl Process {
     /// Asynchronously awaits the address and size of a module in the process,
     /// yielding back to the runtime between each try.
     pub async fn wait_module_range(&self, name: &str) -> (Address, u64) {
-        retry(|| {
-            let address = self.get_module_address(name).ok()?;
-            let size = self.get_module_size(name).ok()?;
-            Some((address, size))
-        })
-        .await
+        retry(|| self.get_module_range(name).ok()).await
     }
 }
 
@@ -206,10 +201,10 @@ impl<const N: usize> Signature<N> {
     pub async fn wait_scan_process_range(
         &self,
         process: &Process,
-        addr: Address,
-        len: u64,
+        (addr, len): (impl Into<Address>, u64),
     ) -> Address {
-        retry(|| self.scan_process_range(process, addr, len)).await
+        let addr = addr.into();
+        retry(|| self.scan_process_range(process, (addr, len))).await
     }
 }
 

@@ -25,8 +25,12 @@ impl Emulator {
     }
 
     /// Reads a value from the emulator's memory.
-    pub fn read<T: CheckedBitPattern>(&self, addr: Address) -> Result<T, runtime::Error> {
-        let address = addr.value();
+    pub fn read<T: CheckedBitPattern>(
+        &self,
+        addr: impl Into<Address>,
+    ) -> Result<T, runtime::Error> {
+        let address: Address = addr.into();
+        let address = address.value();
         let memory_section = address >> 24;
         let ram_addr = match memory_section {
             2 => self.ewram,
@@ -62,8 +66,7 @@ fn look_for_mgba() -> Option<Emulator> {
 fn look_for_vba() -> Option<Emulator> {
     let process = Process::attach("VisualBoyAdvance.exe")?;
 
-    let [ewram, iwram]: [Address32; 2] =
-        process.read(Address::new(0x00400000 + 0x001A8F50)).ok()?;
+    let [ewram, iwram]: [Address32; 2] = process.read(0x00400000u32 + 0x001A8F50u32).ok()?;
 
     if ewram.is_null() || iwram.is_null() {
         return None;

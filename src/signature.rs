@@ -192,9 +192,9 @@ impl<const N: usize> Signature<N> {
     pub fn scan_process_range(
         &self,
         process: &Process,
-        mut addr: Address,
-        len: u64,
+        (addr, len): (impl Into<Address>, u64),
     ) -> Option<Address> {
+        let mut addr: Address = Into::into(addr);
         // TODO: Handle the case where a signature may be cut in half by a page
         // boundary.
         let overall_end = addr.value() + len;

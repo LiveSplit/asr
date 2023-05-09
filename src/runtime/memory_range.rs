@@ -56,6 +56,12 @@ impl MemoryRange<'_> {
         }
     }
 
+    /// Queries the address and size of the memory range.
+    #[inline]
+    pub fn range(&self) -> Result<(Address, u64), Error> {
+        Ok((self.address()?, self.size()?))
+    }
+
     /// Queries the flags of the memory range.
     #[cfg(feature = "flags")]
     #[inline]

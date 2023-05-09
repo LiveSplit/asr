@@ -126,8 +126,7 @@
 mod primitives;
 mod runtime;
 
-pub use primitives::*;
-
+pub mod emulator;
 #[macro_use]
 pub mod future;
 #[cfg(feature = "signature")]
@@ -137,10 +136,7 @@ pub mod sync;
 pub mod time_util;
 pub mod watcher;
 
-#[cfg(feature = "gba")]
-pub mod gba;
-
-pub use self::runtime::*;
+pub use self::{primitives::*, runtime::*};
 pub use arrayvec;
 pub use time;
 
