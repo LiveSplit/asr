@@ -4,6 +4,8 @@ use core::{ops, str};
 
 use bytemuck::{Pod, Zeroable};
 
+pub use arrayvec::ArrayString;
+
 /// A nul-terminated string that is stored in an array of a fixed size `N`. This
 /// can be read from a process's memory.
 #[derive(Copy, Clone)]

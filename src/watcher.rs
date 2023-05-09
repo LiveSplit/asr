@@ -2,7 +2,7 @@
 
 use core::{mem, ops};
 
-use bytemuck::{bytes_of, Pod};
+use bytemuck::{bytes_of, NoUninit};
 
 /// A watcher keeps a pair of values and allows you to track changes between
 /// them.
@@ -122,7 +122,7 @@ impl<T: Eq> Pair<T> {
     }
 }
 
-impl<T: Pod> Pair<T> {
+impl<T: NoUninit> Pair<T> {
     /// Checks if the bytes of the value changed.
     pub fn bytes_changed(&self) -> bool {
         bytes_of(&self.old) != bytes_of(&self.current)

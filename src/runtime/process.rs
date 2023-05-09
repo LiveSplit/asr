@@ -78,6 +78,12 @@ impl Process {
         }
     }
 
+    /// Gets the address and size of a module in the process.
+    #[inline]
+    pub fn get_module_range(&self, name: &str) -> Result<(Address, u64), Error> {
+        Ok((self.get_module_address(name)?, self.get_module_size(name)?))
+    }
+
     /// Iterates over all committed (not reserved, not free) memory ranges of the process.
     #[inline]
     pub fn memory_ranges(&self) -> impl DoubleEndedIterator<Item = MemoryRange<'_>> {
@@ -93,7 +99,7 @@ impl Process {
     /// Reads a value of the type specified from the process at the address
     /// given.
     #[inline]
-    pub fn read<T: CheckedBitPattern>(&self, address: Address) -> Result<T, Error> {
+    pub fn read<T: CheckedBitPattern>(&self, address: impl Into<Address>) -> Result<T, Error> {
         // SAFETY: The process handle is guaranteed to be valid. We provide a
         // valid pointer and length to the uninitialized value. We also do
         // proper error handling after reading into it. At that point we know
@@ -116,13 +122,13 @@ impl Process {
     /// Reads a range of bytes from the process at the address given into the
     /// buffer provided.
     #[inline]
-    pub fn read_into_buf(&self, address: Address, buf: &mut [u8]) -> Result<(), Error> {
+    pub fn read_into_buf(&self, address: impl Into<Address>, buf: &mut [u8]) -> Result<(), Error> {
         // SAFETY: The process handle is guaranteed to be valid. We provide a
         // valid pointer and length to the buffer. We also do proper error
         // handling afterwards.
         unsafe {
             let buf_len = buf.len();
-            if sys::process_read(self.0, address, buf.as_mut_ptr(), buf_len) {
+            if sys::process_read(self.0, address.into(), buf.as_mut_ptr(), buf_len) {
                 Ok(())
             } else {
                 Err(Error {})
@@ -136,7 +142,7 @@ impl Process {
     #[inline]
     pub fn read_into_uninit_buf<'buf>(
         &self,
-        address: Address,
+        address: impl Into<Address>,
         buf: &'buf mut [MaybeUninit<u8>],
     ) -> Result<&'buf mut [u8], Error> {
         // SAFETY: The process handle is guaranteed to be valid. We provide a
@@ -145,7 +151,7 @@ impl Process {
         // afterwards, so we can safely return an u8 slice of it.
         unsafe {
             let buf_len = buf.len();
-            if sys::process_read(self.0, address, buf.as_mut_ptr().cast(), buf_len) {
+            if sys::process_read(self.0, address.into(), buf.as_mut_ptr().cast(), buf_len) {
                 Ok(slice::from_raw_parts_mut(buf.as_mut_ptr().cast(), buf_len))
             } else {
                 Err(Error {})
@@ -159,7 +165,7 @@ impl Process {
     #[inline]
     pub fn read_into_slice<T: AnyBitPattern>(
         &self,
-        address: Address,
+        address: impl Into<Address>,
         slice: &mut [T],
     ) -> Result<(), Error> {
         // SAFETY: The process handle is guaranteed to be valid. We provide a
@@ -183,9 +189,10 @@ impl Process {
     /// pointers.
     pub fn read_pointer_path64<T: CheckedBitPattern>(
         &self,
-        mut address: Address,
+        address: impl Into<Address>,
         path: &[u64],
     ) -> Result<T, Error> {
+        let mut address = address.into();
         let (&last, path) = path.split_last().ok_or(Error {})?;
         for &offset in path {
             address = self.read::<Address64>(address + offset)?.into();
@@ -199,9 +206,10 @@ impl Process {
     /// pointers.
     pub fn read_pointer_path32<T: CheckedBitPattern>(
         &self,
-        mut address: Address,
+        address: impl Into<Address>,
         path: &[u32],
     ) -> Result<T, Error> {
+        let mut address = address.into();
         let (&last, path) = path.split_last().ok_or(Error {})?;
         for &offset in path {
             address = self.read::<Address32>(address + offset)?.into();
