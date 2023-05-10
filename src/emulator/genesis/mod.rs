@@ -87,9 +87,9 @@ impl Emulator {
         }
     }
 
-    /// Reads raw data from the emulated RAM ignoring all endianess settings The
-    /// same call, performed on two different emulators, can be different due to
-    /// the endianness used by the emulator.
+    /// Reads raw data from the emulated RAM ignoring all endianness settings
+    /// The same call, performed on two different emulators, can be different
+    /// due to the endianness used by the emulator.
     ///
     /// The offset provided must not be higher than `0xFFFF`, otherwise this
     /// method will immediately return `Err()`.
