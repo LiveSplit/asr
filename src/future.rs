@@ -107,11 +107,11 @@ pub struct Retry<F> {
     f: F,
 }
 
-impl<T, F: FnMut() -> Option<T> + Unpin> Future for Retry<F> {
-    type Output = T;
+impl<O: IntoOption, F: FnMut() -> O + Unpin> Future for Retry<F> {
+    type Output = O::T;
 
     fn poll(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Self::Output> {
-        match (self.f)() {
+        match (self.f)().into_option() {
             Some(t) => Poll::Ready(t),
             None => Poll::Pending,
         }
@@ -138,8 +138,8 @@ pub const fn next_tick() -> NextTick {
     NextTick(false)
 }
 
-/// Retries the given function until it returns `Some`, yielding back to the
-/// runtime between each call.
+/// Retries the given function until it returns [`Some`] or [`Ok`], yielding
+/// back to the runtime between each call.
 ///
 /// # Example
 ///
@@ -166,8 +166,31 @@ pub const fn next_tick() -> NextTick {
 /// # }
 /// ```
 #[must_use = "You need to await this future."]
-pub const fn retry<T, F: FnMut() -> Option<T>>(f: F) -> Retry<F> {
+pub const fn retry<O: IntoOption, F: FnMut() -> O + Unpin>(f: F) -> Retry<F> {
     Retry { f }
+}
+
+/// A trait for types that can be converted into an [`Option`].
+// TODO: Replace this with `Try` once that is stable.
+pub trait IntoOption {
+    /// The type that is contained in the [`Option`].
+    type T;
+    /// Converts `self` into an [`Option`].
+    fn into_option(self) -> Option<Self::T>;
+}
+
+impl<T> IntoOption for Option<T> {
+    type T = T;
+    fn into_option(self) -> Option<Self::T> {
+        self
+    }
+}
+
+impl<T, E> IntoOption for Result<T, E> {
+    type T = T;
+    fn into_option(self) -> Option<Self::T> {
+        self.ok()
+    }
 }
 
 impl Process {
@@ -188,7 +211,7 @@ impl Process {
     /// Asynchronously awaits the address and size of a module in the process,
     /// yielding back to the runtime between each try.
     pub async fn wait_module_range(&self, name: &str) -> (Address, u64) {
-        retry(|| self.get_module_range(name).ok()).await
+        retry(|| self.get_module_range(name)).await
     }
 }
 
