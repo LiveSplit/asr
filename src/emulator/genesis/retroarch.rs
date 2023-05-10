@@ -1,4 +1,6 @@
-use crate::{signature::Signature, Address, Address32, Endian, MemoryRangeFlags, Process};
+use crate::{
+    file_format::pe, signature::Signature, Address, Address32, Endian, MemoryRangeFlags, Process,
+};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct State {
@@ -19,12 +21,8 @@ impl State {
             .filter(|(_, state)| matches!(state, super::State::Retroarch(_)))
             .find_map(|(name, _)| game.get_module_address(name).ok())?;
 
-        let is_64_bit = {
-            const SIG_64: Signature<5> = Signature::new("50 45 00 00 64");
-            SIG_64
-                .scan_process_range(game, (main_module_address, 0x1000))
-                .is_some()
-        };
+        let is_x86_64 =
+            pe::MachineType::read(game, main_module_address) == Some(pe::MachineType::X86_64);
 
         let (core_name, core_address) = SUPPORTED_CORES
             .iter()
@@ -57,7 +55,7 @@ impl State {
             *endian = Endian::Little;
 
             // Genesis plus GX
-            if is_64_bit {
+            if is_x86_64 {
                 const SIG_64: Signature<10> = Signature::new("48 8D 0D ?? ?? ?? ?? 4C 8B 2D");
 
                 let addr = SIG_64.scan_process_range(
@@ -84,7 +82,7 @@ impl State {
             *endian = Endian::Little;
 
             // Picodrive
-            if is_64_bit {
+            if is_x86_64 {
                 const SIG_64: Signature<9> = Signature::new("48 8D 0D ?? ?? ?? ?? 41 B8");
 
                 let addr = SIG_64.scan_process_range(

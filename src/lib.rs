@@ -129,6 +129,7 @@ mod runtime;
 pub mod emulator;
 #[macro_use]
 pub mod future;
+pub mod file_format;
 #[cfg(feature = "signature")]
 pub mod signature;
 pub mod string;
