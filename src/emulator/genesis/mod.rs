@@ -114,14 +114,20 @@ impl Emulator {
     /// The offset provided must not be higher than `0xFFFF`, otherwise this
     /// method will immediately return `Err()`.
     pub fn read<T: CheckedBitPattern + FromEndian>(&self, offset: u32) -> Result<T, Error> {
-        if (offset > 0xFFFF && offset <= 0xFF0000) || offset > 0xFFFFFF {
+        if (offset > 0xFFFF && offset < 0xFF0000) || offset > 0xFFFFFF {
             return Err(Error {});
         }
 
         let wram = self.wram_base.ok_or(Error {})?;
 
+        let mut end_offset = if offset >= 0xFF0000 {
+            offset - 0xFF0000
+        } else {
+            offset
+        };
+
         let toggle = self.endian == Endian::Little && mem::size_of::<T>() == 1;
-        let end_offset = offset ^ toggle as u32;
+        end_offset ^= toggle as u32;
 
         let Ok(value) = self.process.read::<T>(wram + end_offset) else { return Err(Error {}) };
         Ok(value.from_endian(self.endian))
