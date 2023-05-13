@@ -120,16 +120,12 @@ impl Emulator {
 
         let wram = self.wram_base.ok_or(Error {})?;
 
-        let mut end_offset = if offset >= 0xFF0000 {
-            offset - 0xFF0000
-        } else {
-            offset
-        };
+        let mut end_offset = offset.checked_sub(0xFF0000).unwrap_or(offset);
 
         let toggle = self.endian == Endian::Little && mem::size_of::<T>() == 1;
         end_offset ^= toggle as u32;
 
-        let Ok(value) = self.process.read::<T>(wram + end_offset) else { return Err(Error {}) };
+        let value = self.process.read::<T>(wram + end_offset)?;
         Ok(value.from_endian(self.endian))
     }
 }

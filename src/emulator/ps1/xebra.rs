@@ -1,4 +1,4 @@
-use crate::{Address, signature::Signature, Process, Address32};
+use crate::{signature::Signature, Address, Address32, Process};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct State;

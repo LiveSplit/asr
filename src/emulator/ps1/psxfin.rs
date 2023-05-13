@@ -1,4 +1,4 @@
-use crate::{Address, signature::Signature, Process, Address32};
+use crate::{signature::Signature, Address, Address32, Process};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct State;
@@ -15,19 +15,18 @@ impl State {
             .filter(|(_, state)| matches!(state, super::State::PsxFin(_)))
             .find_map(|(name, _)| game.get_module_range(name).ok())?;
 
-        let mut ptr: Address32;
-
-        if let Some(sig) = SIG.scan_process_range(game, main_module_range) {
-            ptr = game.read::<Address32>(sig + 2).ok()?;
+        let mut ptr: Address32 = if let Some(sig) = SIG.scan_process_range(game, main_module_range)
+        {
+            game.read(sig + 2).ok()?
         } else if let Some(sig) = SIG_0.scan_process_range(game, main_module_range) {
-            ptr = game.read::<Address32>(sig + 1).ok()?;
+            game.read(sig + 1).ok()?
         } else if let Some(sig) = SIG_1.scan_process_range(game, main_module_range) {
-            ptr = game.read::<Address32>(sig + 1).ok()?;
+            game.read(sig + 1).ok()?
         } else if let Some(sig) = SIG_2.scan_process_range(game, main_module_range) {
-            ptr = game.read::<Address32>(sig + 1).ok()?;
+            game.read(sig + 1).ok()?
         } else {
-            return None
-        }
+            return None;
+        };
 
         ptr = game.read::<Address32>(ptr).ok()?;
 

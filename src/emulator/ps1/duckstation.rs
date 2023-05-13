@@ -1,4 +1,4 @@
-use crate::{Address, signature::Signature, Process, Address64};
+use crate::{signature::Signature, Address, Address64, Process};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct State {
@@ -16,8 +16,8 @@ impl State {
 
         let addr: Address = SIG.scan_process_range(game, main_module_range)? + 3;
 
-        self.addr = addr + 0x4 + game.read::<i32>(addr).ok()? as i64;
-        
+        self.addr = addr + 0x4 + game.read::<i32>(addr).ok()?;
+
         let ram = game.read::<Address64>(self.addr).ok()?;
         Some(ram.into())
     }
@@ -33,7 +33,7 @@ impl State {
 
     pub const fn new() -> Self {
         Self {
-            addr: Address::NULL
+            addr: Address::NULL,
         }
     }
 }

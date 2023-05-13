@@ -3,12 +3,12 @@
 use crate::{Address, Error, Process};
 use bytemuck::CheckedBitPattern;
 
-mod epsxe;
-mod xebra;
-mod pcsx_redux;
 mod duckstation;
+mod epsxe;
+mod pcsx_redux;
 mod psxfin;
 mod retroarch;
+mod xebra;
 
 /// A Playstation 1 emulator that the auto splitter is attached to.
 pub struct Emulator {
@@ -87,30 +87,29 @@ impl Emulator {
     }
 
     /// Reads any value from the emulated RAM.
-    /// 
-    /// In PS1, memory addresses are usually mapped at fixed locations starting from `0x80000000`,
-    /// and is the way many emulators, as well as the GameShark on original hardware, access memory.
-    /// 
-    /// For this reason, this method will automatically convert offsets provided in such format.
-    /// For example, providing an offset of `0x1234` or `0x80001234` will return the same value.
-    /// 
-    /// Providing any offset outside the range of the PS1's RAM will return `Err()`.
+    ///
+    /// In PS1, memory addresses are usually mapped at fixed locations starting
+    /// from `0x80000000`, and is the way many emulators, as well as the
+    /// GameShark on original hardware, access memory.
+    ///
+    /// For this reason, this method will automatically convert offsets provided
+    /// in such format. For example, providing an offset of `0x1234` or
+    /// `0x80001234` will return the same value.
+    ///
+    /// Providing any offset outside the range of the PS1's RAM will return
+    /// `Err()`.
     pub fn read<T: CheckedBitPattern>(&self, offset: u32) -> Result<T, Error> {
         if (offset > 0x1FFFFF && offset < 0x80000000) || offset > 0x801FFFFF {
-            return Err(Error {})
-        }; 
+            return Err(Error {});
+        };
 
         let Some(ram_base) = self.ram_base else {
             return Err(Error {})
         };
 
-        let end_offset = if offset >= 0x80000000 {
-            offset - 0x80000000
-        } else {
-            offset
-        };
+        let end_offset = offset.checked_sub(0x80000000).unwrap_or(offset);
 
-        self.process.read(ram_base + end_offset as u64)
+        self.process.read(ram_base + end_offset)
     }
 }
 
@@ -128,9 +127,18 @@ enum State {
 const PROCESS_NAMES: [(&str, State); 7] = [
     ("ePSXe.exe", State::Epsxe(epsxe::State)),
     ("psxfin.exe", State::PsxFin(psxfin::State)),
-    ("duckstation-qt-x64-ReleaseLTCG.exe", State::Duckstation(duckstation::State::new())),
-    ("duckstation-nogui-x64-ReleaseLTCG.exe", State::Duckstation(duckstation::State::new())),
+    (
+        "duckstation-qt-x64-ReleaseLTCG.exe",
+        State::Duckstation(duckstation::State::new()),
+    ),
+    (
+        "duckstation-nogui-x64-ReleaseLTCG.exe",
+        State::Duckstation(duckstation::State::new()),
+    ),
     ("retroarch.exe", State::Retroarch(retroarch::State::new())),
-    ("pcsx-redux.main", State::PcsxRedux(pcsx_redux::State::new())),
+    (
+        "pcsx-redux.main",
+        State::PcsxRedux(pcsx_redux::State::new()),
+    ),
     ("XEBRA.EXE", State::Xebra(xebra::State)),
 ];
