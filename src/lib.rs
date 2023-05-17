@@ -127,6 +127,10 @@ mod primitives;
 mod runtime;
 
 pub mod emulator;
+
+#[cfg(feature = "dotnet")]
+pub mod dotnet;
+
 #[macro_use]
 pub mod future;
 pub mod file_format;
