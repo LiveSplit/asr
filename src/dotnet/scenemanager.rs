@@ -1,4 +1,4 @@
-use crate::{signature::Signature, Address, Address64, Error, Process, file_format::pe, Address32};
+use crate::{signature::Signature, Address, Address64, Error, Process, file_format::pe, Address32, future::retry};
 use arrayvec::ArrayString;
 
 /// SceneManager allows to easily identify the current scene loaded in the attached Unity game.
@@ -45,6 +45,11 @@ impl<'a> SceneManager<'a> {
             address,
             offsets,
         })
+    }
+
+    /// Creates a new instance of `SceneManager`
+    pub async fn wait_new(process: &'a Process) -> SceneManager<'_> {
+        retry(|| Self::new(process)).await
     }
 
     fn read_pointer(&self, address: Address) -> Result<Address, Error> {
@@ -170,7 +175,6 @@ impl Scene<'_> {
         Ok(param)
     }
 
-    #[inline]
     pub fn scene_name(&self) -> Result<ArrayString<255>, Error> {
         let addr = self.scene_manager.read_pointer(self.address + self.scene_manager.offsets.asset_path)?;
         let path = self.scene_manager.process.read::<[u8; 255]>(addr)?;
