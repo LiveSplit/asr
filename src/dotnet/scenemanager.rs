@@ -1,4 +1,7 @@
-use crate::{signature::Signature, Address, Address64, Error, Process, file_format::pe, Address32, future::retry};
+use crate::{
+    file_format::pe, future::retry, signature::Signature, Address, Address32, Address64, Error,
+    Process,
+};
 use arrayvec::ArrayString;
 
 /// SceneManager allows to easily identify the current scene loaded in the attached Unity game.
@@ -34,7 +37,7 @@ impl<'a> SceneManager<'a> {
         } else if let Some(addr) = SIG_32_3.scan_process_range(process, unity_player) {
             process.read::<Address32>(addr + 7).ok()?.into()
         } else {
-            return None
+            return None;
         };
 
         let offsets = SceneManagerOffsets::new(x64_32);
@@ -70,12 +73,14 @@ impl<'a> SceneManager<'a> {
     /// The value returned is a `i32` because some games will show `-1` as their
     /// current scene until fully initialized.
     pub fn get_current_scene_index(&self) -> Result<i32, Error> {
-        self.process.read(self.get_current_scene_address()? + self.offsets.build_index)
+        self.process
+            .read(self.get_current_scene_address()? + self.offsets.build_index)
     }
 
     /// Returns the full path to the current scene
     pub fn get_current_scene_path(&self) -> Result<ArrayString<255>, Error> {
-        let addr = self.read_pointer(self.get_current_scene_address()? + self.offsets.asset_path)?;
+        let addr =
+            self.read_pointer(self.get_current_scene_address()? + self.offsets.asset_path)?;
         let path = self.process.read::<[u8; 255]>(addr)?;
         let mut param: ArrayString<255> = ArrayString::new();
         for val in path {
@@ -86,7 +91,8 @@ impl<'a> SceneManager<'a> {
 
     /// Returns the name associated with the current scene
     pub fn get_current_scene_name(&self) -> Result<ArrayString<255>, Error> {
-        let addr = self.read_pointer(self.get_current_scene_address()? + self.offsets.asset_path)?;
+        let addr =
+            self.read_pointer(self.get_current_scene_address()? + self.offsets.asset_path)?;
         let path = self.process.read::<[u8; 255]>(addr)?;
         let Some(name) = path.split(|&b| b == b'/').last() else { return Err(Error {}) };
         let Some(name) = name.split(|&b| b == b'.').next() else { return Err(Error {}) };
@@ -99,22 +105,27 @@ impl<'a> SceneManager<'a> {
 
     /// Returns the number of total scenes in the attached game
     pub fn get_scene_count(&self) -> Result<u32, Error> {
-        self.process.read::<u32>(self.address + self.offsets.scene_count)
+        self.process
+            .read::<u32>(self.address + self.offsets.scene_count)
     }
 
     /// Iterator for the currently loaded scenes
     pub fn scenes(&self) -> impl DoubleEndedIterator<Item = Scene<'_>> {
         let fptr = self.read_pointer(self.address).unwrap_or_default();
-        let addr = self.read_pointer(fptr + self.offsets.loaded_scenes as u64).unwrap_or_default();
+        let addr = self
+            .read_pointer(fptr + self.offsets.loaded_scenes as u64)
+            .unwrap_or_default();
 
-        (0..16).map(move |index| Scene {
-            scene_manager: self,
-            address: {
-                let i = if self.x64_32 { 8 } else { 4 };
-                self.read_pointer(addr + index as u64 * i).unwrap_or_default()
-            },
-        })
-        .filter(move |p| !fptr.is_null() && p.is_valid())
+        (0..16)
+            .map(move |index| Scene {
+                scene_manager: self,
+                address: {
+                    let i = if self.x64_32 { 8 } else { 4 };
+                    self.read_pointer(addr + index as u64 * i)
+                        .unwrap_or_default()
+                },
+            })
+            .filter(move |p| !fptr.is_null() && p.is_valid())
     }
 }
 
@@ -142,7 +153,7 @@ impl SceneManagerOffsets {
                 active_scene: 0x28,
                 asset_path: 0xC,
                 build_index: 0x70,
-            }
+            },
         }
     }
 }
@@ -153,7 +164,7 @@ pub struct Scene<'a> {
 }
 
 impl Scene<'_> {
-    pub const fn address(&self) -> Result<Address , Error> {
+    pub const fn address(&self) -> Result<Address, Error> {
         Ok(self.address)
     }
 
@@ -162,11 +173,15 @@ impl Scene<'_> {
     }
 
     pub fn index(&self) -> Result<u32, Error> {
-        self.scene_manager.process.read::<u32>(self.address + self.scene_manager.offsets.build_index)
+        self.scene_manager
+            .process
+            .read::<u32>(self.address + self.scene_manager.offsets.build_index)
     }
 
     pub fn scene_path(&self) -> Result<ArrayString<255>, Error> {
-        let addr = self.scene_manager.read_pointer(self.address + self.scene_manager.offsets.asset_path)?;
+        let addr = self
+            .scene_manager
+            .read_pointer(self.address + self.scene_manager.offsets.asset_path)?;
         let name = self.scene_manager.process.read::<[u8; 255]>(addr)?;
         let mut param: ArrayString<255> = ArrayString::new();
         for val in name {
@@ -176,7 +191,9 @@ impl Scene<'_> {
     }
 
     pub fn scene_name(&self) -> Result<ArrayString<255>, Error> {
-        let addr = self.scene_manager.read_pointer(self.address + self.scene_manager.offsets.asset_path)?;
+        let addr = self
+            .scene_manager
+            .read_pointer(self.address + self.scene_manager.offsets.asset_path)?;
         let path = self.scene_manager.process.read::<[u8; 255]>(addr)?;
         let Some(name) = path.split(|&b| b == b'/').last() else { return Err(Error {}) };
         let Some(name) = name.split(|&b| b == b'.').next() else { return Err(Error {}) };

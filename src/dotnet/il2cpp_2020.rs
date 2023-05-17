@@ -1,10 +1,8 @@
-use core::{
-    fmt,
-    marker::PhantomData,
-    mem,
-};
+use core::{fmt, marker::PhantomData, mem};
 
-use crate::{Address, Process, Address64, Error, string::ArrayCString, file_format::pe, future::retry};
+use crate::{
+    file_format::pe, future::retry, string::ArrayCString, Address, Address64, Error, Process,
+};
 use bytemuck::{Pod, Zeroable};
 
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
@@ -99,35 +97,40 @@ pub struct MonoImageContainer<'a> {
 impl MonoImageContainer<'_> {
     /// Enumerates the classes inside the current MonoImage
     fn classes(&self) -> Result<impl Iterator<Item = MonoClass> + '_, Error> {
-        let ptr = self.mono_module
-            .type_info_definition_table
-            .offset(self.mono_image.metadata_handle.read(self.mono_module.process)? as _);
-        Ok((0..self.mono_image.type_count as usize).filter_map(move |i| {
-            let class_ptr = ptr.index(self.mono_module.process, i).ok()?;
-            if class_ptr.is_null() {
-                None
-            } else {
-                class_ptr.read(self.mono_module.process).ok()
-            }
-        }))
+        let ptr = self.mono_module.type_info_definition_table.offset(
+            self.mono_image
+                .metadata_handle
+                .read(self.mono_module.process)? as _,
+        );
+        Ok(
+            (0..self.mono_image.type_count as usize).filter_map(move |i| {
+                let class_ptr = ptr.index(self.mono_module.process, i).ok()?;
+                if class_ptr.is_null() {
+                    None
+                } else {
+                    class_ptr.read(self.mono_module.process).ok()
+                }
+            }),
+        )
     }
 
     /// Search in memory for the specified `MonoClass`.
-    /// 
+    ///
     /// Returns `Option<T>` if successful, `None` otherwise.
     pub fn get_class(&self, class_name: &str) -> Option<MonoClassContainer<'_>> {
         let mut classes = self.classes().ok()?;
-        classes.find(|c| {
-            if let Ok(success) = c.name.read_str(self.mono_module.process) {
-                success.as_bytes() == class_name.as_bytes() && !c.fields.is_null()
-            } else {
-                false
-            }
-        })
-        .map(|m| MonoClassContainer {
-            mono_module: self.mono_module,
-            mono_class: m
-        })
+        classes
+            .find(|c| {
+                if let Ok(success) = c.name.read_str(self.mono_module.process) {
+                    success.as_bytes() == class_name.as_bytes() && !c.fields.is_null()
+                } else {
+                    false
+                }
+            })
+            .map(|m| MonoClassContainer {
+                mono_module: self.mono_module,
+                mono_class: m,
+            })
     }
 
     /// Search in memory for the specified `MonoClass`.
@@ -161,10 +164,11 @@ pub struct MonoClassContainer<'a> {
     mono_class: MonoClass,
 }
 
-impl MonoClassContainer<'_> {    
+impl MonoClassContainer<'_> {
     /// Returns an iterator for the fields included in the current MonoClass
     fn fields(&self) -> impl Iterator<Item = MonoClassField> + '_ {
-        (0..self.mono_class.field_count as usize).flat_map(|i| self.mono_class.fields.index(self.mono_module.process, i))
+        (0..self.mono_class.field_count as usize)
+            .flat_map(|i| self.mono_class.fields.index(self.mono_module.process, i))
     }
 
     /// Returns the name of the current `MonoClass`
@@ -176,10 +180,14 @@ impl MonoClassContainer<'_> {
     pub fn get_field(&self, name: &str) -> Option<u64> {
         Some(
             self.fields()
-                .find(|field| field.name
-                    .read_str(self.mono_module.process)
-                    .unwrap_or_default()
-                    .as_bytes() == name.as_bytes())?
+                .find(|field| {
+                    field
+                        .name
+                        .read_str(self.mono_module.process)
+                        .unwrap_or_default()
+                        .as_bytes()
+                        == name.as_bytes()
+                })?
                 .offset as _,
         )
     }
@@ -197,12 +205,10 @@ impl MonoClassContainer<'_> {
     /// Finds the parent `MonoClass` of the current class
     pub fn get_parent(&self) -> Option<MonoClassContainer<'_>> {
         let parent = self.mono_class.parent.read(self.mono_module.process).ok()?;
-        Some(
-            MonoClassContainer {
-                mono_module: self.mono_module,
-                mono_class: parent
-            }
-        )
+        Some(MonoClassContainer {
+            mono_module: self.mono_module,
+            mono_class: parent,
+        })
     }
 
     /// Returns the name of the current `MonoClass`
@@ -245,8 +251,8 @@ pub struct MonoClass {
     interop_data: MonoPtr,
     klass: MonoPtr<MonoClass>,
     fields: MonoPtr<MonoClassField>,
-    events: MonoPtr,       // <EventInfo>
-    properties: MonoPtr,   // <PropertyInfo>
+    events: MonoPtr,           // <EventInfo>
+    properties: MonoPtr,       // <PropertyInfo>
     methods: MonoPtr<MonoPtr>, // <MethodInfo>
     nested_types: MonoPtr<MonoPtr<MonoClass>>,
     implemented_interfaces: MonoPtr<MonoPtr<MonoClass>>,
@@ -331,7 +337,7 @@ pub struct MonoModule<'a> {
 
 impl<'a> MonoModule<'a> {
     /// Attaches to the target Mono process and internally gets the associated Mono assembly images.
-    /// 
+    ///
     /// This function will return `None` is either:
     /// - The process is not identified as a valid IL2CPP game
     /// - The process is 32bit (64bit IL2CPP is not supported by this class)
@@ -341,18 +347,19 @@ impl<'a> MonoModule<'a> {
 
         let ptr_size = pe::MachineType::read(process, mono_module.0)?;
         if ptr_size != pe::MachineType::X86_64 {
-            crate::print_message("Class manager is supported only on 64-bit IL2CPP.");
-            return None
+            return None;
         }
 
         let addr = super::ASSEMBLIES_TRG_SIG.scan_process_range(process, mono_module)? + 12;
         let assemblies_trg_addr = addr + 0x4 + process.read::<i32>(addr).ok()?;
         let assemblies: MonoPtr<MonoPtr<MonoAssembly>> = process.read(assemblies_trg_addr).ok()?;
 
-
-        let addr = super::TYPE_INFO_DEFINITION_TABLE_TRG_SIG.scan_process_range(process, mono_module)?.add_signed(-4);
+        let addr = super::TYPE_INFO_DEFINITION_TABLE_TRG_SIG
+            .scan_process_range(process, mono_module)?
+            .add_signed(-4);
         let type_info_definition_table_trg_addr = addr + 0x4 + process.read::<i32>(addr).ok()?;
-        let type_info_definition_table: MonoPtr<MonoPtr<MonoClass>> = process.read(type_info_definition_table_trg_addr).ok()?;
+        let type_info_definition_table: MonoPtr<MonoPtr<MonoClass>> =
+            process.read(type_info_definition_table_trg_addr).ok()?;
 
         Some(Self {
             process,
@@ -368,22 +375,22 @@ impl<'a> MonoModule<'a> {
         let image = loop {
             let ptr = assemblies.read(self.process)?;
             if ptr.is_null() {
-                return Err(Error {})
+                return Err(Error {});
             }
 
             let mono_assembly = ptr.read(self.process)?;
 
-            if mono_assembly
-                .aname
-                .name
-                .read_str(self.process)?
-                .as_bytes() == assembly_name.as_bytes()
+            if mono_assembly.aname.name.read_str(self.process)?.as_bytes()
+                == assembly_name.as_bytes()
             {
                 break mono_assembly.image.read(self.process)?;
             }
             assemblies = assemblies.offset(1);
         };
-        Ok(MonoImageContainer { mono_module: self, mono_image: image })
+        Ok(MonoImageContainer {
+            mono_module: self,
+            mono_image: image,
+        })
     }
 
     /// Looks for the `Assembly-CSharp` binary image inside the target process
@@ -392,12 +399,12 @@ impl<'a> MonoModule<'a> {
     }
 
     /// Attaches to the target Mono process and internally gets the associated Mono assembly images.
-    /// 
+    ///
     /// This function will return `None` is either:
     /// - The process is not identified as a valid IL2CPP game
     /// - The process is 32bit (64bit IL2CPP is not supported by this class)
     /// - The mono assemblies are not found
-    /// 
+    ///
     /// This is the `await`able version of the `attach()` function,
     /// yielding back to the runtime between each try.
     pub async fn wait_attach(process: &'a Process) -> MonoModule<'_> {
@@ -405,7 +412,7 @@ impl<'a> MonoModule<'a> {
     }
 
     /// Looks for the specified binary image inside the target process.
-    /// 
+    ///
     /// This is the `await`able version of the `find_image()` function,
     /// yielding back to the runtime between each try.
     pub async fn wait_find_image(&self, assembly_name: &str) -> MonoImageContainer<'_> {
@@ -413,7 +420,7 @@ impl<'a> MonoModule<'a> {
     }
 
     /// Looks for the `Assembly-CSharp` binary image inside the target process
-    /// 
+    ///
     /// This is the `await`able version of the `find_default_image()` function,
     /// yielding back to the runtime between each try.
     pub async fn wait_find_default_image(&self) -> MonoImageContainer<'_> {
