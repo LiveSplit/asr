@@ -31,7 +31,7 @@ impl<'a> MonoModule<'a> {
         let is_64_bit =
             pe::MachineType::read(process, mono_module) == Some(pe::MachineType::X86_64);
         let pe_offsets = MonoPEOffsets::new(is_64_bit);
-        let mono_offsets = MonoOffsets::new(mono_version, is_64_bit)?;
+        let mono_offsets = MonoOffsets::new(mono_version, is_64_bit);
 
         // Get root domain address: code essentially taken from UnitySpy -
         // See https://github.com/hackf5/unityspy/blob/master/src/HackF5.UnitySpy/AssemblyImageFactory.cs#L123
@@ -443,10 +443,10 @@ struct MonoOffsets {
 }
 
 impl MonoOffsets {
-    const fn new(version: MonoVersion, is_64_bit: bool) -> Option<Self> {
+    const fn new(version: MonoVersion, is_64_bit: bool) -> Self {
         match is_64_bit {
             true => match version {
-                MonoVersion::MonoV1 => Some(Self {
+                MonoVersion::MonoV1 => Self {
                     monoassembly_aname: 0x10,
                     monoassembly_image: 0x58,
                     monoassemblyname_name: 0x0,
@@ -467,8 +467,8 @@ impl MonoOffsets {
                     monoclassruntimeinfo_domain_vtables: 0x8,
                     monovtable_vtable: 0x48,
                     monoclassfieldalignment: 0x20,
-                }),
-                MonoVersion::MonoV2 => Some(Self {
+                },
+                MonoVersion::MonoV2 => Self {
                     monoassembly_aname: 0x10,
                     monoassembly_image: 0x60,
                     monoassemblyname_name: 0x0,
@@ -489,8 +489,8 @@ impl MonoOffsets {
                     monoclassruntimeinfo_domain_vtables: 0x8,
                     monovtable_vtable: 0x40,
                     monoclassfieldalignment: 0x20,
-                }),
-                MonoVersion::MonoV3 => Some(Self {
+                },
+                MonoVersion::MonoV3 => Self {
                     monoassembly_aname: 0x10,
                     monoassembly_image: 0x60,
                     monoassemblyname_name: 0x0,
@@ -511,10 +511,10 @@ impl MonoOffsets {
                     monoclassruntimeinfo_domain_vtables: 0x8,
                     monovtable_vtable: 0x48,
                     monoclassfieldalignment: 0x20,
-                }),
+                },
             },
             false => match version {
-                MonoVersion::MonoV1 => Some(Self {
+                MonoVersion::MonoV1 => Self {
                     monoassembly_aname: 0x8,
                     monoassembly_image: 0x40,
                     monoassemblyname_name: 0x0,
@@ -535,8 +535,8 @@ impl MonoOffsets {
                     monoclassruntimeinfo_domain_vtables: 0x4,
                     monovtable_vtable: 0x28,
                     monoclassfieldalignment: 0x10,
-                }),
-                MonoVersion::MonoV2 => Some(Self {
+                },
+                MonoVersion::MonoV2 => Self {
                     monoassembly_aname: 0x8,
                     monoassembly_image: 0x44,
                     monoassemblyname_name: 0x0,
@@ -557,8 +557,29 @@ impl MonoOffsets {
                     monoclassruntimeinfo_domain_vtables: 0x4,
                     monovtable_vtable: 0x28,
                     monoclassfieldalignment: 0x10,
-                }),
-                MonoVersion::MonoV3 => None,
+                },
+                MonoVersion::MonoV3 => Self {
+                    monoassembly_aname: 0x8,
+                    monoassembly_image: 0x48,
+                    monoassemblyname_name: 0x0,
+                    glist_next: 0x4,
+                    monoimage_class_cache: 0x35C,
+                    monointernalhashtable_table: 0x14,
+                    monointernalhashtable_size: 0xC,
+                    monoclassdef_next_class_cache: 0xA0,
+                    monoclassdef_klass: 0x0,
+                    monoclass_name: 0x2C,
+                    monoclass_fields: 0x60,
+                    monoclassdef_field_count: 0x9C,
+                    monoclass_runtime_info: 0x7C,
+                    monoclass_vtable_size: 0x38,
+                    monoclass_parent: 0x20,
+                    monoclassfield_name: 0x4,
+                    monoclassfield_offset: 0xC,
+                    monoclassruntimeinfo_domain_vtables: 0x4,
+                    monovtable_vtable: 0x2C,
+                    monoclassfieldalignment: 0x10,
+                },
             },
         }
     }
