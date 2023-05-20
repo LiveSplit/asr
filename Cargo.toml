@@ -25,6 +25,7 @@ flags = ["bitflags"]
 float-vars = ["ryu"]
 float-vars-small = ["float-vars", "ryu/small"]
 integer-vars = ["itoa"]
+mono = ["signature"]
 signature = ["memchr"]
 
 # Emulators
