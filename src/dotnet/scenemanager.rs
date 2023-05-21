@@ -78,27 +78,33 @@ impl<'a> SceneManager<'a> {
     }
 
     /// Returns the full path to the current scene
-    pub fn get_current_scene_path(&self) -> Result<ArrayString<255>, Error> {
+    pub fn get_current_scene_path<const N: usize>(&self) -> Result<ArrayString<N>, Error> {
         let addr =
             self.read_pointer(self.get_current_scene_address()? + self.offsets.asset_path)?;
-        let path = self.process.read::<[u8; 255]>(addr)?;
-        let mut param: ArrayString<255> = ArrayString::new();
+        let path = self.process.read::<[u8; N]>(addr)?;
+        let mut param: ArrayString<N> = ArrayString::new();
         for val in path {
-            param.push(val as char);
+            let success = param.try_push(val as char);
+            if success.is_err() {
+                return Err(Error {});
+            }
         }
         Ok(param)
     }
 
     /// Returns the name associated with the current scene
-    pub fn get_current_scene_name(&self) -> Result<ArrayString<255>, Error> {
+    pub fn get_current_scene_name<const N: usize>(&self) -> Result<ArrayString<N>, Error> {
         let addr =
             self.read_pointer(self.get_current_scene_address()? + self.offsets.asset_path)?;
-        let path = self.process.read::<[u8; 255]>(addr)?;
+        let path = self.process.read::<[u8; N]>(addr)?;
         let Some(name) = path.split(|&b| b == b'/').last() else { return Err(Error {}) };
         let Some(name) = name.split(|&b| b == b'.').next() else { return Err(Error {}) };
-        let mut param: ArrayString<255> = ArrayString::new();
+        let mut param: ArrayString<N> = ArrayString::new();
         for &val in name {
-            param.push(val as char);
+            let success = param.try_push(val as char);
+            if success.is_err() {
+                return Err(Error {});
+            }
         }
         Ok(param)
     }
@@ -178,28 +184,31 @@ impl Scene<'_> {
             .read::<u32>(self.address + self.scene_manager.offsets.build_index)
     }
 
-    pub fn scene_path(&self) -> Result<ArrayString<255>, Error> {
+    pub fn scene_path<const N: usize>(&self) -> Result<ArrayString<N>, Error> {
         let addr = self
             .scene_manager
             .read_pointer(self.address + self.scene_manager.offsets.asset_path)?;
-        let name = self.scene_manager.process.read::<[u8; 255]>(addr)?;
-        let mut param: ArrayString<255> = ArrayString::new();
+        let name = self.scene_manager.process.read::<[u8; N]>(addr)?;
+        let mut param: ArrayString<N> = ArrayString::new();
         for val in name {
             param.push(val as char);
         }
         Ok(param)
     }
 
-    pub fn scene_name(&self) -> Result<ArrayString<255>, Error> {
+    pub fn scene_name<const N: usize>(&self) -> Result<ArrayString<N>, Error> {
         let addr = self
             .scene_manager
             .read_pointer(self.address + self.scene_manager.offsets.asset_path)?;
-        let path = self.scene_manager.process.read::<[u8; 255]>(addr)?;
+        let path = self.scene_manager.process.read::<[u8; N]>(addr)?;
         let Some(name) = path.split(|&b| b == b'/').last() else { return Err(Error {}) };
         let Some(name) = name.split(|&b| b == b'.').next() else { return Err(Error {}) };
-        let mut param: ArrayString<255> = ArrayString::new();
+        let mut param: ArrayString<N> = ArrayString::new();
         for &val in name {
-            param.push(val as char);
+            let success = param.try_push(val as char);
+            if success.is_err() {
+                return Err(Error {});
+            }
         }
         Ok(param)
     }
