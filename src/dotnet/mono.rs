@@ -114,10 +114,9 @@ impl<'a> MonoModule<'a> {
     }
 
     fn read_pointer(&self, address: Address) -> Result<Address, Error> {
-        if self.is_64_bit {
-            Ok(self.process.read::<Address64>(address)?.into())
-        } else {
-            Ok(self.process.read::<Address32>(address)?.into())
+        match self.is_64_bit {
+            true => Ok(self.process.read::<Address64>(address)?.into()),
+            false => Ok(self.process.read::<Address32>(address)?.into()),
         }
     }
 

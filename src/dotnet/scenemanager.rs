@@ -27,17 +27,22 @@ impl<'a> SceneManager<'a> {
 
         let x64_32 = pe::MachineType::read(process, unity_player.0)? == pe::MachineType::X86_64;
 
-        let address: Address = if x64_32 {
-            let addr = SIG_64_BIT.scan_process_range(process, unity_player)? + 7;
-            addr + 0x4 + process.read::<i32>(addr).ok()?
-        } else if let Some(addr) = SIG_32_1.scan_process_range(process, unity_player) {
-            process.read::<Address32>(addr + 5).ok()?.into()
-        } else if let Some(addr) = SIG_32_2.scan_process_range(process, unity_player) {
-            process.read::<Address32>(addr.add_signed(4)).ok()?.into()
-        } else if let Some(addr) = SIG_32_3.scan_process_range(process, unity_player) {
-            process.read::<Address32>(addr + 7).ok()?.into()
-        } else {
-            return None;
+        let address: Address = match x64_32 {
+            true => {
+                let addr = SIG_64_BIT.scan_process_range(process, unity_player)? + 7;
+                addr + 0x4 + process.read::<i32>(addr).ok()?
+            }
+            false => {
+                if let Some(addr) = SIG_32_1.scan_process_range(process, unity_player) {
+                    process.read::<Address32>(addr + 5).ok()?.into()
+                } else if let Some(addr) = SIG_32_2.scan_process_range(process, unity_player) {
+                    process.read::<Address32>(addr.add_signed(4)).ok()?.into()
+                } else if let Some(addr) = SIG_32_3.scan_process_range(process, unity_player) {
+                    process.read::<Address32>(addr + 7).ok()?.into()
+                } else {
+                    return None;
+                }
+            }
         };
 
         let offsets = SceneManagerOffsets::new(x64_32);
@@ -56,10 +61,9 @@ impl<'a> SceneManager<'a> {
     }
 
     fn read_pointer(&self, address: Address) -> Result<Address, Error> {
-        if self.x64_32 {
-            Ok(self.process.read::<Address64>(address)?.into())
-        } else {
-            Ok(self.process.read::<Address32>(address)?.into())
+        match self.x64_32 {
+            true => Ok(self.process.read::<Address64>(address)?.into()),
+            false => Ok(self.process.read::<Address32>(address)?.into()),
         }
     }
 
