@@ -15,6 +15,16 @@ pub struct MonoModule<'a> {
 }
 
 impl<'a> MonoModule<'a> {
+    /// Attaches to the target Mono process and tries to auto-identify
+    /// the correct mono struct to use.
+    /// 
+    /// If this fails, try specifying the version manually 
+    /// via the `attach()` function. 
+    pub fn try_attach(process: &'a Process) -> Option<Self> {       
+        let mono_version = detect_mono_version(process)?;
+        Self::attach(process, mono_version)
+    }
+    
     /// Attaches to the target Mono process.
     ///
     /// This function will return `None` if either:
@@ -205,28 +215,27 @@ impl MonoImage<'_> {
             + self.mono_module.mono_offsets.monoimage_class_cache
             + self.mono_module.mono_offsets.monointernalhashtable_size) else { return Err(Error{}) };
 
-        let ptr = (0..class_cache_size).flat_map(move |i| {
-            let mut table_addr = self
-                .mono_module
-                .read_pointer(
-                    self.image
-                        + self.mono_module.mono_offsets.monoimage_class_cache
-                        + self.mono_module.mono_offsets.monointernalhashtable_table,
-                )
-                .unwrap_or_default();
+        let table_addr = self
+            .mono_module
+            .read_pointer(
+                self.image
+                    + self.mono_module.mono_offsets.monoimage_class_cache
+                    + self.mono_module.mono_offsets.monointernalhashtable_table,
+            )?;
 
-            let table = self
-                .mono_module
-                .read_pointer(table_addr + i as u64 * self.mono_module.size_of_ptr)
-                .unwrap_or_default();
+        let ptr = (0..class_cache_size).flat_map(move |i| {
+            let mut table = self
+            .mono_module
+            .read_pointer(table_addr + i as u64 * self.mono_module.size_of_ptr)
+            .unwrap_or_default();
 
             iter::from_fn(move || {
-                if !table_addr.is_null() {
+                if !table.is_null() {
                     let class = self.mono_module.read_pointer(table).ok()?;
-                    table_addr = self
+                    table = self
                         .mono_module
                         .read_pointer(
-                            table_addr
+                            table
                                 + self.mono_module.mono_offsets.monoclassdef_next_class_cache,
                         )
                         .unwrap_or_default();
@@ -612,4 +621,72 @@ pub enum MonoVersion {
     MonoV1,
     MonoV2,
     MonoV3,
+}
+
+
+fn detect_mono_version(process: &Process) -> Option<MonoVersion> {
+    if process.get_module_address("mono.dll").is_ok() {
+        return Some(MonoVersion::MonoV1)
+    }
+
+    const SIG: Signature<25> = Signature::new("55 00 6E 00 69 00 74 00 79 00 20 00 56 00 65 00 72 00 73 00 69 00 6F 00 6E");
+    const ZERO: u8 = b'0';
+    const ONE: u8 = b'1';
+    const TWO: u8 = b'2';
+    const THREE: u8 = b'3';
+    const FOUR: u8 = b'4';
+    const FIVE: u8 = b'5';
+    const SIX: u8 = b'6';
+    const SEVEN: u8 = b'7';
+    const EIGHT: u8 = b'8';
+    const NINE: u8 = b'9';
+
+    let unity_module = process.get_module_range("UnityPlayer.dll").ok()?;
+
+    let addr = SIG.scan_process_range(process, unity_module)? + 0x1E;
+    let version_string = process.read::<[u16; 6]>(addr).ok()?;
+    let version_string = version_string.map(|m| m as u8);
+    let mut ver = version_string.split(|&b| b == b'.');
+
+    let version = ver.next()?;
+    let mut unity: u32 = 0;
+    for &val in version {
+        match val {
+            ZERO => unity *= 10,
+            ONE => unity = unity * 10 + 1,
+            TWO => unity = unity * 10 + 2,
+            THREE => unity = unity * 10 + 3,
+            FOUR => unity = unity * 10 + 4,
+            FIVE => unity = unity * 10 + 5,
+            SIX => unity = unity * 10 + 6,
+            SEVEN => unity = unity * 10 + 7,
+            EIGHT => unity = unity * 10 + 8,
+            NINE => unity = unity * 10 + 9,
+            _ => break,
+        }
+    }
+
+    let version = ver.next()?;
+    let mut unity_minor: u32 = 0;
+    for &val in version {
+        match val {
+            ZERO => unity_minor *= 10,
+            ONE => unity_minor = unity_minor * 10 + 1,
+            TWO => unity_minor = unity_minor * 10 + 2,
+            THREE => unity_minor = unity_minor * 10 + 3,
+            FOUR => unity_minor = unity_minor * 10 + 4,
+            FIVE => unity_minor = unity_minor * 10 + 5,
+            SIX => unity_minor = unity_minor * 10 + 6,
+            SEVEN => unity_minor = unity_minor * 10 + 7,
+            EIGHT => unity_minor = unity_minor * 10 + 8,
+            NINE => unity_minor = unity_minor * 10 + 9,
+            _ => break,
+        }
+    }
+
+    if (unity == 2021 && unity_minor >= 2) || (unity > 2021) {
+        Some(MonoVersion::MonoV3)
+    } else {
+        Some(MonoVersion::MonoV2)
+    }
 }
