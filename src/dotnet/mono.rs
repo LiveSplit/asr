@@ -623,7 +623,6 @@ pub enum MonoVersion {
     MonoV3,
 }
 
-
 fn detect_mono_version(process: &Process) -> Option<MonoVersion> {
     if process.get_module_address("mono.dll").is_ok() {
         return Some(MonoVersion::MonoV1)

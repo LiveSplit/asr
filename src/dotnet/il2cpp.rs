@@ -15,7 +15,17 @@ pub struct Il2CppModule<'a> {
 }
 
 impl<'a> Il2CppModule<'a> {
-    /// Attaches to the target Mono process.
+    /// Attaches to the target process and tries to auto-identify
+    /// the correct Il2Cpp struct to use.
+    /// 
+    /// If this fails, try specifying the version manually 
+    /// via the `attach()` function. 
+    pub fn try_attach(process: &'a Process) -> Option<Self> {       
+        let mono_version = detect_il2cpp_version(process)?;
+        Self::attach(process, mono_version)
+    }
+
+    /// Attaches to the target process.
     ///
     /// This function will return `None` if either:
     /// - The process is not identified
@@ -344,4 +354,68 @@ pub enum Il2CppVersion {
     Il2Cpp_base,
     Il2Cpp_2019,
     Il2Cpp_2020,
+}
+
+#[allow(clippy::style)]
+fn detect_il2cpp_version(process: &Process) -> Option<Il2CppVersion> {
+    let unity_module = process.get_module_range("UnityPlayer.dll").ok()?;
+
+    if pe::MachineType::read(process, unity_module.0)? == pe::MachineType::X86 {
+        return Some(Il2CppVersion::Il2Cpp_base)
+    }
+
+    const SIG: Signature<25> = Signature::new("55 00 6E 00 69 00 74 00 79 00 20 00 56 00 65 00 72 00 73 00 69 00 6F 00 6E");
+    const ZERO: u8 = b'0';
+    const ONE: u8 = b'1';
+    const TWO: u8 = b'2';
+    const THREE: u8 = b'3';
+    const FOUR: u8 = b'4';
+    const FIVE: u8 = b'5';
+    const SIX: u8 = b'6';
+    const SEVEN: u8 = b'7';
+    const EIGHT: u8 = b'8';
+    const NINE: u8 = b'9';
+
+    let addr = SIG.scan_process_range(process, unity_module)? + 0x1E;
+    let version_string = process.read::<[u16; 6]>(addr).ok()?;
+    let version_string = version_string.map(|m| m as u8);
+    let mut ver = version_string.split(|&b| b == b'.');
+
+    let version = ver.next()?;
+    let mut il2cpp: u32 = 0;
+    for &val in version {
+        match val {
+            ZERO => il2cpp *= 10,
+            ONE => il2cpp = il2cpp * 10 + 1,
+            TWO => il2cpp = il2cpp * 10 + 2,
+            THREE => il2cpp = il2cpp * 10 + 3,
+            FOUR => il2cpp = il2cpp * 10 + 4,
+            FIVE => il2cpp = il2cpp * 10 + 5,
+            SIX => il2cpp = il2cpp * 10 + 6,
+            SEVEN => il2cpp = il2cpp * 10 + 7,
+            EIGHT => il2cpp = il2cpp * 10 + 8,
+            NINE => il2cpp = il2cpp * 10 + 9,
+            _ => break,
+        }
+    }
+
+    if il2cpp < 2019 {
+        Some(Il2CppVersion::Il2Cpp_base)
+    } else if il2cpp == 2019 {
+        Some(Il2CppVersion::Il2Cpp_2019)
+    } else {
+        const SIG_METADATA: Signature<9> = Signature::new("4C 8B 05 ?? ?? ?? ?? 49 63");
+        let gameassembly = process.get_module_range("GameAssembly.dll").ok()?;
+
+        let Some(addr) = SIG_METADATA.scan_process_range(process, gameassembly) else { return Some(Il2CppVersion::Il2Cpp_2019) };
+        let addr: Address = addr + 3;
+        let addr: Address = addr + 0x4 + process.read::<i32>(addr).ok()?;
+        let version = process.read::<i32>(addr + 4).ok()?;
+
+        if version >= 27 {
+            Some(Il2CppVersion::Il2Cpp_2020)
+        } else {
+            Some(Il2CppVersion::Il2Cpp_2019)
+        }
+    }
 }
