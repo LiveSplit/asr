@@ -16,12 +16,15 @@ ryu = { version = "1.0.11", default-features = false, optional = true }
 time = { version = "0.3.5", default-features = false }
 
 [features]
-integer-vars = ["itoa"]
+alloc = []
+derive = ["asr-derive"]
+flags = ["bitflags"]
 float-vars = ["ryu"]
 float-vars-small = ["float-vars", "ryu/small"]
-flags = ["bitflags"]
+integer-vars = ["itoa"]
+signature = ["memchr"]
+
+# Emulators
 gba = []
 genesis = ["flags", "signature"]
 ps1 = ["flags", "signature"]
-signature = ["memchr"]
-derive = ["asr-derive"]

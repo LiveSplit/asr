@@ -46,6 +46,29 @@ impl Process {
         unsafe { sys::process_is_open(self.0) }
     }
 
+    /// Gets the path of the executable in the file system. The path is a path
+    /// that is accessible through the WASI file system, so a Windows path of
+    /// `C:\foo\bar.exe` would be returned as `/mnt/c/foo/bar.exe`.
+    #[cfg(feature = "alloc")]
+    #[inline]
+    pub fn get_path(&self) -> Result<alloc::string::String, Error> {
+        // SAFETY: Calling `process_get_path` with a null pointer and 0 length
+        // will return the required length. We then allocate a buffer with the
+        // required length and call it again with the buffer. We then convert
+        // the buffer into a string, which is guaranteed to be valid UTF-8.
+        unsafe {
+            let mut len = 0;
+            sys::process_get_path(self.0, core::ptr::null_mut(), &mut len);
+            let mut buf = alloc::vec::Vec::with_capacity(len);
+            let success = sys::process_get_path(self.0, buf.as_mut_ptr(), &mut len);
+            if !success {
+                return Err(Error {});
+            }
+            buf.set_len(len);
+            Ok(alloc::string::String::from_utf8_unchecked(buf))
+        }
+    }
+
     /// Gets the address of a module in the process.
     #[inline]
     pub fn get_module_address(&self, name: &str) -> Result<Address, Error> {
