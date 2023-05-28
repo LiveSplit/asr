@@ -1,6 +1,6 @@
 //! Support for parsing Windows Portable Executables.
 
-use core::fmt;
+use core::{fmt, mem};
 
 use bytemuck::{Pod, Zeroable};
 
@@ -66,6 +66,35 @@ struct COFFHeader {
     characteristics: u16,
 }
 
+#[derive(Debug, Copy, Clone, Zeroable, Pod)]
+#[repr(C)]
+struct OptionalCOFFHeader {
+    magic: u16,
+    major_linker_version: u8,
+    minor_linker_version: u8,
+    size_of_code: u32,
+    size_of_initialized_data: u32,
+    size_of_uninitialized_data: u32,
+    address_of_entry_point: u32,
+    base_of_code: u32,
+    image_base_or_base_of_data: u64,
+    section_alignment: u32,
+    file_alignment: u32,
+    major_operating_system_version: u16,
+    minor_operating_system_version: u16,
+    major_image_version: u16,
+    minor_image_version: u16,
+    major_subsystem_version: u16,
+    minor_subsystem_version: u16,
+    win32_version_value: u32,
+    size_of_image: u32,
+    size_of_headers: u32,
+    checksum: u32,
+    subsystem: u16,
+    dll_characteristics: u16,
+    // There's more but those vary depending on whether it's PE or PE+.
+}
+
 /// The machine type (architecture) of a module in a process. An image file can
 /// be run only on the specified machine or on a system that emulates the
 /// specified machine.
@@ -81,19 +110,7 @@ impl MachineType {
     pub fn read(process: &Process, module_address: impl Into<Address>) -> Option<Self> {
         let module_address: Address = module_address.into();
 
-        let dos_header = process.read::<DOSHeader>(module_address).ok()?;
-
-        if dos_header.e_magic != *b"MZ" {
-            return None;
-        }
-
-        let coff_header = process
-            .read::<COFFHeader>(module_address + dos_header.e_lfanew.from_le())
-            .ok()?;
-
-        if coff_header.magic != *b"PE\0\0" {
-            return None;
-        }
+        let (coff_header, _) = read_coff_header(process, module_address)?;
 
         Some(Self(coff_header.machine))
     }
@@ -209,4 +226,41 @@ impl MachineType {
     pub const THUMB: Self = Self(0x1c2);
     /// MIPS little-endian WCE v2
     pub const WCEMIPSV2: Self = Self(0x169);
+}
+
+/// Reads the size of the image of a module (`exe` or `dll`) from the given
+/// process. This may be the more accurate size of the module on Linux, as
+/// Proton / Wine don't necessarily report the module size correctly.
+pub fn read_size_of_image(process: &Process, module_address: impl Into<Address>) -> Option<u32> {
+    let module_address: Address = module_address.into();
+
+    let (coff_header, coff_header_address) = read_coff_header(process, module_address)?;
+
+    if (coff_header.size_of_optional_header as usize) < mem::size_of::<OptionalCOFFHeader>() {
+        return None;
+    }
+
+    let optional_header = process
+        .read::<OptionalCOFFHeader>(coff_header_address + mem::size_of::<COFFHeader>() as u64)
+        .ok()?;
+
+    Some(optional_header.size_of_image)
+}
+
+fn read_coff_header(process: &Process, module_address: Address) -> Option<(COFFHeader, Address)> {
+    let dos_header = process.read::<DOSHeader>(module_address).ok()?;
+
+    if dos_header.e_magic != *b"MZ" {
+        return None;
+    }
+
+    let coff_header_address = module_address + dos_header.e_lfanew.from_le();
+
+    let coff_header = process.read::<COFFHeader>(coff_header_address).ok()?;
+
+    if coff_header.magic != *b"PE\0\0" {
+        return None;
+    }
+
+    Some((coff_header, coff_header_address))
 }
