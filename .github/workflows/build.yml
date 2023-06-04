@@ -16,10 +16,15 @@ jobs:
       matrix:
         label:
           - WebAssembly Unknown
+          - WebAssembly WASI
 
         include:
           - label: WebAssembly Unknown
             target: wasm32-unknown-unknown
+            os: ubuntu-latest
+            install_target: true
+          - label: WebAssembly WASI
+            target: wasm32-wasi
             os: ubuntu-latest
             install_target: true
 
