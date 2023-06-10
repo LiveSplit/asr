@@ -83,6 +83,9 @@ extern "C" {
         name_len: usize,
     ) -> Option<NonZeroU64>;
 
+    #[cfg(feature = "alloc")]
+    pub fn process_get_path(process: ProcessId, buf_ptr: *mut u8, buf_len_ptr: *mut usize) -> bool;
+
     /// Gets the number of memory ranges in a given process.
     pub fn process_get_memory_range_count(process: ProcessId) -> Option<NonZeroU64>;
     /// Gets the start address of a memory range by its index.

@@ -84,9 +84,15 @@ use core::{
 use crate::signature::Signature;
 use crate::{Address, Process};
 
+#[cfg(target_os = "wasi")]
+mod time;
+#[cfg(target_os = "wasi")]
+pub use self::time::*;
+
 /// A future that yields back to the runtime and continues on the next tick. It's
 /// important to yield back to the runtime to communicate that the auto splitter
 /// is still alive.
+#[must_use = "You need to await this future."]
 pub struct NextTick(bool);
 
 impl Future for NextTick {
@@ -101,8 +107,9 @@ impl Future for NextTick {
     }
 }
 
-/// A future that retries the given function until it returns `Some`, yielding
+/// A future that retries the given function until it returns [`Some`], yielding
 /// back to the runtime between each call.
+#[must_use = "You need to await this future."]
 pub struct Retry<F> {
     f: F,
 }
@@ -133,7 +140,6 @@ impl<O: IntoOption, F: FnMut() -> O + Unpin> Future for Retry<F> {
 /// }
 /// # }
 /// ```
-#[must_use = "You need to await this future."]
 pub const fn next_tick() -> NextTick {
     NextTick(false)
 }
@@ -165,7 +171,6 @@ pub const fn next_tick() -> NextTick {
 /// }).await;
 /// # }
 /// ```
-#[must_use = "You need to await this future."]
 pub const fn retry<O: IntoOption, F: FnMut() -> O + Unpin>(f: F) -> Retry<F> {
     Retry { f }
 }

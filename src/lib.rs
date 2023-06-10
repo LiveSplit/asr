@@ -123,6 +123,9 @@
 //! }
 //! ```
 
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
 mod primitives;
 mod runtime;
 
