@@ -33,6 +33,20 @@ pub fn split() {
     unsafe { sys::timer_split() }
 }
 
+/// Skips the current split.
+#[inline]
+pub fn skip_split() {
+    // SAFETY: It is always safe to call this function.
+    unsafe { sys::timer_skip_split() }
+}
+
+/// Undoes the previous split.
+#[inline]
+pub fn undo_split() {
+    // SAFETY: It is always safe to call this function.
+    unsafe { sys::timer_undo_split() }
+}
+
 /// Resets the timer.
 #[inline]
 pub fn reset() {
