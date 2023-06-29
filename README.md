@@ -4,6 +4,8 @@
 Helper crate to write auto splitters for LiveSplit One's auto splitting
 runtime.
 
+[API Documentation](https://livesplit.org/asr/asr/)
+
 There are two ways of defining an auto splitter.
 
 ## Defining an `update` function
