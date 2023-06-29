@@ -1,9 +1,9 @@
 //! Futures support for writing auto splitters with asynchronous code.
 //!
 //! If you want to write an auto splitter that uses asynchronous code, you can
-//! use the [`async_main`](crate::async_main) macro to define an asynchronous `main` function
-//! instead of defining an `update` function as the entrypoint for your auto
-//! splitter.
+//! use the [`async_main`](crate::async_main) macro to define an asynchronous
+//! `main` function instead of defining an `update` function as the entrypoint
+//! for your auto splitter.
 //!
 //! Similar to using an `update` function, it is important to constantly yield
 //! back to the runtime to communicate that the auto splitter is still alive.
@@ -72,6 +72,35 @@
 //!     }
 //! }
 //! ```
+//!
+//! # Running multiple tasks concurrently
+//!
+//! If you want to run multiple tasks concurrently, you can call the
+//! [`run_tasks`] function. This will wrap a future and provide a `tasks` object
+//! to it, which you can use to spawn tasks that will run in the background. The
+//! entire future will complete once all tasks have completed.
+//!
+//! ```no_run
+//! # use asr::future::run_tasks;
+//! # async fn example() {
+//! run_tasks(|tasks| async move {
+//!     // do some work
+//!
+//!     tasks.spawn(async {
+//!         // do some background work
+//!     });
+//!
+//!     // use spawn_recursive to spawn tasks that can spawn further tasks
+//!     tasks.spawn_recursive(|tasks| async move {
+//!         tasks.spawn(async {
+//!             // do some background work
+//!         });
+//!     });
+//!
+//!     // do some work
+//! }).await;
+//! # }
+//! ```
 
 use core::{
     future::Future,
@@ -88,6 +117,11 @@ use crate::{Address, Process};
 mod time;
 #[cfg(target_os = "wasi")]
 pub use self::time::*;
+
+#[cfg(feature = "alloc")]
+mod task;
+#[cfg(feature = "alloc")]
+pub use self::task::*;
 
 /// A future that yields back to the runtime and continues on the next tick. It's
 /// important to yield back to the runtime to communicate that the auto splitter
