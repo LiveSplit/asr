@@ -5,17 +5,7 @@ use core::{
     time::Duration,
 };
 
-fn current_time() -> u64 {
-    // SAFETY: This is copied from std, so it should be fine.
-    // https://github.com/rust-lang/rust/blob/dd5d7c729d4e8a59708df64002e09dbcbc4005ba/library/std/src/sys/wasi/time.rs#L15
-    unsafe {
-        wasi::clock_time_get(
-            wasi::CLOCKID_MONOTONIC,
-            1, // precision... seems ignored though?
-        )
-        .unwrap()
-    }
-}
+use crate::time_util::Instant;
 
 /// A type that provides futures that resolve in fixed intervals.
 ///
@@ -66,7 +56,7 @@ impl Interval {
 pub fn interval(duration: Duration) -> Interval {
     let duration = duration.as_nanos() as u64;
     Interval {
-        next: current_time() + duration,
+        next: Instant::now().0 + duration,
         duration,
     }
 }
@@ -87,9 +77,7 @@ impl Future for Sleep {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Self::Output> {
-        let time = current_time();
-
-        if time < self.0 {
+        if Instant::now().0 < self.0 {
             Poll::Pending
         } else {
             Poll::Ready(())
@@ -107,7 +95,7 @@ impl Future for Sleep {
 /// print_message("A second has passed!");
 /// ```
 pub fn sleep(duration: Duration) -> Sleep {
-    Sleep(current_time() + duration.as_nanos() as u64)
+    Sleep(Instant::now().0 + duration.as_nanos() as u64)
 }
 
 /// A future that resolves to [`None`] after a certain amount of time, if the
