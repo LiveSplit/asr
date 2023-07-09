@@ -1,7 +1,7 @@
 use heck::ToTitleCase;
 use proc_macro::TokenStream;
-use quote::quote;
-use syn::{Data, DeriveInput, Expr, ExprLit, Lit, LitStr, Meta};
+use quote::{quote, quote_spanned};
+use syn::{spanned::Spanned, Data, DeriveInput, Expr, ExprLit, Lit, Meta};
 
 /// Generates a `register` method for a struct that automatically registers its
 /// fields as settings and returns the struct with the user's settings applied.
@@ -11,7 +11,11 @@ use syn::{Data, DeriveInput, Expr, ExprLit, Lit, LitStr, Meta};
 /// ```no_run
 /// #[derive(Settings)]
 /// struct MySettings {
+///     /// General Settings
+///     _general_settings: Title,
 ///     /// Use Game Time
+///     ///
+///     /// This is the tooltip.
 ///     use_game_time: bool,
 /// }
 /// ```
@@ -21,12 +25,14 @@ use syn::{Data, DeriveInput, Expr, ExprLit, Lit, LitStr, Meta};
 /// ```no_run
 /// impl MySettings {
 ///    pub fn register() -> Self {
-///       let use_game_time = asr::Setting::register("use_game_time", "Use Game Time", false);
+///       asr::user_settings::add_title("_general_settings", "General Settings", 0);
+///       let use_game_time = asr::user_settings::add_bool("use_game_time", "Use Game Time", false);
+///       asr::user_settings::set_tooltip("use_game_time", "This is the tooltip.");
 ///       Self { use_game_time }
 ///    }
 /// }
 /// ```
-#[proc_macro_derive(Settings, attributes(default))]
+#[proc_macro_derive(Settings, attributes(default, heading_level))]
 pub fn settings_macro(input: TokenStream) -> TokenStream {
     let ast: DeriveInput = syn::parse(input).unwrap();
 
@@ -40,60 +46,89 @@ pub fn settings_macro(input: TokenStream) -> TokenStream {
     let mut field_names = Vec::new();
     let mut field_name_strings = Vec::new();
     let mut field_descs = Vec::new();
-    let mut field_defaults = Vec::new();
+    let mut field_tooltips = Vec::new();
+    let mut field_tys = Vec::new();
+    let mut args_init = Vec::new();
     for field in struct_data.fields {
         let ident = field.ident.clone().unwrap();
         let ident_name = ident.to_string();
-        let ident_span = ident.span();
         field_names.push(ident);
-        field_descs.push(
-            field
-                .attrs
-                .iter()
-                .find_map(|x| {
-                    let Meta::NameValue(nv) = &x.meta else { return None };
-                    if nv.path.get_ident()? != "doc" {
-                        return None;
+        field_tys.push(field.ty);
+        let mut doc_string = String::new();
+        let mut tooltip_string = String::new();
+        let mut is_in_tooltip = false;
+        for attr in &field.attrs {
+            let Meta::NameValue(nv) = &attr.meta else { continue };
+            let Some(ident) =  nv.path.get_ident() else { continue };
+            if ident != "doc" {
+                continue;
+            }
+            let Expr::Lit(ExprLit {
+                lit: Lit::Str(s), ..
+            }) = &nv.value else { continue };
+            let value = s.value();
+            let value = value.trim();
+            let target_string = if is_in_tooltip {
+                &mut tooltip_string
+            } else {
+                &mut doc_string
+            };
+            if !target_string.is_empty() {
+                if value.is_empty() {
+                    if !is_in_tooltip {
+                        is_in_tooltip = true;
+                        continue;
                     }
-                    let Expr::Lit(ExprLit {
-                        lit: Lit::Str(s), ..
-                    }) = &nv.value else { return None };
-                    let lit = LitStr::new(s.value().trim(), s.span());
-                    Some(Expr::Lit(ExprLit {
-                        attrs: Vec::new(),
-                        lit: Lit::Str(lit),
-                    }))
-                })
-                .unwrap_or_else(|| {
-                    Expr::Lit(ExprLit {
-                        attrs: Vec::new(),
-                        lit: Lit::Str(LitStr::new(&ident_name.to_title_case(), ident_span)),
-                    })
-                }),
-        );
+                    target_string.push('\n');
+                } else if !target_string.ends_with(|c: char| c.is_whitespace()) {
+                    target_string.push(' ');
+                }
+            }
+            target_string.push_str(&value);
+        }
+        if doc_string.is_empty() {
+            doc_string = ident_name.to_title_case();
+        }
+
+        field_descs.push(doc_string);
+        field_tooltips.push(if tooltip_string.is_empty() {
+            quote! {}
+        } else {
+            quote! { asr::user_settings::set_tooltip(#ident_name, #tooltip_string); }
+        });
         field_name_strings.push(ident_name);
-        field_defaults.push(
-            field
-                .attrs
-                .iter()
-                .find_map(|x| {
-                    let Meta::NameValue(nv) = &x.meta else { return None };
-                    if !nv.path.is_ident("default") {
-                        return None;
-                    }
-                    Some(nv.value.clone())
-                })
-                .unwrap_or_else(|| {
-                    syn::parse(quote! { ::core::default::Default::default() }.into()).unwrap()
-                }),
-        );
+
+        let args = field
+            .attrs
+            .iter()
+            .filter_map(|x| {
+                let Meta::NameValue(nv) = &x.meta else { return None };
+                let span = nv.span();
+                if nv.path.is_ident("default") {
+                    let value = &nv.value;
+                    Some(quote_spanned! { span => args.default = #value; })
+                } else if nv.path.is_ident("heading_level") {
+                    let value = &nv.value;
+                    Some(quote_spanned! { span => args.heading_level = #value; })
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        args_init.push(quote! { #(#args)* });
     }
 
     quote! {
         impl #struct_name {
             pub fn register() -> Self {
                 Self {
-                    #(#field_names: asr::Setting::register(#field_name_strings, #field_descs, #field_defaults),)*
+                    #(#field_names: {
+                        let mut args = <#field_tys as asr::user_settings::Setting>::Args::default();
+                        #args_init
+                        let mut value = asr::user_settings::Setting::register(#field_name_strings, #field_descs, args);
+                        #field_tooltips
+                        value
+                    },)*
                 }
             }
         }

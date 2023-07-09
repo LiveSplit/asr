@@ -91,7 +91,8 @@ impl<const N: usize> ArrayWString<N> {
     }
 
     /// Returns the 16-bit characters of the string up until (but excluding) the
-    /// nul-terminator. If there is no nul-terminator, all bytes are returned.
+    /// nul-terminator. If there is no nul-terminator, all characters are
+    /// returned.
     pub fn as_slice(&self) -> &[u16] {
         let len = self.0.iter().position(|&b| b == 0).unwrap_or(N);
         &self.0[..len]
@@ -101,9 +102,9 @@ impl<const N: usize> ArrayWString<N> {
     /// calling [`as_slice`](Self::as_slice) and then comparing, because it can
     /// use the length information of the parameter.
     pub fn matches(&self, text: impl AsRef<[u16]>) -> bool {
-        let bytes = text.as_ref();
-        !self.0.get(bytes.len()).is_some_and(|&b| b != 0)
-            && self.0.get(..bytes.len()).is_some_and(|s| s == bytes)
+        let chars = text.as_ref();
+        !self.0.get(chars.len()).is_some_and(|&b| b != 0)
+            && self.0.get(..chars.len()).is_some_and(|s| s == chars)
     }
 
     /// Checks whether the string matches the given text. This dynamically

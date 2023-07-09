@@ -1,5 +1,5 @@
 pub use memory_range::*;
-pub use process::Process;
+pub use process::*;
 
 mod memory_range;
 mod process;
@@ -12,20 +12,6 @@ pub mod user_settings;
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct Error {}
-
-/// A type that can be registered as a user setting.
-pub trait Setting {
-    /// Registers the setting with the given key, description and default value.
-    /// Returns the value that the user has set or the default value if the user
-    /// did not set a value.
-    fn register(key: &str, description: &str, default_value: Self) -> Self;
-}
-
-impl Setting for bool {
-    fn register(key: &str, description: &str, default_value: Self) -> Self {
-        user_settings::add_bool(key, description, default_value)
-    }
-}
 
 /// Sets the tick rate of the runtime. This influences how many times per second
 /// the `update` function is called. The default tick rate is 120 ticks per
