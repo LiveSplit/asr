@@ -53,9 +53,14 @@ jobs:
         run: |
           cargo build --all-features --target ${{ matrix.target }}
 
-      - name: Test (All Features)
+      - name: Test (Target, All Features)
         run: |
           cargo test --all-features
+
+      # Test on the host to also run the doc tests
+      - name: Test (Host, All Features)
+        run: |
+          cargo test --target x86_64-unknown-linux-gnu --all-features
 
   clippy:
     name: Check clippy lints

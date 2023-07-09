@@ -141,7 +141,7 @@ pub mod sync;
 pub mod time_util;
 pub mod watcher;
 
-pub use self::{primitives::*, runtime::*};
+pub use self::{primitives::*, runtime::*, user_settings::Setting};
 pub use arrayvec;
 pub use time;
 

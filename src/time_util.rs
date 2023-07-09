@@ -28,8 +28,8 @@ mod instant {
         }
     }
 
-    /// A version of [`std::time::Instant`] using WASI that doesn't need the
-    /// standard library.
+    /// A version of the standard library's `Instant` using WASI that doesn't
+    /// need the standard library.
     #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
     #[repr(transparent)]
     pub struct Instant(pub(crate) Timestamp);
