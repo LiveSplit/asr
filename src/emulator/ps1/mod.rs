@@ -104,7 +104,7 @@ impl Emulator {
         };
 
         let Some(ram_base) = self.ram_base else {
-            return Err(Error {})
+            return Err(Error {});
         };
 
         let end_offset = offset.checked_sub(0x80000000).unwrap_or(offset);

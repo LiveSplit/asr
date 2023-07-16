@@ -130,9 +130,9 @@ extern crate alloc;
 mod primitives;
 mod runtime;
 
-pub mod emulator;
 #[cfg(any(feature = "mono", feature = "il2cpp"))]
 pub mod dotnet;
+pub mod emulator;
 #[macro_use]
 pub mod future;
 pub mod file_format;

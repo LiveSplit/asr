@@ -55,11 +55,11 @@ impl State {
 
     pub fn keep_alive(&self, game: &Process) -> bool {
         if self.is_64_bit {
-            let Ok(addr) = game.read::<Address64>(self.addr_base) else { return false };
-            self.addr == addr.into()
+            game.read::<Address64>(self.addr_base)
+                .is_ok_and(|addr| self.addr == addr.into())
         } else {
-            let Ok(addr) = game.read::<Address32>(self.addr_base) else { return false };
-            self.addr == addr.into()
+            game.read::<Address32>(self.addr_base)
+                .is_ok_and(|addr| self.addr == addr.into())
         }
     }
 
