@@ -11,6 +11,9 @@ pub enum Endian {
     Little,
 }
 
+#[cfg(feature = "derive")]
+pub use asr_derive::FromEndian;
+
 /// A trait for converting from big or little endian.
 #[allow(clippy::wrong_self_convention)]
 pub trait FromEndian: Sized {

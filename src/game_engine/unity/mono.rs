@@ -7,7 +7,10 @@ use crate::{
 };
 use core::iter;
 
-/// Represent access to a Unity game that is using the standard Mono backend.
+#[cfg(feature = "derive")]
+pub use asr_derive::MonoClass as Class;
+
+/// Represents access to a Unity game that is using the standard Mono backend.
 pub struct Module {
     is_64_bit: bool,
     version: Version,
@@ -240,7 +243,7 @@ pub struct Image {
 }
 
 impl Image {
-    /// Iterates over all [.NET classes](Class) in the image.
+    /// Iterates over all [.NET classes](struct@Class) in the image.
     pub fn classes<'a>(
         &self,
         process: &'a Process,
@@ -286,7 +289,7 @@ impl Image {
         }))
     }
 
-    /// Tries to find the specified [.NET class](Class) in the image.
+    /// Tries to find the specified [.NET class](struct@Class) in the image.
     pub fn get_class(&self, process: &Process, module: &Module, class_name: &str) -> Option<Class> {
         let mut classes = self.classes(process, module).ok()?;
         classes.find(|c| {
@@ -313,9 +316,9 @@ impl Image {
         })
     }
 
-    /// Tries to find the specified [.NET class](Class) in the image. This is
-    /// the `await`able version of the [`get_class`](Self::get_class) function,
-    /// yielding back to the runtime between each try.
+    /// Tries to find the specified [.NET class](struct@Class) in the image.
+    /// This is the `await`able version of the [`get_class`](Self::get_class)
+    /// function, yielding back to the runtime between each try.
     pub async fn wait_get_class(
         &self,
         process: &Process,
@@ -370,6 +373,30 @@ impl Class {
         process
             .read(field + module.offsets.monoclassfield_offset)
             .ok()
+    }
+
+    /// Tries to find the address of a static instance of the class based on its
+    /// field name. This waits until the field is not null.
+    pub async fn wait_get_static_instance(
+        &self,
+        process: &Process,
+        module: &Module,
+        field_name: &str,
+    ) -> Address {
+        let static_table = self.wait_get_static_table(process, module).await;
+        let field_offset = self.wait_get_field(process, module, field_name).await;
+        let singleton_location = static_table + field_offset;
+
+        retry(|| {
+            let addr = module.read_pointer(process, singleton_location).ok()?;
+
+            if addr.is_null() {
+                None
+            } else {
+                Some(addr)
+            }
+        })
+        .await
     }
 
     /// Returns the address of the static table of the class. This contains the
