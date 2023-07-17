@@ -2,6 +2,9 @@
 
 use super::sys;
 
+#[cfg(feature = "derive")]
+pub use asr_derive::Settings;
+
 /// Adds a new boolean setting that the user can modify. This will return either
 /// the specified default value or the value that the user has set. The key is
 /// used to store the setting and needs to be unique across all types of

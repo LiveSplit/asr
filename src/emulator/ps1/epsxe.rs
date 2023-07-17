@@ -1,4 +1,4 @@
-use crate::{Address, Process, signature::Signature};
+use crate::{signature::Signature, Address, Address32, Process};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct State;
@@ -14,7 +14,7 @@ impl State {
 
         let ptr = SIG.scan_process_range(game, main_module_range)? + 5;
 
-        Some(game.read::<u32>(ptr).ok()?.into())
+        Some(game.read::<Address32>(ptr).ok()?.into())
     }
 
     pub const fn keep_alive(&self) -> bool {

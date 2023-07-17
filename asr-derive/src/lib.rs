@@ -203,3 +203,98 @@ pub fn from_endian_macro(input: TokenStream) -> TokenStream {
     }
     .into()
 }
+
+#[cfg(feature = "unity")]
+mod unity;
+
+/// A derive macro that can be used to bind to a .NET class. This allows reading
+/// the contents of an instance of the class described by the struct from a
+/// process. Each field must match the name of the field in the class exactly
+/// and needs to be of a type that can be read from a process.
+///
+/// # Example
+///
+/// ```no_run
+/// #[derive(Class)]
+/// struct Timer {
+///     currentLevelTime: f32,
+///     timerStopped: bool,
+/// }
+/// ```
+///
+/// This will bind to a .NET class of the following shape:
+///
+/// ```csharp
+/// class Timer
+/// {
+///     float currentLevelTime;
+///     bool timerStopped;
+///     // ...
+/// }
+/// ```
+///
+/// The class can then be bound to the process like so:
+///
+/// ```no_run
+/// let timer_class = Timer::bind(&process, &module, &image).await;
+/// ```
+///
+/// Once you have an instance, you can read the instance from the process like
+/// so:
+///
+/// ```no_run
+/// if let Ok(timer) = timer_class.read(&process, timer_instance) {
+///     // Do something with the instance.
+/// }
+/// ```
+#[cfg(feature = "unity")]
+#[proc_macro_derive(Il2cppClass)]
+pub fn il2cpp_class_binding(input: TokenStream) -> TokenStream {
+    unity::process(input, quote! { asr::game_engine::unity::il2cpp })
+}
+
+/// A derive macro that can be used to bind to a .NET class. This allows reading
+/// the contents of an instance of the class described by the struct from a
+/// process. Each field must match the name of the field in the class exactly
+/// and needs to be of a type that can be read from a process.
+///
+/// # Example
+///
+/// ```no_run
+/// #[derive(Class)]
+/// struct Timer {
+///     currentLevelTime: f32,
+///     timerStopped: bool,
+/// }
+/// ```
+///
+/// This will bind to a .NET class of the following shape:
+///
+/// ```csharp
+/// class Timer
+/// {
+///     float currentLevelTime;
+///     bool timerStopped;
+///     // ...
+/// }
+/// ```
+///
+/// The class can then be bound to the process like so:
+///
+/// ```no_run
+/// let timer_class = Timer::bind(&process, &module, &image).await;
+/// ```
+///
+/// Once you have an instance, you can read the instance from the process like
+/// so:
+///
+/// ```no_run
+/// if let Ok(timer) = timer_class.read(&process, timer_instance) {
+///     // Do something with the instance.
+/// }
+/// ```
+#[cfg(feature = "unity")]
+#[proc_macro_derive(MonoClass)]
+pub fn mono_class_binding(input: TokenStream) -> TokenStream {
+    unity::process(input, quote! { asr::game_engine::unity::mono })
+}

@@ -27,6 +27,9 @@ float-vars-small = ["float-vars", "ryu/small"]
 integer-vars = ["itoa"]
 signature = ["memchr"]
 
+# Game Engines
+unity = ["signature", "asr-derive?/unity"]
+
 # Emulators
 gba = []
 genesis = ["flags", "signature"]

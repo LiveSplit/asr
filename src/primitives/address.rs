@@ -140,3 +140,21 @@ define_pod_addr!(#[doc = "16-bit address that can be read from a process's memor
 define_pod_addr!(#[doc = "32-bit address that can be read from a process's memory."] Address32 => u32 => i32);
 define_pod_addr!(#[doc = "64-bit address that can be read from a process's memory."] Address64 => u64 => i64);
 define_addr!(#[doc = "general purpose address."] Address => u64 => i64);
+
+impl Add<u8> for Address {
+    type Output = Self;
+
+    #[inline]
+    fn add(self, bytes: u8) -> Self {
+        Self(self.0.wrapping_add(bytes as _))
+    }
+}
+
+impl Add<i8> for Address {
+    type Output = Self;
+
+    #[inline]
+    fn add(self, bytes: i8) -> Self {
+        Self(self.0.wrapping_add_signed(bytes as _))
+    }
+}
