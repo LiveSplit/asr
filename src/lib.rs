@@ -140,6 +140,8 @@ pub mod signature;
 pub mod string;
 pub mod sync;
 pub mod time_util;
+#[cfg(all(feature = "wasi-no-std", target_os = "wasi"))]
+mod wasi_no_std;
 pub mod watcher;
 
 pub use self::{primitives::*, runtime::*};
