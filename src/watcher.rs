@@ -27,20 +27,18 @@ impl<T> Watcher<T> {
     }
 }
 
-impl<T: Copy> Watcher<T> {
+impl<T: Clone> Watcher<T> {
     /// Updates the watcher with a new value. Returns the pair if the value
-    /// provided is not `None`.
+    /// provided is not [`None`].
     pub fn update(&mut self, value: Option<T>) -> Option<&Pair<T>> {
         match (&mut self.pair, value) {
             (None, Some(value)) => {
                 self.pair = Some(Pair {
-                    old: value,
+                    old: value.clone(),
                     current: value,
                 });
             }
-            (Some(pair), Some(value)) => {
-                pair.old = mem::replace(&mut pair.current, value);
-            }
+            (Some(pair), Some(value)) => pair.old = mem::replace(&mut pair.current, value),
             _ => {
                 self.pair = None;
             }
@@ -51,12 +49,16 @@ impl<T: Copy> Watcher<T> {
     /// Updates the watcher with a new value that always exists. The pair is
     /// then returned.
     pub fn update_infallible(&mut self, value: T) -> &Pair<T> {
-        let pair = self.pair.get_or_insert(Pair {
-            old: value,
-            current: value,
-        });
-        pair.old = mem::replace(&mut pair.current, value);
-        pair
+        match &mut self.pair {
+            None => {
+                self.pair = Some(Pair {
+                    old: value.clone(),
+                    current: value,
+                });
+            }
+            Some(pair) => pair.old = mem::replace(&mut pair.current, value),
+        }
+        self.pair.as_ref().unwrap()
     }
 }
 
