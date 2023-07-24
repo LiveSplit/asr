@@ -34,14 +34,18 @@
 //! Alternatively you can use the `Class` derive macro to generate the bindings
 //! for you. This allows reading the contents of an instance of the class
 //! described by the struct from a process. Each field must match the name of
-//! the field in the class exactly and needs to be of a type that can be read
-//! from a process.
+//! the field in the class exactly (or alternatively renamed with the `#[rename
+//! = "..."]` attribute) and needs to be of a type that can be read from a
+//! process. Fields can be marked as static with the `#[static_field]`
+//! attribute.
 //!
 //! ```ignore
 //! #[derive(Class)]
 //! struct Timer {
-//!     currentLevelTime: f32,
-//!     timerStopped: bool,
+//!     #[rename = "currentLevelTime"]
+//!     level_time: f32,
+//!     #[static_field]
+//!     foo: bool,
 //! }
 //! ```
 //!
@@ -51,7 +55,7 @@
 //! class Timer
 //! {
 //!     float currentLevelTime;
-//!     bool timerStopped;
+//!     static bool foo;
 //!     // ...
 //! }
 //! ```
@@ -70,6 +74,9 @@
 //!     // Do something with the instance.
 //! }
 //! ```
+//!
+//! If only static fields are present, the `read` method does not take an
+//! instance argument.
 
 // References:
 // https://github.com/just-ero/asl-help/tree/4c87822df0125b027d1af75e8e348c485817592d/src/Unity

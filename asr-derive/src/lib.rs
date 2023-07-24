@@ -210,15 +210,19 @@ mod unity;
 /// A derive macro that can be used to bind to a .NET class. This allows reading
 /// the contents of an instance of the class described by the struct from a
 /// process. Each field must match the name of the field in the class exactly
-/// and needs to be of a type that can be read from a process.
+/// (or alternatively renamed with the `#[rename = "..."]` attribute) and needs
+/// to be of a type that can be read from a process. Fields can be marked as
+/// static with the `#[static_field]` attribute.
 ///
 /// # Example
 ///
 /// ```no_run
 /// #[derive(Class)]
 /// struct Timer {
-///     currentLevelTime: f32,
-///     timerStopped: bool,
+///     #[rename = "currentLevelTime"]
+///     level_time: f32,
+///     #[static_field]
+///     foo: bool,
 /// }
 /// ```
 ///
@@ -228,7 +232,7 @@ mod unity;
 /// class Timer
 /// {
 ///     float currentLevelTime;
-///     bool timerStopped;
+///     static bool foo;
 ///     // ...
 /// }
 /// ```
@@ -247,8 +251,11 @@ mod unity;
 ///     // Do something with the instance.
 /// }
 /// ```
+///
+/// If only static fields are present, the `read` method does not take an
+/// instance argument.
 #[cfg(feature = "unity")]
-#[proc_macro_derive(Il2cppClass)]
+#[proc_macro_derive(Il2cppClass, attributes(static_field, rename))]
 pub fn il2cpp_class_binding(input: TokenStream) -> TokenStream {
     unity::process(input, quote! { asr::game_engine::unity::il2cpp })
 }
@@ -256,15 +263,19 @@ pub fn il2cpp_class_binding(input: TokenStream) -> TokenStream {
 /// A derive macro that can be used to bind to a .NET class. This allows reading
 /// the contents of an instance of the class described by the struct from a
 /// process. Each field must match the name of the field in the class exactly
-/// and needs to be of a type that can be read from a process.
+/// (or alternatively renamed with the `#[rename = "..."]` attribute) and needs
+/// to be of a type that can be read from a process. Fields can be marked as
+/// static with the `#[static_field]` attribute.
 ///
 /// # Example
 ///
 /// ```no_run
 /// #[derive(Class)]
 /// struct Timer {
-///     currentLevelTime: f32,
-///     timerStopped: bool,
+///     #[rename = "currentLevelTime"]
+///     level_time: f32,
+///     #[static_field]
+///     foo: bool,
 /// }
 /// ```
 ///
@@ -274,7 +285,7 @@ pub fn il2cpp_class_binding(input: TokenStream) -> TokenStream {
 /// class Timer
 /// {
 ///     float currentLevelTime;
-///     bool timerStopped;
+///     static bool foo;
 ///     // ...
 /// }
 /// ```
@@ -293,8 +304,11 @@ pub fn il2cpp_class_binding(input: TokenStream) -> TokenStream {
 ///     // Do something with the instance.
 /// }
 /// ```
+///
+/// If only static fields are present, the `read` method does not take an
+/// instance argument.
 #[cfg(feature = "unity")]
-#[proc_macro_derive(MonoClass)]
+#[proc_macro_derive(MonoClass, attributes(static_field, rename))]
 pub fn mono_class_binding(input: TokenStream) -> TokenStream {
     unity::process(input, quote! { asr::game_engine::unity::mono })
 }
