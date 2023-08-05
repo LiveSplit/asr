@@ -80,6 +80,14 @@ impl SceneManager {
         self.read_pointer(process, addr + self.offsets.active_scene)
     }
 
+    /// `DontDestroyOnLoad` is a special Unity scene containing game objects that must be preserved
+    /// when switching between different scenes (eg. a `scene1` starting some background music that
+    /// continues when `scene2` loads)
+    fn get_dont_destroy_on_load_scene_address(&self, process: &Process) -> Result<Address, Error> {
+        let addr = self.read_pointer(process, self.address)?;
+        Ok(addr + self.offsets.dont_destroy_on_load_scene)
+    }
+
     /// Returns the current scene index.
     ///
     /// The value returned is a [`i32`] because some games will show `-1` as their
@@ -129,7 +137,7 @@ impl SceneManager {
             .filter(move |p| !fptr.is_null() && p.is_valid(process))
     }
 
-    /// Iterates over all root `Transform`s / `GameObject`s declared for the current scene.
+    /// Iterates over all root `Transform`s / `GameObject`s declared for the specified scene.
     ///
     /// Each Unity scene normally has a linked list of `Transform`s (each one is a `GameObject`).
     /// Each one can, recursively, have a child `Transform` (and so on), and has a list of `Component`s, which are
@@ -137,18 +145,18 @@ impl SceneManager {
     fn root_game_objects<'a>(
         &'a self,
         process: &'a Process,
+        scene_address: Address,
     ) -> Result<impl DoubleEndedIterator<Item = GameObject> + 'a, Error> {
-        let current_scene_address = self.get_current_scene_address(process)?;
         let first_game_object = self.read_pointer(
             process,
-            current_scene_address + self.offsets.root_storage_container,
+            scene_address + self.offsets.root_storage_container,
         )?;
 
         let number_of_root_game_objects = {
             let mut index: usize = 0;
             let mut temp_tr = first_game_object;
 
-            while temp_tr != current_scene_address + self.offsets.root_storage_container {
+            while temp_tr != scene_address + self.offsets.root_storage_container {
                 index += 1;
                 temp_tr = self.read_pointer(process, temp_tr)?;
             }
@@ -185,9 +193,21 @@ impl SceneManager {
         }))
     }
 
-    /// Tries to find the specified root `GameObject` in the current Unity scene.
+    /// Tries to find the specified root `GameObject` from the currently active Unity scene.
     pub fn get_root_game_object(&self, process: &Process, name: &str) -> Result<GameObject, Error> {
-        self.root_game_objects(process)?
+        self.root_game_objects(process, self.get_current_scene_address(process)?)?
+            .find(|obj| {
+                obj.get_name::<128>(process, self)
+                    .unwrap_or_default()
+                    .as_bytes()
+                    == name.as_bytes()
+            })
+            .ok_or(Error {})
+    }
+
+    /// Tries to find the specified root `GameObject` from the `DontDestroyOnLoad` Unity scene.
+    pub fn get_game_object_from_dont_destroy_on_load(&self, process: &Process, name: &str) -> Result<GameObject, Error> {
+        self.root_game_objects(process, self.get_dont_destroy_on_load_scene_address(process)?)?
             .find(|obj| {
                 obj.get_name::<128>(process, self)
                     .unwrap_or_default()
@@ -364,6 +384,7 @@ struct Offsets {
     scene_count: u8,
     loaded_scenes: u8,
     active_scene: u8,
+    dont_destroy_on_load_scene: u8,
     asset_path: u8,
     build_index: u8,
     root_storage_container: u8,
@@ -383,6 +404,7 @@ impl Offsets {
                 scene_count: 0x18,
                 loaded_scenes: 0x28,
                 active_scene: 0x48,
+                dont_destroy_on_load_scene: 0x70,
                 asset_path: 0x10,
                 build_index: 0x98,
                 root_storage_container: 0xB0,
@@ -398,6 +420,7 @@ impl Offsets {
                 scene_count: 0xC,
                 loaded_scenes: 0x18,
                 active_scene: 0x28,
+                dont_destroy_on_load_scene: 0x40,
                 asset_path: 0xC,
                 build_index: 0x70,
                 root_storage_container: 0x88,
