@@ -4,6 +4,8 @@
 // https://gist.githubusercontent.com/just-ero/92457b51baf85bd1e5b8c87de8c9835e/raw/8aa3e6b8da01fd03ff2ff0c03cbd018e522ef988/UnityScene.hpp
 // Offsets and logic for the GameObject functions taken from https://github.com/Micrologist/UnityInstanceDumper
 
+use core::{array, mem::MaybeUninit};
+
 use crate::{
     file_format::pe, future::retry, signature::Signature, string::ArrayCString, Address, Address32,
     Address64, Error, Process,
@@ -19,7 +21,6 @@ pub struct SceneManager {
     is_il2cpp: bool,
     address: Address,
     offsets: &'static Offsets,
-    pointer_size: u8,
 }
 
 impl SceneManager {
@@ -49,14 +50,12 @@ impl SceneManager {
         };
 
         let offsets = Offsets::new(is_64_bit);
-        let pointer_size = if is_64_bit { 0x8 } else { 0x4 };
 
         Some(Self {
             is_64_bit,
             is_il2cpp,
             address,
             offsets,
-            pointer_size,
         })
     }
 
@@ -80,9 +79,10 @@ impl SceneManager {
         self.read_pointer(process, addr + self.offsets.active_scene)
     }
 
-    /// `DontDestroyOnLoad` is a special Unity scene containing game objects that must be preserved
-    /// when switching between different scenes (eg. a `scene1` starting some background music that
-    /// continues when `scene2` loads)
+    /// `DontDestroyOnLoad` is a special Unity scene containing game objects
+    /// that must be preserved when switching between different scenes (eg. a
+    /// `scene1` starting some background music that continues when `scene2`
+    /// loads).
     fn get_dont_destroy_on_load_scene_address(&self, process: &Process) -> Result<Address, Error> {
         let addr = self.read_pointer(process, self.address)?;
         Ok(addr + self.offsets.dont_destroy_on_load_scene)
@@ -137,20 +137,21 @@ impl SceneManager {
             .filter(move |p| !fptr.is_null() && p.is_valid(process))
     }
 
-    /// Iterates over all root `Transform`s / `GameObject`s declared for the specified scene.
+    /// Iterates over all root `Transform`s / [`GameObject`]s declared for the
+    /// specified scene.
     ///
-    /// Each Unity scene normally has a linked list of `Transform`s (each one is a `GameObject`).
-    /// Each one can, recursively, have a child `Transform` (and so on), and has a list of `Component`s, which are
-    /// classes (eg. `MonoBehaviour`) containing data we might want to retreieve for the autosplitter logic.
+    /// Each Unity scene normally has a linked list of `Transform`s (each one is
+    /// a [`GameObject`]). Each one can, recursively, have a child `Transform`
+    /// (and so on), and has a list of `Component`s, which are classes (eg.
+    /// `MonoBehaviour`) containing data we might want to retrieve for the auto
+    /// splitter logic.
     fn root_game_objects<'a>(
         &'a self,
         process: &'a Process,
         scene_address: Address,
     ) -> Result<impl DoubleEndedIterator<Item = GameObject> + 'a, Error> {
-        let first_game_object = self.read_pointer(
-            process,
-            scene_address + self.offsets.root_storage_container,
-        )?;
+        let first_game_object =
+            self.read_pointer(process, scene_address + self.offsets.root_storage_container)?;
 
         let number_of_root_game_objects = {
             let mut index: usize = 0;
@@ -167,7 +168,7 @@ impl SceneManager {
         let mut current_game_object = first_game_object;
 
         Ok((0..number_of_root_game_objects).filter_map(move |n| {
-            let buf: [Address; 3] = match self.is_64_bit {
+            let [first, _, third]: [Address; 3] = match self.is_64_bit {
                 true => process
                     .read::<[Address64; 3]>(current_game_object)
                     .ok()?
@@ -179,12 +180,12 @@ impl SceneManager {
             };
 
             let game_object = self
-                .read_pointer(process, buf[2] + self.offsets.game_object)
+                .read_pointer(process, third + self.offsets.game_object)
                 .ok()?;
 
             // Load the next game object before looping, except at the last iteration of the loop
             if n + 1 != number_of_root_game_objects {
-                current_game_object = buf[0];
+                current_game_object = first;
             }
 
             Some(GameObject {
@@ -193,39 +194,47 @@ impl SceneManager {
         }))
     }
 
-    /// Tries to find the specified root `GameObject` from the currently active Unity scene.
+    /// Tries to find the specified root [`GameObject`] from the currently
+    /// active Unity scene.
     pub fn get_root_game_object(&self, process: &Process, name: &str) -> Result<GameObject, Error> {
         self.root_game_objects(process, self.get_current_scene_address(process)?)?
             .find(|obj| {
                 obj.get_name::<128>(process, self)
                     .unwrap_or_default()
-                    .as_bytes()
-                    == name.as_bytes()
+                    .matches(name)
             })
             .ok_or(Error {})
     }
 
-    /// Tries to find the specified root `GameObject` from the `DontDestroyOnLoad` Unity scene.
-    pub fn get_game_object_from_dont_destroy_on_load(&self, process: &Process, name: &str) -> Result<GameObject, Error> {
-        self.root_game_objects(process, self.get_dont_destroy_on_load_scene_address(process)?)?
-            .find(|obj| {
-                obj.get_name::<128>(process, self)
-                    .unwrap_or_default()
-                    .as_bytes()
-                    == name.as_bytes()
-            })
-            .ok_or(Error {})
+    /// Tries to find the specified root [`GameObject`] from the
+    /// `DontDestroyOnLoad` Unity scene.
+    pub fn get_game_object_from_dont_destroy_on_load(
+        &self,
+        process: &Process,
+        name: &str,
+    ) -> Result<GameObject, Error> {
+        self.root_game_objects(
+            process,
+            self.get_dont_destroy_on_load_scene_address(process)?,
+        )?
+        .find(|obj| {
+            obj.get_name::<128>(process, self)
+                .unwrap_or_default()
+                .matches(name)
+        })
+        .ok_or(Error {})
     }
 }
 
-/// A `GameObject` is a base class for all entities used in a Unity scene.
-/// All classes of interest useful for an autosplitter can be found starting from the addresses of the root `GameObject`s linked in each scene.
+/// A `GameObject` is a base class for all entities used in a Unity scene. All
+/// classes of interest useful for an auto splitter can be found starting from
+/// the addresses of the root `GameObject`s linked in each scene.
 pub struct GameObject {
     address: Address,
 }
 
 impl GameObject {
-    /// Tries to return the name of the current `GameObject`
+    /// Tries to return the name of the current `GameObject`.
     pub fn get_name<const N: usize>(
         &self,
         process: &Process,
@@ -238,7 +247,7 @@ impl GameObject {
         process.read(name_ptr)
     }
 
-    /// Iterates over the classes referred to in the current `GameObject`
+    /// Iterates over the classes referred to in the current `GameObject`.
     pub fn classes<'a>(
         &'a self,
         process: &'a Process,
@@ -251,28 +260,35 @@ impl GameObject {
         if number_of_components == 0 {
             return Err(Error {});
         }
-        
+
         let main_object = scene_manager
             .read_pointer(process, self.address + scene_manager.offsets.game_object)?;
 
         const ARRAY_SIZE: usize = 128;
-        let mut components = [Address::NULL; ARRAY_SIZE];
 
-        if scene_manager.is_64_bit {
-            let slice = &mut [Address64::NULL; ARRAY_SIZE * 2][0..number_of_components * 2];
-            process.read_into_slice(main_object, slice)?;
+        let components: [Address; ARRAY_SIZE] = if scene_manager.is_64_bit {
+            let mut buf = [MaybeUninit::<[Address64; 2]>::uninit(); ARRAY_SIZE];
+            let slice =
+                process.read_into_uninit_slice(main_object, &mut buf[..number_of_components])?;
 
-            for val in 0..number_of_components {
-                components[val] = slice[val * 2 + 1].into();
-            }
+            let mut iter = slice.iter_mut();
+            array::from_fn(|_| {
+                iter.next()
+                    .map(|&mut [_, second]| second.into())
+                    .unwrap_or_default()
+            })
         } else {
-            let slice = &mut [Address32::NULL; ARRAY_SIZE * 2][0..number_of_components * 2];
-            process.read_into_slice(main_object, slice)?;
+            let mut buf = [MaybeUninit::<[Address32; 2]>::uninit(); ARRAY_SIZE];
+            let slice =
+                process.read_into_uninit_slice(main_object, &mut buf[..number_of_components])?;
 
-            for val in 0..number_of_components {
-                components[val] = slice[val * 2 + 1].into();
-            }
-        }
+            let mut iter = slice.iter_mut();
+            array::from_fn(|_| {
+                iter.next()
+                    .map(|&mut [_, second]| second.into())
+                    .unwrap_or_default()
+            })
+        };
 
         Ok((0..number_of_components).filter_map(move |m| {
             scene_manager
@@ -281,33 +297,52 @@ impl GameObject {
         }))
     }
 
-    /// Tries to find the base address of a class in the current `GameObject`
+    /// Tries to find the base address of a class in the current `GameObject`.
     pub fn get_class(
         &self,
         process: &Process,
         scene_manager: &SceneManager,
         name: &str,
     ) -> Result<Address, Error> {
-        self.classes(process, scene_manager)?.find(|&c| {
-            let Ok(vtable) = scene_manager.read_pointer(process, c) else { return false };
+        self.classes(process, scene_manager)?
+            .find(|&c| {
+                let Ok(vtable) = scene_manager.read_pointer(process, c) else {
+                    return false;
+                };
 
-            let name_ptr = {
-                match scene_manager.is_il2cpp {
-                    true => {
-                        let Ok(name_ptr) = scene_manager.read_pointer(process, vtable + scene_manager.pointer_size as u32 * 2) else { return false };
-                        name_ptr
-                    },
-                    false => {
-                        let Ok(vtable) = scene_manager.read_pointer(process, vtable) else { return false };
-                        let Ok(name_ptr) = scene_manager.read_pointer(process, vtable + scene_manager.offsets.klass_name) else { return false };
-                        name_ptr
+                let name_ptr = {
+                    match scene_manager.is_il2cpp {
+                        true => {
+                            let Ok(name_ptr) = scene_manager.read_pointer(
+                                process,
+                                vtable + 2 * if scene_manager.is_64_bit { 8 } else { 4 },
+                            ) else {
+                                return false;
+                            };
+
+                            name_ptr
+                        }
+                        false => {
+                            let Ok(vtable) = scene_manager.read_pointer(process, vtable) else {
+                                return false;
+                            };
+
+                            let Ok(name_ptr) = scene_manager
+                                .read_pointer(process, vtable + scene_manager.offsets.klass_name)
+                            else {
+                                return false;
+                            };
+
+                            name_ptr
+                        }
                     }
-                }
-            };
+                };
 
-            let Ok(class_name) = process.read::<ArrayCString<128>>(name_ptr) else { return false };
-            class_name.as_bytes() == name.as_bytes()
-        }).ok_or(Error {})
+                process
+                    .read::<ArrayCString<128>>(name_ptr)
+                    .is_ok_and(|class_name| class_name.matches(name))
+            })
+            .ok_or(Error {})
     }
 
     /// Iterates over children `GameObject`s referred by the current one
@@ -319,8 +354,10 @@ impl GameObject {
         let main_object = scene_manager
             .read_pointer(process, self.address + scene_manager.offsets.game_object)?;
 
-        let transform =
-            scene_manager.read_pointer(process, main_object + scene_manager.pointer_size)?;
+        let transform = scene_manager.read_pointer(
+            process,
+            main_object + if scene_manager.is_64_bit { 8 } else { 4 },
+        )?;
 
         let child_count =
             process.read::<u32>(transform + scene_manager.offsets.children_count)? as usize;
@@ -335,23 +372,20 @@ impl GameObject {
         // Define an empty array and fill it later with the addresses of all child classes found for the current GameObject.
         // Reading the whole array of pointers is (slightly) faster than reading each address in a loop
         const ARRAY_SIZE: usize = 128;
-        let mut children = [Address::NULL; ARRAY_SIZE];
 
-        if scene_manager.is_64_bit {
-            let slice = &mut [Address64::NULL; ARRAY_SIZE][0..child_count];
-            process.read_into_slice(child_pointer, slice)?;
+        let children: [Address; ARRAY_SIZE] = if scene_manager.is_64_bit {
+            let mut buf = [MaybeUninit::<Address64>::uninit(); ARRAY_SIZE];
+            let slice = process.read_into_uninit_slice(child_pointer, &mut buf[..child_count])?;
 
-            for val in 0..child_count {
-                children[val] = slice[val].into();
-            }
+            let mut iter = slice.iter_mut();
+            array::from_fn(|_| iter.next().copied().map(Into::into).unwrap_or_default())
         } else {
-            let slice = &mut [Address32::NULL; ARRAY_SIZE][0..child_count];
-            process.read_into_slice(child_pointer, slice)?;
+            let mut buf = [MaybeUninit::<Address32>::uninit(); ARRAY_SIZE];
+            let slice = process.read_into_uninit_slice(child_pointer, &mut buf[..child_count])?;
 
-            for val in 0..child_count {
-                children[val] = slice[val].into();
-            }
-        }
+            let mut iter = slice.iter_mut();
+            array::from_fn(|_| iter.next().copied().map(Into::into).unwrap_or_default())
+        };
 
         Ok((0..child_count).filter_map(move |f| {
             let game_object = scene_manager
@@ -373,8 +407,8 @@ impl GameObject {
     ) -> Result<Self, Error> {
         self.children(process, scene_manager)?
             .find(|p| {
-                let Ok(obj_name) = p.get_name::<128>(process, scene_manager) else { return false };
-                obj_name.as_bytes() == name.as_bytes()
+                p.get_name::<128>(process, scene_manager)
+                    .is_ok_and(|obj_name| obj_name.matches(name))
             })
             .ok_or(Error {})
     }

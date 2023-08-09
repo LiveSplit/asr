@@ -206,6 +206,37 @@ impl Process {
         }
     }
 
+    /// Reads a range of bytes from the process at the address given into the
+    /// buffer provided. This is a convenience method for reading into a slice
+    /// of a specific type. The buffer does not need to be initialized. After
+    /// the slice successfully got filled, the initialized slice is returned.
+    #[inline]
+    pub fn read_into_uninit_slice<T: CheckedBitPattern>(
+        &self,
+        address: impl Into<Address>,
+        slice: &mut [MaybeUninit<T>],
+    ) -> Result<&mut [T], Error> {
+        // SAFETY: The process handle is guaranteed to be valid. We provide a
+        // valid pointer and length to the buffer. We also do proper error
+        // handling afterwards. The buffer is guaranteed to be initialized
+        // afterwards, we just need to check if the values are valid bit
+        // patterns. We can then safely return a slice of it.
+        unsafe {
+            let byte_len = mem::size_of_val(slice);
+            self.read_into_uninit_buf(
+                address,
+                slice::from_raw_parts_mut(slice.as_mut_ptr().cast(), byte_len),
+            )?;
+            for element in &*slice {
+                if !T::is_valid_bit_pattern(&*element.as_ptr().cast::<T::Bits>()) {
+                    return Err(Error {});
+                }
+            }
+            let len = slice.len();
+            Ok(slice::from_raw_parts_mut(slice.as_mut_ptr().cast(), len))
+        }
+    }
+
     /// Follows a path of pointers from the address given and reads a value of
     /// the type specified from the process at the end of the pointer path. This
     /// method is specifically for dealing with processes that use 64-bit
