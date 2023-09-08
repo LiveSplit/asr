@@ -3,6 +3,8 @@ use core::{
     mem::{self, MaybeUninit},
     slice,
 };
+#[cfg(feature = "alloc")]
+use core::mem::size_of;
 
 use crate::{Address, Address32, Address64};
 
@@ -36,6 +38,51 @@ impl Process {
         // afterwards.
         let id = unsafe { sys::process_attach(name.as_ptr(), name.len()) };
         id.map(Self)
+    }
+
+    /// Attaches to a process based on its pid.
+    #[inline]
+    pub fn attach_pid(pid: u32) -> Option<Self> {
+        // SAFETY: We provide a valid pointer and length to the name. The name
+        // is guaranteed to be valid UTF-8. We also do proper error handling
+        // afterwards.
+        let id = unsafe { sys::process_attach_pid(pid) };
+        id.map(Self)
+    }
+
+    #[cfg(feature = "alloc")]
+    #[inline]
+    pub fn list(name: &str) -> Option<alloc::vec::Vec<u32>> {
+        unsafe { 
+            let mut len = 0;
+            let empty = sys::process_list(name.as_ptr(), name.len(), core::ptr::null_mut(), &mut len);
+
+            if !empty {
+                let mut buf = alloc::vec::Vec::with_capacity(len * size_of::<u32>());
+                let success = sys::process_list(name.as_ptr(), name.len(), buf.as_mut_ptr(), &mut len);
+                if !success {
+                    return None;
+                } 
+                buf.set_len(len * size_of::<u32>());
+
+                let sz = size_of::<u32>();
+                let mut outbuf = alloc::vec::Vec::with_capacity(len);
+                for i in 0..len {
+                    let num = [
+                        buf[i * sz],
+                        buf[(i * sz) + 1],
+                        buf[(i * sz) + 2],
+                        buf[(i * sz) + 3],
+                    ];
+
+                    outbuf.insert(i, u32::from_le_bytes(num));
+                }
+
+                Some(outbuf)
+            } else {
+                return None;
+            }
+        }
     }
 
     /// Checks whether the process is still open. If it is not open anymore, you
