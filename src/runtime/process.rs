@@ -43,9 +43,7 @@ impl Process {
     /// Attaches to a process based on its pid.
     #[inline]
     pub fn attach_pid(pid: u32) -> Option<Self> {
-        // SAFETY: We provide a valid pointer and length to the name. The name
-        // is guaranteed to be valid UTF-8. We also do proper error handling
-        // afterwards.
+        // SAFETY: We do proper error handling afterwards.
         let id = unsafe { sys::process_attach_pid(pid) };
         id.map(Self)
     }
@@ -53,6 +51,10 @@ impl Process {
     #[cfg(feature = "alloc")]
     #[inline]
     pub fn list(name: &str) -> Option<alloc::vec::Vec<u32>> {
+        // SAFETY: We provide a valid pointer and length to the name. The name
+        // is guaranteed to be valid UTF-8. Calling `list` with a null pointer 
+        // and 0 length will return the required length. We then allocate a 
+        // buffer with the required length and call it again with the buffer.
         unsafe { 
             let mut len = 0;
             let empty = sys::process_list(name.as_ptr(), name.len(), core::ptr::null_mut(), &mut len);
