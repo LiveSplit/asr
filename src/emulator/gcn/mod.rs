@@ -25,7 +25,7 @@ impl Emulator {
     ///
     /// Supported emulators are:
     /// - Dolphin
-    /// - Retroarch (using the Dolphin core)
+    /// - Retroarch (using the `dolphin_libretro.dll` core)
     pub fn attach() -> Option<Self> {
         let (&state, process) = PROCESS_NAMES
             .iter()
@@ -73,16 +73,15 @@ impl Emulator {
         }
     }
 
-    /// Reads raw data from the emulated RAM ignoring all endianness settings
+    /// Reads raw data from the emulated RAM ignoring all endianness settings.
     /// The same call, performed on two different emulators, might return different
     /// results due to the endianness used by the emulator.
     ///
     /// The offset provided is meant to be the same used on the original,
-    /// big-endian system. The call will automatically convert the offset and
-    /// the output value to little endian.
+    /// big-endian system.
     ///
-    /// You can, alternatively, provide the memory address as it is usually mapped on the original hardware.
-    /// Valid addresses range from `0x80000000` to `0x817FFFFF`
+    /// You can, alternatively, provide the memory address as usually mapped on the original hardware.
+    /// Valid addresses for the Nintendo Gamecube range from `0x80000000` to `0x817FFFFF`.
     ///
     /// Values below and up to `0x017FFFFF` are automatically assumed to be offsets from the memory's base address.
     /// Any other invalid value will make this method immediately return `Err()`.
@@ -105,8 +104,8 @@ impl Emulator {
     /// big-endian system. The call will automatically convert the offset and
     /// the output value to little endian.
     ///
-    /// You can, alternatively, provide the memory address as it is usually mapped on the original hardware.
-    /// Valid addresses range from `0x80000000` to `0x817FFFFF`
+    /// You can, alternatively, provide the memory address as usually mapped on the original hardware.
+    /// Valid addresses for the Nintendo Gamecube range from `0x80000000` to `0x817FFFFF`.
     ///
     /// Values below and up to `0x017FFFFF` are automatically assumed to be offsets from the memory's base address.
     /// Any other invalid value will make this method immediately return `Err()`.
