@@ -1,4 +1,4 @@
-use crate::{file_format::pe, Address, Endian, MemoryRangeFlags, Process};
+use crate::{file_format::pe, Address, Endian, FromEndian, MemoryRangeFlags, Process};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct State {
@@ -18,7 +18,8 @@ impl State {
             pe::MachineType::read(game, main_module_address) == Some(pe::MachineType::X86_64);
 
         if !is_64_bit {
-            // The Dolphin core, the only one available for retroarch, only supports 64-bit
+            // The Dolphin core, the only one available for retroarch at
+            // the time of writing (Sep 19th, 2023), only supports 64-bit
             return None;
         }
 
@@ -26,6 +27,10 @@ impl State {
             .iter()
             .find_map(|&m| game.get_module_address(m).ok())?;
 
+        // The following code is essentially the same used for Dolphin
+
+        // Main logic: finding the address for the GCN main memory by looking for
+        // memory ranges with the READ and WRITE flags and a size of 0x2000000
         for entry in game.memory_ranges() {
             if entry.size().is_ok_and(|size| size == 0x2000000)
                 && entry.flags().is_ok_and(|flag| {
@@ -33,8 +38,16 @@ impl State {
                 })
             {
                 if let Ok(addr) = entry.address() {
-                    *endian = Endian::Big;
-                    return Some(addr);
+                    // In order to verify this is the correct memory range, we take advantage
+                    // of a small 'hack', by checking if the offset 0x1C contains a "magic number"
+                    // fixed for all Gamecube games.
+                    if game
+                        .read::<u32>(addr + 0x1C)
+                        .is_ok_and(|magic| magic.from_endian(Endian::Big) == 0xC2339F3D)
+                    {
+                        *endian = Endian::Big;
+                        return Some(addr);
+                    }
                 }
             }
         }

@@ -65,11 +65,12 @@ impl Emulator {
             State::Retroarch(x) => x.keep_alive(&self.process, &self.mem1_base),
         };
 
-        if success {
-            true
-        } else {
-            self.mem1_base = None;
-            false
+        match success {
+            true => true,
+            false => {
+                self.mem1_base = None;
+                false
+            },
         }
     }
 
@@ -95,7 +96,7 @@ impl Emulator {
         let mem1 = self.mem1_base.ok_or(Error {})?;
         let end_offset = offset.checked_sub(0x80000000).unwrap_or(offset);
 
-        self.process.read::<T>(mem1 + end_offset)
+        self.process.read(mem1 + end_offset)
     }
 
     /// Reads any value from the emulated RAM.
