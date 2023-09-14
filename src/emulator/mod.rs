@@ -8,3 +8,5 @@ pub mod gcn;
 pub mod genesis;
 #[cfg(feature = "ps1")]
 pub mod ps1;
+#[cfg(feature = "ps2")]
+pub mod ps2;
