@@ -21,7 +21,7 @@ pub struct Emulator {
 impl Emulator {
     /// Attaches to the emulator process
     ///
-    /// Returns `Option<Genesis>` if successful, `None` otherwise.
+    /// Returns `Option<T>` if successful, `None` otherwise.
     ///
     /// Supported emulators are:
     /// - Dolphin
