@@ -33,6 +33,6 @@ wasi-no-std = ["libm"]
 unity = ["signature", "asr-derive?/unity"]
 
 # Emulators
-gba = []
+gba = ["flags", "signature"]
 genesis = ["flags", "signature"]
 ps1 = ["flags", "signature"]
