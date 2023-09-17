@@ -92,6 +92,26 @@ impl Emulator {
 
         self.process.read(ram_base + address)
     }
+
+    /// Follows a path of pointers from the base address given and reads a value of the
+    /// type specified at the end of the pointer path.
+    /// 
+    /// In PS2, memory addresses are mapped at fixed locations starting
+    /// from `0x00100000` (addresses below this threashold are
+    /// reserved for the kernel).
+    ///
+    /// Valid addresses for the PS2's memory range from `0x00100000` to `0x01FFFFFF`
+    ///
+    /// Providing any offset outside the range of the PS2's RAM will return
+    /// `Err()`.
+    pub fn read_pointer_path<T: CheckedBitPattern>(&self, base_address: u32, path: &[u32]) -> Result<T, Error> {
+        let mut address = base_address;
+        let (&last, path) = path.split_last().ok_or(Error {})?;
+        for &offset in path {
+            address = self.read(address + offset)?;
+        }
+        self.read(address + last)
+    }
 }
 
 #[doc(hidden)]
