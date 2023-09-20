@@ -7,6 +7,7 @@ mod mgba;
 mod nocashgba;
 mod retroarch;
 mod vba;
+mod emuhawk;
 
 /// A Nintendo Gameboy Advance emulator that the auto splitter is attached to.
 pub struct Emulator {
@@ -28,6 +29,7 @@ impl Emulator {
     /// - VisualBoyAdvance-M
     /// - mGBA
     /// - NO$GBA
+    /// - BizHawk
     /// - Retroarch, with one of the following cores: `vbam_libretro.dll`, `vba_next_libretro.dll`,
     /// `mednafen_gba_libretro.dll`, `mgba_libretro.dll`, `gpsp_libretro.dll`
     pub fn attach() -> Option<Self> {
@@ -59,6 +61,7 @@ impl Emulator {
                 State::Mgba(x) => x.find_ram(&self.process),
                 State::NoCashGba(x) => x.find_ram(&self.process),
                 State::Retroarch(x) => x.find_ram(&self.process),
+                State::EmuHawk(x) => x.find_ram(&self.process),
             } {
                 None => return false,
                 something => something,
@@ -70,6 +73,7 @@ impl Emulator {
             State::Mgba(x) => x.keep_alive(&self.process, &self.ram_base),
             State::NoCashGba(x) => x.keep_alive(&self.process, &mut self.ram_base),
             State::Retroarch(x) => x.keep_alive(&self.process),
+            State::EmuHawk(x) => x.keep_alive(&self.process),
         };
 
         match success {
@@ -153,9 +157,10 @@ pub enum State {
     Mgba(mgba::State),
     NoCashGba(nocashgba::State),
     Retroarch(retroarch::State),
+    EmuHawk(emuhawk::State),
 }
 
-static PROCESS_NAMES: [(&str, State); 5] = [
+static PROCESS_NAMES: [(&str, State); 6] = [
     (
         "visualboyadvance-m.exe",
         State::VisualBoyAdvance(vba::State::new()),
@@ -167,4 +172,5 @@ static PROCESS_NAMES: [(&str, State); 5] = [
     ("mGBA.exe", State::Mgba(mgba::State)),
     ("NO$GBA.EXE", State::NoCashGba(nocashgba::State::new())),
     ("retroarch.exe", State::Retroarch(retroarch::State::new())),
+    ("EmuHawk.exe", State::EmuHawk(emuhawk::State::new())),
 ];
