@@ -158,3 +158,21 @@ impl Add<i8> for Address {
         Self(self.0.wrapping_add_signed(bytes as _))
     }
 }
+
+impl Add<i32> for Address64 {
+    type Output = Self;
+
+    #[inline]
+    fn add(self, bytes: i32) -> Self {
+        Self(self.0.wrapping_add(bytes as _))
+    }
+}
+
+impl Add<u32> for Address64 {
+    type Output = Self;
+
+    #[inline]
+    fn add(self, bytes: u32) -> Self {
+        Self(self.0.wrapping_add(bytes as _))
+    }
+}
