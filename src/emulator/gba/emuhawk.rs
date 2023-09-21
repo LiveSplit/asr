@@ -1,4 +1,4 @@
-use crate::{Address, Process, MemoryRangeFlags};
+use crate::{Address, MemoryRangeFlags, Process};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct State {
@@ -19,12 +19,13 @@ impl State {
             })?
             .address()
             .ok()?;
-        
+
         Some([addr, addr + 0x40000])
     }
 
-    pub fn keep_alive(&self, game: &Process) -> bool {
-        game.read::<u8>(self.base_addr).is_ok()
+    pub fn keep_alive(&self, game: &Process, ram_base: &Option<[Address; 2]>) -> bool {
+        ram_base.is_some_and(|[ewram, _]| game.read::<u8>(ewram).is_ok())
+            && game.read::<u8>(self.base_addr).is_ok()
     }
 
     pub const fn new() -> Self {

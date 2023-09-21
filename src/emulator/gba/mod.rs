@@ -73,7 +73,7 @@ impl Emulator {
             State::Mgba(x) => x.keep_alive(&self.process, &self.ram_base),
             State::NoCashGba(x) => x.keep_alive(&self.process, &mut self.ram_base),
             State::Retroarch(x) => x.keep_alive(&self.process),
-            State::EmuHawk(x) => x.keep_alive(&self.process),
+            State::EmuHawk(x) => x.keep_alive(&self.process, &self.ram_base),
         };
 
         match success {
