@@ -4,7 +4,7 @@ use crate::{runtime::MemoryRangeFlags, signature::Signature, Address, Address32,
 pub struct State;
 
 impl State {
-    pub fn find_ram(&mut self, game: &Process) -> Option<Address> {
+    pub fn find_ram(&self, game: &Process) -> Option<Address> {
         const SIG: Signature<15> = Signature::new("66 81 E1 FF 1F 0F B7 C9 8A 89 ?? ?? ?? ?? C3");
 
         let scanned_address = game
