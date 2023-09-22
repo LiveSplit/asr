@@ -4,7 +4,7 @@ use crate::{Address, Endian, FromEndian, MemoryRangeFlags, Process};
 pub struct State;
 
 impl State {
-    pub fn find_ram(&mut self, game: &Process, endian: &mut Endian) -> Option<Address> {
+    pub fn find_ram(&self, game: &Process, endian: &mut Endian) -> Option<Address> {
         *endian = Endian::Big;
 
         // Main logic: finding the address for the GCN main memory by looking for
