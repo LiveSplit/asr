@@ -4,7 +4,7 @@ use crate::{Address, MemoryRangeFlags, Process};
 pub struct State;
 
 impl State {
-    pub fn find_ram(&mut self, game: &Process) -> Option<[Address; 2]> {
+    pub fn find_ram(&self, game: &Process) -> Option<[Address; 2]> {
         // Latest version tested: 0.10.2 (September 2023)
         let addr = game
             .memory_ranges()
