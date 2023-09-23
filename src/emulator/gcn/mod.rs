@@ -51,13 +51,14 @@ impl Emulator {
     /// Returns true if successful, false otherwise.
     pub fn update(&mut self) -> bool {
         if self.mem1_base.is_none() {
-            self.mem1_base = match match &mut self.state {
+            let mem1_base = match &mut self.state {
                 State::Dolphin(x) => x.find_ram(&self.process, &mut self.endian),
                 State::Retroarch(x) => x.find_ram(&self.process, &mut self.endian),
-            } {
-                None => return false,
-                something => something,
             };
+            if mem1_base.is_none() {
+                return false;
+            }
+            self.mem1_base = mem1_base;
         }
 
         let success = match &self.state {
@@ -65,13 +66,11 @@ impl Emulator {
             State::Retroarch(x) => x.keep_alive(&self.process, &self.mem1_base),
         };
 
-        match success {
-            true => true,
-            false => {
-                self.mem1_base = None;
-                false
-            },
+        if !success {
+            self.mem1_base = None;
         }
+
+        success
     }
 
     /// Reads raw data from the emulated RAM ignoring all endianness settings.
@@ -81,7 +80,7 @@ impl Emulator {
     /// The offset provided is meant to be the same used on the original,
     /// big-endian system.
     ///
-    /// You can, alternatively, provide the memory address as usually mapped on the original hardware.
+    /// You can alternatively provide the memory address as usually mapped on the original hardware.
     /// Valid addresses for the Nintendo Gamecube range from `0x80000000` to `0x817FFFFF`.
     ///
     /// Values below and up to `0x017FFFFF` are automatically assumed to be offsets from the memory's base address.
@@ -89,7 +88,7 @@ impl Emulator {
     ///
     /// This call is meant to be used by experienced users.
     pub fn read_ignoring_endianness<T: CheckedBitPattern>(&self, offset: u32) -> Result<T, Error> {
-        if (offset > 0x017FFFFF && offset < 0x80000000) || offset > 0x817FFFFF {
+        if (0x01800000..0x80000000).contains(&offset) || offset >= 0x81800000 {
             return Err(Error {});
         }
 
@@ -105,7 +104,7 @@ impl Emulator {
     /// big-endian system. The call will automatically convert the offset and
     /// the output value to little endian.
     ///
-    /// You can, alternatively, provide the memory address as usually mapped on the original hardware.
+    /// You can alternatively provide the memory address as usually mapped on the original hardware.
     /// Valid addresses for the Nintendo Gamecube range from `0x80000000` to `0x817FFFFF`.
     ///
     /// Values below and up to `0x017FFFFF` are automatically assumed to be offsets from the memory's base address.

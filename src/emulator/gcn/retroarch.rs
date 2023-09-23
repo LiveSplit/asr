@@ -1,4 +1,4 @@
-use crate::{file_format::pe, Address, Endian, FromEndian, MemoryRangeFlags, Process};
+use crate::{file_format::pe, Address, Endian, Process};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct State {
