@@ -34,5 +34,6 @@ unity = ["signature", "asr-derive?/unity"]
 
 # Emulators
 gba = []
+gcn = ["flags"]
 genesis = ["flags", "signature"]
 ps1 = ["flags", "signature"]
