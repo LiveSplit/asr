@@ -5,6 +5,7 @@ use bytemuck::CheckedBitPattern;
 
 mod blastem;
 mod fusion;
+mod mednafen;
 mod retroarch;
 
 /// A SEGA Master System / GameGear emulator that the auto splitter is attached to.
@@ -55,6 +56,7 @@ impl Emulator {
                 State::Retroarch(x) => x.find_ram(&self.process),
                 State::Fusion(x) => x.find_ram(&self.process),
                 State::BlastEm(x) => x.find_ram(&self.process),
+                State::Mednafen(x) => x.find_ram(&self.process),
             } {
                 None => return false,
                 something => something,
@@ -65,6 +67,7 @@ impl Emulator {
             State::Retroarch(x) => x.keep_alive(&self.process),
             State::Fusion(x) => x.keep_alive(&self.process, &mut self.ram_base),
             State::BlastEm(x) => x.keep_alive(),
+            State::Mednafen(x) => x.keep_alive(),
         };
 
         if success {
@@ -75,28 +78,9 @@ impl Emulator {
         }
     }
 
-    /// Reads raw data from the emulated RAM ignoring all endianness settings
-    /// The same call, performed on two different emulators, can be different
-    /// due to the endianness used by the emulator.
-    ///
-    /// The offset provided must not be higher than `0xFFFF`, otherwise this
-    /// method will immediately return `Err()`.
-    ///
-    /// This call is meant to be used by experienced users.
-    pub fn read_ignoring_endianness<T: CheckedBitPattern>(&self, offset: u32) -> Result<T, Error> {
-        if offset > 0xFFFF {
-            return Err(Error {});
-        }
-
-        let wram = self.ram_base.ok_or(Error {})?;
-
-        self.process.read(wram + offset)
-    }
-
     /// Reads any value from the emulated RAM.
     ///
-    /// The offset provided is meant to be the same used on the original,
-    /// big-endian system.
+    /// The offset provided is meant to be the same used on the original hardware.
     ///
     /// The SEGA Master System has 8KB of RAM, mapped from address
     /// `0xC000` to `0xDFFF`.
@@ -120,10 +104,12 @@ pub enum State {
     Retroarch(retroarch::State),
     Fusion(fusion::State),
     BlastEm(blastem::State),
+    Mednafen(mednafen::State),
 }
 
 static PROCESS_NAMES: &[(&str, State)] = &[
     ("retroarch.exe", State::Retroarch(retroarch::State::new())),
     ("Fusion.exe", State::Fusion(fusion::State::new())),
     ("blastem.exe", State::BlastEm(blastem::State)),
+    ("mednafen.exe", State::Mednafen(mednafen::State)),
 ];
