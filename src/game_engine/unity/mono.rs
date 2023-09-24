@@ -498,7 +498,7 @@ impl<const N: usize> Pointer<N> {
         }
     }
 
-    /// Removes the internally stored address of the Mono clas    ///
+    /// Tries to resolve the internally stored address of the Mono class
     /// Returns `true` if the pointer path has been resolved, `false` otherwise.
     pub fn try_find(
         &mut self,
