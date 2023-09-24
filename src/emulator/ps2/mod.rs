@@ -48,13 +48,14 @@ impl Emulator {
     /// Returns true if successful, false otherwise.
     pub fn update(&mut self) -> bool {
         if self.ram_base.is_none() {
-            self.ram_base = match match &mut self.state {
+            let ram_base = match &mut self.state {
                 State::Pcsx2(x) => x.find_ram(&self.process),
                 State::Retroarch(x) => x.find_ram(&self.process),
-            } {
-                None => return false,
-                something => something,
             };
+            if ram_base.is_none() {
+                return false;
+            }
+            self.ram_base = ram_base;
         }
 
         let success = match &self.state {
@@ -62,13 +63,11 @@ impl Emulator {
             State::Retroarch(x) => x.keep_alive(&self.process),
         };
 
-        match success {
-            true => true,
-            false => {
-                self.ram_base = None;
-                false
-            },
+        if !success {
+            self.ram_base = None;
         }
+
+        success
     }
 
     /// Reads any value from the emulated RAM.
@@ -82,7 +81,7 @@ impl Emulator {
     /// Providing any offset outside the range of the PS2's RAM will return
     /// `Err()`.
     pub fn read<T: CheckedBitPattern>(&self, address: u32) -> Result<T, Error> {
-        if address < 0x00100000 || address > 0x01FFFFFF {
+        if !(0x00100000..=0x01FFFFFF).contains(&address) {
             return Err(Error {});
         }
 
@@ -95,7 +94,7 @@ impl Emulator {
 
     /// Follows a path of pointers from the base address given and reads a value of the
     /// type specified at the end of the pointer path.
-    /// 
+    ///
     /// In PS2, memory addresses are mapped at fixed locations starting
     /// from `0x00100000` (addresses below this threashold are
     /// reserved for the kernel).
@@ -104,7 +103,11 @@ impl Emulator {
     ///
     /// Providing any offset outside the range of the PS2's RAM will return
     /// `Err()`.
-    pub fn read_pointer_path<T: CheckedBitPattern>(&self, base_address: u32, path: &[u32]) -> Result<T, Error> {
+    pub fn read_pointer_path<T: CheckedBitPattern>(
+        &self,
+        base_address: u32,
+        path: &[u32],
+    ) -> Result<T, Error> {
         let mut address = base_address;
         let (&last, path) = path.split_last().ok_or(Error {})?;
         for &offset in path {

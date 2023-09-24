@@ -1,6 +1,4 @@
-use crate::{
-    file_format::pe, signature::Signature, Address, Address32, Address64, Process, Error,
-};
+use crate::{file_format::pe, signature::Signature, Address, Address32, Address64, Error, Process};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct State {
@@ -26,14 +24,14 @@ impl State {
             const SIG: Signature<11> = Signature::new("8B ?? ?? ?? ?? ?? 25 F0 3F 00 00");
             const SIG_ALT: Signature<12> = Signature::new("8B ?? ?? ?? ?? ?? 81 ?? F0 3F 00 00");
             let ptr = if let Some(addr) = SIG.scan_process_range(game, main_module_range) {
-                addr + 2 
+                addr + 2
             } else {
                 SIG_ALT.scan_process_range(game, main_module_range)? + 2
             };
             self.read_pointer(game, ptr).ok()?
         };
 
-        Some(self.read_pointer(game, self.addr_base).ok()?)
+        self.read_pointer(game, self.addr_base).ok()
     }
 
     pub fn keep_alive(&self, game: &Process, ram_base: &mut Option<Address>) -> bool {
