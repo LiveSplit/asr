@@ -527,10 +527,12 @@ impl<const N: usize> Pointer<N> {
         no_of_parents: u32,
         fields: &[&str],
     ) -> bool {
+        assert!(fields.len() == N);
+
         // If this function runs, for whatever reason, the address of the static table must be invalidated
         self.static_table = None;
 
-        // Finding the first class in thie hierarchy from which we will build our pointer path
+        // Finding the first class in the hierarchy from which we will build our pointer path
         let Some(mut current_class) = image.get_class(process, module, class_name) else {
             return false;
         };
