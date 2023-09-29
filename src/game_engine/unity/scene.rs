@@ -4,7 +4,7 @@
 // https://gist.githubusercontent.com/just-ero/92457b51baf85bd1e5b8c87de8c9835e/raw/8aa3e6b8da01fd03ff2ff0c03cbd018e522ef988/UnityScene.hpp
 // Offsets and logic for the GameObject functions taken from https://github.com/Micrologist/UnityInstanceDumper
 
-use core::{array, mem::MaybeUninit};
+use core::{array, iter, mem::MaybeUninit};
 
 use crate::{
     file_format::pe, future::retry, signature::Signature, string::ArrayCString, Address, Address32,
