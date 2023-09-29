@@ -149,48 +149,42 @@ impl SceneManager {
         &'a self,
         process: &'a Process,
         scene_address: Address,
-    ) -> Result<impl DoubleEndedIterator<Item = GameObject> + 'a, Error> {
+    ) -> Result<impl Iterator<Item = GameObject> + 'a, Error> {
         let first_game_object =
             self.read_pointer(process, scene_address + self.offsets.root_storage_container)?;
 
-        let number_of_root_game_objects = {
-            let mut index: usize = 0;
-            let mut temp_tr = first_game_object;
-
-            while temp_tr != scene_address + self.offsets.root_storage_container {
-                index += 1;
-                temp_tr = self.read_pointer(process, temp_tr)?;
-            }
-
-            index
-        };
-
         let mut current_game_object = first_game_object;
+        let mut iter_break = false;
 
-        Ok((0..number_of_root_game_objects).filter_map(move |n| {
-            let [first, _, third]: [Address; 3] = match self.is_64_bit {
-                true => process
-                    .read::<[Address64; 3]>(current_game_object)
-                    .ok()?
-                    .map(|a| a.into()),
-                false => process
-                    .read::<[Address32; 3]>(current_game_object)
-                    .ok()?
-                    .map(|a| a.into()),
-            };
+        Ok(iter::from_fn(move || {
+            if iter_break {
+                None
+            } else {
+                let [first, _, third]: [Address; 3] = match self.is_64_bit {
+                    true => process
+                        .read::<[Address64; 3]>(current_game_object)
+                        .ok()?
+                        .map(|a| a.into()),
+                    false => process
+                        .read::<[Address32; 3]>(current_game_object)
+                        .ok()?
+                        .map(|a| a.into()),
+                };
 
-            let game_object = self
-                .read_pointer(process, third + self.offsets.game_object)
-                .ok()?;
+                let game_object = self
+                    .read_pointer(process, third + self.offsets.game_object)
+                    .ok()?;
 
-            // Load the next game object before looping, except at the last iteration of the loop
-            if n + 1 != number_of_root_game_objects {
+                if first == first_game_object {
+                    iter_break = true;
+                }
+
                 current_game_object = first;
-            }
 
-            Some(GameObject {
-                address: game_object,
-            })
+                Some(GameObject {
+                    address: game_object,
+                })
+            }
         }))
     }
 
