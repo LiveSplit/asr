@@ -3,20 +3,17 @@ use core::{
     mem::{self, MaybeUninit},
     slice,
 };
-#[cfg(feature = "alloc")]
-use core::mem::size_of;
 
 use crate::{Address, Address32, Address64};
 
-use super::{
-    sys::{self, ProcessId},
-    Error, MemoryRange,
-};
+use super::{sys, Error, MemoryRange};
+
+pub use super::sys::ProcessId;
 
 /// A process that the auto splitter is attached to.
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct Process(pub(super) ProcessId);
+pub struct Process(pub(super) sys::Process);
 
 impl Drop for Process {
     #[inline]
@@ -40,49 +37,96 @@ impl Process {
         id.map(Self)
     }
 
-    /// Attaches to a process based on its pid.
+    /// Attaches to a process based on its process id.
     #[inline]
-    pub fn attach_pid(pid: u32) -> Option<Self> {
+    pub fn attach_by_pid(pid: ProcessId) -> Option<Self> {
         // SAFETY: We do proper error handling afterwards.
-        let id = unsafe { sys::process_attach_pid(pid) };
+        let id = unsafe { sys::process_attach_by_pid(pid) };
         id.map(Self)
     }
 
-    #[cfg(feature = "alloc")]
-    #[inline]
-    pub fn list(name: &str) -> Option<alloc::vec::Vec<u32>> {
+    /// Lists processes based on their name. The processes are not in any
+    /// specific order. Returns [`None`] if listing the processes failed. A buffer
+    /// is provided that is filled with the process ids of the processes that
+    /// were found. If the buffer is too small, the buffer is filled with as
+    /// many process ids as possible. The length of the total amount of process
+    /// ids that were found is also returned. This can be used to detect if the
+    /// buffer was too small and can be used to either reallocate the buffer or
+    /// to consider this an error condition.
+    pub fn list_by_name_into<'buf>(
+        name: &str,
+        buf: &'buf mut [MaybeUninit<ProcessId>],
+    ) -> Option<(&'buf mut [ProcessId], usize)> {
         // SAFETY: We provide a valid pointer and length to the name. The name
-        // is guaranteed to be valid UTF-8. Calling `list` with a null pointer 
-        // and 0 length will return the required length. We then allocate a 
-        // buffer with the required length and call it again with the buffer.
-        unsafe { 
-            let mut len = 0;
-            let empty = sys::process_list(name.as_ptr(), name.len(), core::ptr::null_mut(), &mut len);
+        // is guaranteed to be valid UTF-8. We also pass a pointer to the buffer
+        // and its length. We also do proper error handling afterwards. The
+        // buffer is guaranteed to be initialized afterwards, so we can safely
+        // return a slice of it. The length is updated to be the amount of
+        // process ids that were found. If this is smaller than the length of
+        // the buffer, we slice the buffer to the length that was found.
+        unsafe {
+            let mut len = buf.len();
 
-            if !empty {
-                let mut buf = alloc::vec::Vec::with_capacity(len * size_of::<u32>());
-                let success = sys::process_list(name.as_ptr(), name.len(), buf.as_mut_ptr(), &mut len);
-                if !success {
+            let successful = sys::process_list_by_name(
+                name.as_ptr(),
+                name.len(),
+                buf.as_mut_ptr().cast::<ProcessId>(),
+                &mut len,
+            );
+
+            if !successful {
+                return None;
+            }
+
+            let slice_len = len.min(buf.len());
+
+            Some((
+                slice::from_raw_parts_mut(buf.as_mut_ptr().cast::<ProcessId>(), slice_len),
+                len,
+            ))
+        }
+    }
+
+    /// Lists processes based on their name. The processes are not in any
+    /// specific order. Returns [`None`] if listing the processes failed. A
+    /// vector is returned that is filled with the process ids of the processes
+    /// that were found.
+    #[cfg(feature = "alloc")]
+    pub fn list_by_name(name: &str) -> Option<alloc::vec::Vec<ProcessId>> {
+        // SAFETY: We provide a valid pointer and length to the name. The name
+        // is guaranteed to be valid UTF-8. We call `process_list_by_name` with
+        // a pointer to the allocated buffer and its capacity. The `len_cap`
+        // will then be modified to be the amount of process ids that were
+        // found. If this is less than or equal to the capacity, we know that
+        // the buffer was large enough and we can return it. If it is larger, we
+        // know that the buffer was too small and we need to call
+        // `process_list_by_name` again with a larger buffer. We then repeat
+        // this process until we have a buffer that is large enough.
+        unsafe {
+            let mut buf = alloc::vec::Vec::with_capacity(0);
+
+            loop {
+                // Passed in as the capacity of the buffer, later contains the
+                // length that was actually needed.
+                let mut len_cap = buf.capacity();
+
+                let successful = sys::process_list_by_name(
+                    name.as_ptr(),
+                    name.len(),
+                    buf.as_mut_ptr(),
+                    &mut len_cap,
+                );
+
+                if !successful {
                     return None;
-                } 
-                buf.set_len(len * size_of::<u32>());
-
-                let sz = size_of::<u32>();
-                let mut outbuf = alloc::vec::Vec::with_capacity(len);
-                for i in 0..len {
-                    let num = [
-                        buf[i * sz],
-                        buf[(i * sz) + 1],
-                        buf[(i * sz) + 2],
-                        buf[(i * sz) + 3],
-                    ];
-
-                    outbuf.insert(i, u32::from_le_bytes(num));
                 }
 
-                Some(outbuf)
-            } else {
-                return None;
+                if len_cap <= buf.capacity() {
+                    buf.set_len(len_cap);
+                    return Some(buf);
+                }
+
+                buf.reserve(len_cap);
             }
         }
     }
