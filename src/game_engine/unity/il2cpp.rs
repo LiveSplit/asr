@@ -7,6 +7,7 @@ use crate::{
     Address64, Error, Process,
 };
 
+use arrayvec::ArrayString;
 use bytemuck::CheckedBitPattern;
 
 #[cfg(feature = "derive")]
@@ -378,62 +379,64 @@ impl Class {
 }
 
 /// An IL2CPP-specific implementation for automatic pointer path resolution
-pub struct Pointer<'a, const N: usize> {
+pub struct Pointer<const N: usize> {
     static_table: OnceCell<Address>,
     offsets: OnceCell<[u32; N]>,
-    il2cpp_module: &'a Module,
-    il2cpp_image: &'a Image,
-    class_name: &'a str,
+    class_name: ArrayString<128>,
     nr_of_parents: u8,
-    fields: &'a [&'a str],
+    fields: [ArrayString<128>; N],
+    depth: usize,
 }
 
-impl<'a, const N: usize> Pointer<'a, N> {
+impl<const N: usize> Pointer<N> {
     /// Creates a new instance of the Pointer struct
-    pub const fn new(
-        module: &'a Module,
-        image: &'a Image,
-        class_name: &'a str,
-        nr_of_parents: u8,
-        fields: &'a [&'a str],
-    ) -> Self {
-        assert!(fields.len() == N && N != 0);
+    /// 
+    /// `N` must be higher or equal to the number of offsets defined in `fields`.
+    /// 
+    /// If `N` is set to a value lower than the number of the offsets to be dereferenced, this function will ***Panic***
+    pub fn new(class_name: &str, nr_of_parents: u8, fields: &[&str]) -> Self {
+        assert!(fields.len() > 0 && fields.len() <= N);
+
+        let mut this_class_name = ArrayString::new();
+        this_class_name.push_str(class_name);
+
+        let mut this_fields = [ArrayString::new(); N];
+        for (i, &val) in fields.iter().enumerate() {
+            this_fields[i].push_str(val);
+        }
 
         Self {
             static_table: OnceCell::new(),
             offsets: OnceCell::new(),
-            il2cpp_module: module,
-            il2cpp_image: image,
-            class_name,
+            class_name: this_class_name,
             nr_of_parents,
-            fields,
+            fields: this_fields,
+            depth: fields.len(),
         }
     }
 
     /// Tries to resolve the pointer path for the `IL2CPP` class specified
-    fn find_offsets(&self, process: &Process) -> Result<(), Error> {
-        // This function should not be called if the static table of the offsets have already been found
+    fn find_offsets(&self, process: &Process, module: &Module, image: &Image) -> Result<(), Error> {
+        // This function should not be called if the static table or the offsets have already been found
         if self.static_table.get().is_some() || self.offsets.get().is_some() {
             return Err(Error {});
         }
 
-        let mut current_class = self
-            .il2cpp_image
-            .get_class(process, self.il2cpp_module, self.class_name)
+        let mut current_class = image
+            .get_class(process, module, &self.class_name)
             .ok_or(Error {})?;
 
         for _ in 0..self.nr_of_parents {
-            current_class = current_class
-                .get_parent(process, self.il2cpp_module)
-                .ok_or(Error {})?;
+            current_class = current_class.get_parent(process, module).ok_or(Error {})?;
         }
 
         let static_table = current_class
-            .get_static_table(process, self.il2cpp_module)
+            .get_static_table(process, module)
             .ok_or(Error {})?;
+
         let mut offsets = [0; N];
 
-        for (i, &field_name) in self.fields.iter().enumerate() {
+        for (i, &field_name) in self.fields.iter().take(self.depth).enumerate() {
             // Try to parse the offset, passed as a string, as an actual hex or decimal value
             let offset_from_string = {
                 let mut temp_val = None;
@@ -453,22 +456,19 @@ impl<'a, const N: usize> Pointer<'a, N> {
             // Then we try finding the MonoClassField of interest, which is needed if we only provided the name of the field,
             // and will be needed anyway when looking for the next offset.
             let target_field = current_class
-                .fields(process, self.il2cpp_module)
+                .fields(process, module)
                 .find(|&field| {
                     if let Some(val) = offset_from_string {
                         process
-                            .read::<u32>(field + self.il2cpp_module.offsets.monoclassfield_offset)
+                            .read::<u32>(field + module.offsets.monoclassfield_offset)
                             .is_ok_and(|value| value == val)
                     } else {
-                        self.il2cpp_module
-                            .read_pointer(
-                                process,
-                                field + self.il2cpp_module.offsets.monoclassfield_name,
-                            )
+                        module
+                            .read_pointer(process, field + module.offsets.monoclassfield_name)
                             .is_ok_and(|name_addr| {
                                 process
                                     .read::<ArrayCString<128>>(name_addr)
-                                    .is_ok_and(|name| name.matches(field_name))
+                                    .is_ok_and(|name| name.as_bytes() == field_name.as_bytes())
                             })
                     }
                 })
@@ -477,24 +477,21 @@ impl<'a, const N: usize> Pointer<'a, N> {
             offsets[i] = if let Some(val) = offset_from_string {
                 val
             } else {
-                process
-                    .read::<u32>(target_field + self.il2cpp_module.offsets.monoclassfield_offset)?
+                process.read::<u32>(target_field + module.offsets.monoclassfield_offset)?
             };
 
             // In every iteration of the loop, except the last one, we then need to find the Class address for the next offset
-            if i != N - 1 {
-                let r#type = self
-                    .il2cpp_module
-                    .read_pointer(process, target_field + self.il2cpp_module.size_of_ptr())?;
-                let type_definition = self.il2cpp_module.read_pointer(process, r#type)?;
-                let mut classes = self.il2cpp_image.classes(process, self.il2cpp_module)?;
+            if i != self.depth - 1 {
+                let r#type = module.read_pointer(process, target_field + module.size_of_ptr())?;
+                let type_definition = module.read_pointer(process, r#type)?;
+                let mut classes = image.classes(process, module)?;
 
                 let new_class = classes
                     .find(|c| {
-                        self.il2cpp_module
+                        module
                             .read_pointer(
                                 process,
-                                c.class + self.il2cpp_module.offsets.monoclass_type_definition,
+                                c.class + module.offsets.monoclass_type_definition,
                             )
                             .is_ok_and(|val| val == type_definition)
                     })
@@ -510,21 +507,26 @@ impl<'a, const N: usize> Pointer<'a, N> {
     }
 
     /// Reads a value, resolving the pointer path if needed
-    pub fn read<T: CheckedBitPattern>(&self, process: &Process) -> Result<T, Error> {
+    pub fn read<T: CheckedBitPattern>(
+        &self,
+        process: &Process,
+        module: &Module,
+        image: &Image,
+    ) -> Result<T, Error> {
         if self.static_table.get().is_none() {
-            self.find_offsets(process)?;
+            self.find_offsets(process, module, image)?;
         }
 
         let mut address = *self.static_table.get().ok_or(Error {})?;
         let offsets = self.offsets.get().ok_or(Error {})?;
 
-        for &offset in offsets.iter().take(N - 1) {
-            address = match self.il2cpp_module.is_64_bit {
+        for &offset in offsets.iter().take(self.depth - 1) {
+            address = match module.is_64_bit {
                 true => process.read::<Address64>(address.add(offset as _))?.into(),
                 false => process.read::<Address32>(address.add(offset as _))?.into(),
             };
         }
-        process.read(address + offsets[N - 1])
+        process.read(address + offsets[self.depth - 1])
     }
 }
 

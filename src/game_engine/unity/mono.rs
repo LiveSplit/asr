@@ -7,6 +7,7 @@ use crate::{
 };
 use core::{cell::OnceCell, iter};
 
+use arrayvec::ArrayString;
 #[cfg(feature = "derive")]
 pub use asr_derive::MonoClass as Class;
 use bytemuck::CheckedBitPattern;
@@ -482,64 +483,63 @@ impl Class {
 }
 
 /// A Mono-specific implementation useful for automatic pointer path resolution
-pub struct Pointer<'a, const N: usize> {
+pub struct Pointer<const N: usize> {
     static_table: OnceCell<Address>,
     offsets: OnceCell<[u32; N]>,
-    mono_module: &'a Module,
-    mono_image: &'a Image,
-    class_name: &'a str,
+    class_name: ArrayString<128>,
     nr_of_parents: u8,
-    fields: &'a [&'a str],
+    fields: [ArrayString<128>; N],
+    depth: usize,
 }
 
-impl<'a, const N: usize> Pointer<'a, N> {
+impl<const N: usize> Pointer<N> {
     /// Creates a new instance of the Pointer struct
-    pub const fn new(
-        module: &'a Module,
-        image: &'a Image,
-        class_name: &'a str,
-        nr_of_parents: u8,
-        fields: &'a [&'a str],
-    ) -> Self {
-        assert!(fields.len() == N && N != 0);
+    pub fn new(class_name: &str, nr_of_parents: u8, fields: &[&str]) -> Self {
+        assert!(fields.len() > 0 && fields.len() <= N);
+
+        let mut this_class_name = ArrayString::new();
+        this_class_name.push_str(class_name);
+
+        let mut this_fields = [ArrayString::new(); N];
+        for (i, &val) in fields.iter().enumerate() {
+            this_fields[i].push_str(val);
+        }
 
         Self {
             static_table: OnceCell::new(),
             offsets: OnceCell::new(),
-            mono_module: module,
-            mono_image: image,
-            class_name,
+            class_name: this_class_name,
             nr_of_parents,
-            fields,
+            fields: this_fields,
+            depth: fields.len(),
         }
     }
 
     /// Tries to resolve the pointer path for the `Mono` class specified
-    fn find_offsets(&self, process: &Process) -> Result<(), Error> {
-        // This function should not be called if the static table of the offsets have already been found
+    fn find_offsets(&self, process: &Process, module: &Module, image: &Image) -> Result<(), Error> {
+        // This function should not be called if the static table or the offsets have already been found
         if self.static_table.get().is_some() || self.offsets.get().is_some() {
             return Err(Error {});
         }
 
         // Finding the first class in the hierarchy from which we will build our pointer path
-        let mut current_class = self
-            .mono_image
-            .get_class(process, self.mono_module, self.class_name)
+        let mut current_class = image
+            .get_class(process, module, &self.class_name)
             .ok_or(Error {})?;
 
-        // Looping through all the needed parent classes, according to the number specified in the function argument
         for _ in 0..self.nr_of_parents {
             current_class = current_class
-                .get_parent(process, self.mono_module)
+                .get_parent(process, module)
                 .ok_or(Error {})?;
         }
 
         let static_table = current_class
-            .get_static_table(process, self.mono_module)
+            .get_static_table(process, module)
             .ok_or(Error {})?;
+
         let mut offsets = [0; N];
 
-        for (i, &field_name) in self.fields.iter().enumerate() {
+        for (i, &field_name) in self.fields.iter().take(self.depth).enumerate() {
             // Try to parse the offset, passed as a string, as an actual hex or decimal value
             let offset_from_string = {
                 let mut temp_val = None;
@@ -559,22 +559,22 @@ impl<'a, const N: usize> Pointer<'a, N> {
             // Then we try finding the MonoClassField of interest, which is needed if we only provided the name of the field,
             // and will be needed anyway when looking for the next offset.
             let target_field = current_class
-                .fields(process, self.mono_module)
+                .fields(process, module)
                 .find(|&field| {
                     if let Some(val) = offset_from_string {
                         process
-                            .read::<u32>(field + self.mono_module.offsets.monoclassfield_offset)
+                            .read::<u32>(field + module.offsets.monoclassfield_offset)
                             .is_ok_and(|value| value == val)
                     } else {
-                        self.mono_module
+                        module
                             .read_pointer(
                                 process,
-                                field + self.mono_module.offsets.monoclassfield_name,
+                                field + module.offsets.monoclassfield_name,
                             )
                             .is_ok_and(|name_addr| {
                                 process
                                     .read::<ArrayCString<128>>(name_addr)
-                                    .is_ok_and(|name| name.matches(field_name))
+                                    .is_ok_and(|name| name.as_bytes() == field_name.as_bytes())
                             })
                     }
                 })
@@ -584,14 +584,14 @@ impl<'a, const N: usize> Pointer<'a, N> {
                 val
             } else {
                 process
-                    .read::<u32>(target_field + self.mono_module.offsets.monoclassfield_offset)?
+                    .read::<u32>(target_field + module.offsets.monoclassfield_offset)?
             };
 
             // In every iteration of the loop, except the last one, we then need to find the Class address for the next offset
-            if i != N - 1 {
-                let vtable = self.mono_module.read_pointer(process, target_field)?;
+            if i != self.depth - 1 {
+                let vtable = module.read_pointer(process, target_field)?;
                 current_class = Class {
-                    class: self.mono_module.read_pointer(process, vtable)?,
+                    class: module.read_pointer(process, vtable)?,
                 };
             }
         }
@@ -602,21 +602,24 @@ impl<'a, const N: usize> Pointer<'a, N> {
     }
 
     /// Reads a value, resolving the pointer path if needed
-    pub fn read<T: CheckedBitPattern>(&self, process: &Process) -> Result<T, Error> {
+    pub fn read<T: CheckedBitPattern>(&self,
+        process: &Process,
+        module: &Module,
+        image: &Image) -> Result<T, Error> {
         if self.static_table.get().is_none() {
-            self.find_offsets(process)?;
+            self.find_offsets(process, module, image)?;
         }
 
         let mut address = *self.static_table.get().ok_or(Error {})?;
         let offsets = self.offsets.get().ok_or(Error {})?;
 
-        for &offset in offsets.iter().take(N - 1) {
-            address = match self.mono_module.is_64_bit {
+        for &offset in offsets.iter().take(self.depth - 1) {
+            address = match module.is_64_bit {
                 true => process.read::<Address64>(address.add(offset as _))?.into(),
                 false => process.read::<Address32>(address.add(offset as _))?.into(),
             };
         }
-        process.read(address + offsets[N - 1])
+        process.read(address + offsets[self.depth - 1])
     }
 }
 
