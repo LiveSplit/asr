@@ -377,10 +377,10 @@ impl Transform {
             array::from_fn(|_| iter.next().copied().map(Into::into).unwrap_or_default())
         };
 
-        Ok((0..child_count).filter_map(move |f| {
-            Some(Self {
-                address: children[f],
-            })
+        Ok((0..child_count).map(move |f| {
+            Self {
+                address: children[f]
+            }
         }))
     }
 
