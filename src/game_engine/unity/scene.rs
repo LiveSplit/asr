@@ -178,10 +178,8 @@ impl SceneManager {
         process: &'a Process,
         scene: &Scene,
     ) -> Result<impl Iterator<Item = Transform> + 'a, Error> {
-        let list_first = self.read_pointer(
-            process,
-            scene.address + self.offsets.root_storage_container,
-        )?;
+        let list_first =
+            self.read_pointer(process, scene.address + self.offsets.root_storage_container)?;
 
         let mut current_list = list_first;
         let mut iter_break = false;
@@ -334,10 +332,9 @@ impl Transform {
                 let name_ptr = {
                     match scene_manager.is_il2cpp {
                         true => {
-                            let Ok(name_ptr) = scene_manager.read_pointer(
-                                process,
-                                vtable + 2 * scene_manager.pointer_size(),
-                            ) else {
+                            let Ok(name_ptr) = scene_manager
+                                .read_pointer(process, vtable + 2 * scene_manager.pointer_size())
+                            else {
                                 return false;
                             };
 
@@ -373,12 +370,12 @@ impl Transform {
         scene_manager: &'a SceneManager,
     ) -> Result<impl Iterator<Item = Self> + 'a, Error> {
         let (child_count, child_pointer): (usize, Address) = if scene_manager.is_64_bit {
-            let [first, _, third] = process
-                .read::<[u64; 3]>(self.address + scene_manager.offsets.children_pointer)?;
+            let [first, _, third] =
+                process.read::<[u64; 3]>(self.address + scene_manager.offsets.children_pointer)?;
             (third as usize, Address::new(first))
         } else {
-            let [first, _, third] = process
-                .read::<[u32; 3]>(self.address + scene_manager.offsets.children_pointer)?;
+            let [first, _, third] =
+                process.read::<[u32; 3]>(self.address + scene_manager.offsets.children_pointer)?;
             (third as usize, Address::new(first as _))
         };
 
