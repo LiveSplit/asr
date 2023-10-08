@@ -290,7 +290,7 @@ impl GameObject {
             })
         };
 
-        Ok((0..number_of_components).filter_map(move |m| {
+        Ok((1..number_of_components).filter_map(move |m| {
             scene_manager
                 .read_pointer(process, components[m] + scene_manager.offsets.klass)
                 .ok()
