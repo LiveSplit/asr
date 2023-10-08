@@ -2,7 +2,7 @@
 
 // References:
 // https://gist.githubusercontent.com/just-ero/92457b51baf85bd1e5b8c87de8c9835e/raw/8aa3e6b8da01fd03ff2ff0c03cbd018e522ef988/UnityScene.hpp
-// Offsets and logic for the GameObject functions taken from https://github.com/Micrologist/UnityInstanceDumper
+// Offsets and logic for Transforms and GameObjects taken from https://github.com/Micrologist/UnityInstanceDumper
 
 use core::{array, iter, mem::MaybeUninit};
 
@@ -177,9 +177,7 @@ impl SceneManager {
 
                 current_list = first;
 
-                Some(Transform {
-                    address: self.read_pointer(process, third).ok()?,
-                })
+                Some(Transform { address: third })
             }
         }))
     }
@@ -230,8 +228,10 @@ impl Transform {
     ) -> Result<ArrayCString<N>, Error> {
         let game_object = scene_manager
             .read_pointer(process, self.address + scene_manager.offsets.game_object)?;
-        let name_ptr = scene_manager
-            .read_pointer(process, game_object + scene_manager.offsets.game_object_name)?;
+        let name_ptr = scene_manager.read_pointer(
+            process,
+            game_object + scene_manager.offsets.game_object_name,
+        )?;
         process.read(name_ptr)
     }
 
@@ -379,7 +379,7 @@ impl Transform {
 
         Ok((0..child_count).filter_map(move |f| {
             Some(Self {
-                address: scene_manager.read_pointer(process, children[f]).ok()?,
+                address: children[f],
             })
         }))
     }
