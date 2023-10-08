@@ -4,7 +4,7 @@
 // https://gist.githubusercontent.com/just-ero/92457b51baf85bd1e5b8c87de8c9835e/raw/8aa3e6b8da01fd03ff2ff0c03cbd018e522ef988/UnityScene.hpp
 // Offsets and logic for the GameObject functions taken from https://github.com/Micrologist/UnityInstanceDumper
 
-use core::{array, mem::MaybeUninit, iter};
+use core::{array, iter, mem::MaybeUninit};
 
 use crate::{
     file_format::pe, future::retry, signature::Signature, string::ArrayCString, Address, Address32,
@@ -150,7 +150,8 @@ impl SceneManager {
         process: &'a Process,
         scene_address: Address,
     ) -> Result<impl Iterator<Item = Transform> + 'a, Error> {
-        let list_first = self.read_pointer(process, scene_address + self.offsets.root_storage_container)?;
+        let list_first =
+            self.read_pointer(process, scene_address + self.offsets.root_storage_container)?;
 
         let mut current_list = list_first;
         let mut iter_break = false;
@@ -189,8 +190,7 @@ impl SceneManager {
         self.root_game_objects(process, self.get_current_scene_address(process)?)?
             .find(|obj| {
                 obj.get_name::<128>(process, self)
-                    .unwrap_or_default()
-                    .matches(name)
+                    .is_ok_and(|obj_name| obj_name.matches(name))
             })
             .ok_or(Error {})
     }
@@ -208,8 +208,7 @@ impl SceneManager {
         )?
         .find(|obj| {
             obj.get_name::<128>(process, self)
-                .unwrap_or_default()
-                .matches(name)
+                .is_ok_and(|obj_name| obj_name.matches(name))
         })
         .ok_or(Error {})
     }
@@ -229,8 +228,10 @@ impl Transform {
         process: &Process,
         scene_manager: &SceneManager,
     ) -> Result<ArrayCString<N>, Error> {
-        let mut name_ptr = scene_manager.read_pointer(process, self.address + scene_manager.offsets.game_object)?;
-        name_ptr = scene_manager.read_pointer(process, name_ptr + scene_manager.offsets.game_object_name)?;
+        let game_object = scene_manager
+            .read_pointer(process, self.address + scene_manager.offsets.game_object)?;
+        let name_ptr = scene_manager
+            .read_pointer(process, game_object + scene_manager.offsets.game_object_name)?;
         process.read(name_ptr)
     }
 
@@ -240,13 +241,16 @@ impl Transform {
         process: &'a Process,
         scene_manager: &'a SceneManager,
     ) -> Result<impl Iterator<Item = Address> + 'a, Error> {
-        let game_object = scene_manager.read_pointer(process, self.address + scene_manager.offsets.game_object)?;
+        let game_object = scene_manager
+            .read_pointer(process, self.address + scene_manager.offsets.game_object)?;
 
         let (number_of_components, main_object): (usize, Address) = if scene_manager.is_64_bit {
-            let array = process.read::<[Address64; 3]>(game_object + scene_manager.offsets.game_object)?;
+            let array =
+                process.read::<[Address64; 3]>(game_object + scene_manager.offsets.game_object)?;
             (array[2].value() as usize, array[0].into())
         } else {
-            let array = process.read::<[Address32; 3]>(game_object + scene_manager.offsets.game_object)?;
+            let array =
+                process.read::<[Address32; 3]>(game_object + scene_manager.offsets.game_object)?;
             (array[2].value() as usize, array[0].into())
         };
 
@@ -335,17 +339,19 @@ impl Transform {
             .ok_or(Error {})
     }
 
-    /// Iterates over children `GameObject`s referred by the current one
+    /// Iterates over children `Transform`s referred by the current one
     pub fn children<'a>(
         &'a self,
         process: &'a Process,
         scene_manager: &'a SceneManager,
     ) -> Result<impl Iterator<Item = Self> + 'a, Error> {
         let (child_count, child_pointer): (usize, Address) = if scene_manager.is_64_bit {
-            let array = process.read::<[Address64; 3]>(self.address + scene_manager.offsets.children_pointer)?;
+            let array = process
+                .read::<[Address64; 3]>(self.address + scene_manager.offsets.children_pointer)?;
             (array[2].value() as usize, array[0].into())
         } else {
-            let array = process.read::<[Address32; 3]>(self.address + scene_manager.offsets.children_pointer)?;
+            let array = process
+                .read::<[Address32; 3]>(self.address + scene_manager.offsets.children_pointer)?;
             (array[2].value() as usize, array[0].into())
         };
 
@@ -372,12 +378,8 @@ impl Transform {
         };
 
         Ok((0..child_count).filter_map(move |f| {
-            let game_object = scene_manager
-                .read_pointer(process, children[f])
-                .ok()?;
-
             Some(Self {
-                address: game_object,
+                address: scene_manager.read_pointer(process, children[f]).ok()?,
             })
         }))
     }
