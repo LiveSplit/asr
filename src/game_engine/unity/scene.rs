@@ -4,7 +4,7 @@
 // https://gist.githubusercontent.com/just-ero/92457b51baf85bd1e5b8c87de8c9835e/raw/8aa3e6b8da01fd03ff2ff0c03cbd018e522ef988/UnityScene.hpp
 // Offsets and logic for the GameObject functions taken from https://github.com/Micrologist/UnityInstanceDumper
 
-use core::{array, mem::MaybeUninit};
+use core::{array, mem::MaybeUninit, iter};
 
 use crate::{
     file_format::pe, future::retry, signature::Signature, string::ArrayCString, Address, Address32,
@@ -137,66 +137,55 @@ impl SceneManager {
             .filter(move |p| !fptr.is_null() && p.is_valid(process))
     }
 
-    /// Iterates over all root `Transform`s / [`GameObject`]s declared for the
+    /// Iterates over all root [`Transform`]s declared for the
     /// specified scene.
     ///
-    /// Each Unity scene normally has a linked list of `Transform`s (each one is
-    /// a [`GameObject`]). Each one can, recursively, have a child `Transform`
-    /// (and so on), and has a list of `Component`s, which are classes (eg.
+    /// Each Unity scene normally has a linked list of [`Transform`]s.
+    /// Each one can, recursively, have one or more children [`Transform`]s
+    /// (and so on), as well as a list of `Component`s, which are classes (eg.
     /// `MonoBehaviour`) containing data we might want to retrieve for the auto
     /// splitter logic.
     fn root_game_objects<'a>(
         &'a self,
         process: &'a Process,
         scene_address: Address,
-    ) -> Result<impl DoubleEndedIterator<Item = GameObject> + 'a, Error> {
-        let first_game_object =
-            self.read_pointer(process, scene_address + self.offsets.root_storage_container)?;
+    ) -> Result<impl Iterator<Item = Transform> + 'a, Error> {
+        let list_first = self.read_pointer(process, scene_address + self.offsets.root_storage_container)?;
 
-        let number_of_root_game_objects = {
-            let mut index: usize = 0;
-            let mut temp_tr = first_game_object;
+        let mut current_list = list_first;
+        let mut iter_break = false;
 
-            while temp_tr != scene_address + self.offsets.root_storage_container {
-                index += 1;
-                temp_tr = self.read_pointer(process, temp_tr)?;
+        Ok(iter::from_fn(move || {
+            if iter_break {
+                None
+            } else {
+                let [first, _, third]: [Address; 3] = match self.is_64_bit {
+                    true => process
+                        .read::<[Address64; 3]>(current_list)
+                        .ok()?
+                        .map(|a| a.into()),
+                    false => process
+                        .read::<[Address32; 3]>(current_list)
+                        .ok()?
+                        .map(|a| a.into()),
+                };
+
+                if first == list_first {
+                    iter_break = true;
+                }
+
+                current_list = first;
+
+                Some(Transform {
+                    address: self.read_pointer(process, third).ok()?,
+                })
             }
-
-            index
-        };
-
-        let mut current_game_object = first_game_object;
-
-        Ok((0..number_of_root_game_objects).filter_map(move |n| {
-            let [first, _, third]: [Address; 3] = match self.is_64_bit {
-                true => process
-                    .read::<[Address64; 3]>(current_game_object)
-                    .ok()?
-                    .map(|a| a.into()),
-                false => process
-                    .read::<[Address32; 3]>(current_game_object)
-                    .ok()?
-                    .map(|a| a.into()),
-            };
-
-            let game_object = self
-                .read_pointer(process, third + self.offsets.game_object)
-                .ok()?;
-
-            // Load the next game object before looping, except at the last iteration of the loop
-            if n + 1 != number_of_root_game_objects {
-                current_game_object = first;
-            }
-
-            Some(GameObject {
-                address: game_object,
-            })
         }))
     }
 
-    /// Tries to find the specified root [`GameObject`] from the currently
+    /// Tries to find the specified root [`Transform`] from the currently
     /// active Unity scene.
-    pub fn get_root_game_object(&self, process: &Process, name: &str) -> Result<GameObject, Error> {
+    pub fn get_root_game_object(&self, process: &Process, name: &str) -> Result<Transform, Error> {
         self.root_game_objects(process, self.get_current_scene_address(process)?)?
             .find(|obj| {
                 obj.get_name::<128>(process, self)
@@ -206,13 +195,13 @@ impl SceneManager {
             .ok_or(Error {})
     }
 
-    /// Tries to find the specified root [`GameObject`] from the
+    /// Tries to find the specified root [`Transform`] from the
     /// `DontDestroyOnLoad` Unity scene.
     pub fn get_game_object_from_dont_destroy_on_load(
         &self,
         process: &Process,
         name: &str,
-    ) -> Result<GameObject, Error> {
+    ) -> Result<Transform, Error> {
         self.root_game_objects(
             process,
             self.get_dont_destroy_on_load_scene_address(process)?,
@@ -226,43 +215,44 @@ impl SceneManager {
     }
 }
 
-/// A `GameObject` is a base class for all entities used in a Unity scene. All
+/// A `Transform` is a base class for all entities used in a Unity scene. All
 /// classes of interest useful for an auto splitter can be found starting from
-/// the addresses of the root `GameObject`s linked in each scene.
-pub struct GameObject {
+/// the addresses of the root `Transform`s linked in each scene.
+pub struct Transform {
     address: Address,
 }
 
-impl GameObject {
-    /// Tries to return the name of the current `GameObject`.
+impl Transform {
+    /// Tries to return the name of the current `Transform`.
     pub fn get_name<const N: usize>(
         &self,
         process: &Process,
         scene_manager: &SceneManager,
     ) -> Result<ArrayCString<N>, Error> {
-        let name_ptr = scene_manager.read_pointer(
-            process,
-            self.address + scene_manager.offsets.game_object_name,
-        )?;
+        let mut name_ptr = scene_manager.read_pointer(process, self.address + scene_manager.offsets.game_object)?;
+        name_ptr = scene_manager.read_pointer(process, name_ptr + scene_manager.offsets.game_object_name)?;
         process.read(name_ptr)
     }
 
-    /// Iterates over the classes referred to in the current `GameObject`.
+    /// Iterates over the classes referred to in the current `Transform`.
     pub fn classes<'a>(
         &'a self,
         process: &'a Process,
         scene_manager: &'a SceneManager,
     ) -> Result<impl Iterator<Item = Address> + 'a, Error> {
-        let number_of_components = process
-            .read::<u32>(self.address + scene_manager.offsets.number_of_object_components)?
-            as usize;
+        let game_object = scene_manager.read_pointer(process, self.address + scene_manager.offsets.game_object)?;
+
+        let (number_of_components, main_object): (usize, Address) = if scene_manager.is_64_bit {
+            let array = process.read::<[Address64; 3]>(game_object + scene_manager.offsets.game_object)?;
+            (array[2].value() as usize, array[0].into())
+        } else {
+            let array = process.read::<[Address32; 3]>(game_object + scene_manager.offsets.game_object)?;
+            (array[2].value() as usize, array[0].into())
+        };
 
         if number_of_components == 0 {
             return Err(Error {});
         }
-
-        let main_object = scene_manager
-            .read_pointer(process, self.address + scene_manager.offsets.game_object)?;
 
         const ARRAY_SIZE: usize = 128;
 
@@ -351,23 +341,17 @@ impl GameObject {
         process: &'a Process,
         scene_manager: &'a SceneManager,
     ) -> Result<impl Iterator<Item = Self> + 'a, Error> {
-        let main_object = scene_manager
-            .read_pointer(process, self.address + scene_manager.offsets.game_object)?;
-
-        let transform = scene_manager.read_pointer(
-            process,
-            main_object + if scene_manager.is_64_bit { 8 } else { 4 },
-        )?;
-
-        let child_count =
-            process.read::<u32>(transform + scene_manager.offsets.children_count)? as usize;
+        let (child_count, child_pointer): (usize, Address) = if scene_manager.is_64_bit {
+            let array = process.read::<[Address64; 3]>(self.address + scene_manager.offsets.children_pointer)?;
+            (array[2].value() as usize, array[0].into())
+        } else {
+            let array = process.read::<[Address32; 3]>(self.address + scene_manager.offsets.children_pointer)?;
+            (array[2].value() as usize, array[0].into())
+        };
 
         if child_count == 0 {
             return Err(Error {});
         }
-
-        let child_pointer = scene_manager
-            .read_pointer(process, transform + scene_manager.offsets.children_pointer)?;
 
         // Define an empty array and fill it later with the addresses of all child classes found for the current GameObject.
         // Reading the whole array of pointers is (slightly) faster than reading each address in a loop
@@ -389,7 +373,7 @@ impl GameObject {
 
         Ok((0..child_count).filter_map(move |f| {
             let game_object = scene_manager
-                .read_pointer(process, children[f] + scene_manager.offsets.game_object)
+                .read_pointer(process, children[f])
                 .ok()?;
 
             Some(Self {
@@ -424,10 +408,10 @@ struct Offsets {
     root_storage_container: u8,
     game_object: u8,
     game_object_name: u8,
-    number_of_object_components: u8,
+    //number_of_object_components: u8,
     klass: u8,
     klass_name: u8,
-    children_count: u8,
+    //children_count: u8,
     children_pointer: u8,
 }
 
@@ -444,10 +428,10 @@ impl Offsets {
                 root_storage_container: 0xB0,
                 game_object: 0x30,
                 game_object_name: 0x60,
-                number_of_object_components: 0x40,
+                //number_of_object_components: 0x40,
                 klass: 0x28,
                 klass_name: 0x48,
-                children_count: 0x80,
+                //children_count: 0x80,
                 children_pointer: 0x70,
             },
             false => &Self {
@@ -460,10 +444,10 @@ impl Offsets {
                 root_storage_container: 0x88,
                 game_object: 0x1C,
                 game_object_name: 0x3C,
-                number_of_object_components: 0x24,
+                //number_of_object_components: 0x24,
                 klass: 0x18,
                 klass_name: 0x2C,
-                children_count: 0x58,
+                //children_count: 0x58,
                 children_pointer: 0x50,
             },
         }
