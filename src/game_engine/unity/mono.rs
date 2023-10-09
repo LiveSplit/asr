@@ -496,22 +496,15 @@ impl<const CAP: usize> Pointer<CAP> {
     pub fn new(class_name: &str, nr_of_parents: u8, fields: &[&str]) -> Self {
         assert!(!fields.is_empty() && fields.len() <= CAP);
 
-        let mut this_class_name = ArrayString::new();
-        this_class_name.push_str(class_name);
-
-        let mut this_fields = ArrayVec::new();
-        for &val in fields {
-            let mut string = ArrayString::new();
-            string.push_str(val);
-            this_fields.push(string);
-        }
-
         Self {
             static_table: OnceCell::new(),
             offsets: OnceCell::new(),
-            class_name: this_class_name,
+            class_name: ArrayString::from(class_name).unwrap_or_default(),
             nr_of_parents,
-            fields: this_fields,
+            fields: fields
+                .iter()
+                .map(|&val| ArrayString::from(val).unwrap_or_default())
+                .collect(),
         }
     }
 
