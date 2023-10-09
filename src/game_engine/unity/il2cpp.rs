@@ -7,7 +7,7 @@ use crate::{
     Address64, Error, Process,
 };
 
-use arrayvec::ArrayString;
+use arrayvec::{ArrayString, ArrayVec};
 use bytemuck::CheckedBitPattern;
 
 #[cfg(feature = "derive")]
@@ -379,30 +379,31 @@ impl Class {
 }
 
 /// An IL2CPP-specific implementation for automatic pointer path resolution
-pub struct Pointer<const N: usize> {
+pub struct Pointer<const CAP: usize> {
     static_table: OnceCell<Address>,
-    offsets: OnceCell<[u32; N]>,
+    offsets: OnceCell<ArrayVec<u64, CAP>>,
     class_name: ArrayString<128>,
     nr_of_parents: u8,
-    fields: [ArrayString<128>; N],
-    depth: usize,
+    fields: ArrayVec<ArrayString<128>, CAP>,
 }
 
-impl<const N: usize> Pointer<N> {
+impl<const CAP: usize> Pointer<CAP> {
     /// Creates a new instance of the Pointer struct
-    /// 
-    /// `N` must be higher or equal to the number of offsets defined in `fields`.
-    /// 
-    /// If `N` is set to a value lower than the number of the offsets to be dereferenced, this function will ***Panic***
+    ///
+    /// `CAP` must be higher or equal to the number of offsets defined in `fields`.
+    ///
+    /// If `CAP` is set to a value lower than the number of the offsets to be dereferenced, this function will ***Panic***
     pub fn new(class_name: &str, nr_of_parents: u8, fields: &[&str]) -> Self {
-        assert!(fields.len() > 0 && fields.len() <= N);
+        assert!(!fields.is_empty() && fields.len() <= CAP);
 
         let mut this_class_name = ArrayString::new();
         this_class_name.push_str(class_name);
 
-        let mut this_fields = [ArrayString::new(); N];
-        for (i, &val) in fields.iter().enumerate() {
-            this_fields[i].push_str(val);
+        let mut this_fields = ArrayVec::new();
+        for &val in fields {
+            let mut string = ArrayString::new();
+            string.push_str(val);
+            this_fields.push(string);
         }
 
         Self {
@@ -411,7 +412,6 @@ impl<const N: usize> Pointer<N> {
             class_name: this_class_name,
             nr_of_parents,
             fields: this_fields,
-            depth: fields.len(),
         }
     }
 
@@ -434,9 +434,9 @@ impl<const N: usize> Pointer<N> {
             .get_static_table(process, module)
             .ok_or(Error {})?;
 
-        let mut offsets = [0; N];
+        let mut offsets = ArrayVec::new();
 
-        for (i, &field_name) in self.fields.iter().take(self.depth).enumerate() {
+        for (i, &field_name) in self.fields.iter().enumerate() {
             // Try to parse the offset, passed as a string, as an actual hex or decimal value
             let offset_from_string = {
                 let mut temp_val = None;
@@ -474,14 +474,14 @@ impl<const N: usize> Pointer<N> {
                 })
                 .ok_or(Error {})?;
 
-            offsets[i] = if let Some(val) = offset_from_string {
+            offsets.push(if let Some(val) = offset_from_string {
                 val
             } else {
                 process.read::<u32>(target_field + module.offsets.monoclassfield_offset)?
-            };
+            } as u64);
 
             // In every iteration of the loop, except the last one, we then need to find the Class address for the next offset
-            if i != self.depth - 1 {
+            if i != self.fields.len() - 1 {
                 let r#type = module.read_pointer(process, target_field + module.size_of_ptr())?;
                 let type_definition = module.read_pointer(process, r#type)?;
                 let mut classes = image.classes(process, module)?;
@@ -518,15 +518,21 @@ impl<const N: usize> Pointer<N> {
         }
 
         let mut address = *self.static_table.get().ok_or(Error {})?;
-        let offsets = self.offsets.get().ok_or(Error {})?;
+        let (&last, path) = self
+            .offsets
+            .get()
+            .ok_or(Error {})?
+            .split_last()
+            .ok_or(Error {})?;
 
-        for &offset in offsets.iter().take(self.depth - 1) {
+        for &offset in path {
             address = match module.is_64_bit {
-                true => process.read::<Address64>(address.add(offset as _))?.into(),
-                false => process.read::<Address32>(address.add(offset as _))?.into(),
+                false => process.read::<Address32>(address + offset)?.into(),
+                true => process.read::<Address64>(address + offset)?.into(),
             };
         }
-        process.read(address + offsets[self.depth - 1])
+
+        process.read(address + last)
     }
 }
 
