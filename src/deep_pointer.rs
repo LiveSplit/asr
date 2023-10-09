@@ -22,29 +22,33 @@ impl<const CAP: usize> Default for DeepPointer<CAP> {
     #[inline]
     fn default() -> Self {
         Self {
-            base_address: Address::NULL,
-            path: ArrayVec::new(),
-            deref_type: DerefType::Bit64,
+            base_address: Address::default(),
+            path: ArrayVec::default(),
+            deref_type: DerefType::default(),
         }
     }
 }
 
 impl<const CAP: usize> DeepPointer<CAP> {
-    /// Creates a new DeepPointer.
+    /// Creates a new DeepPointer and specify the pointer size dereferencing
     #[inline]
     pub fn new(base_address: Address, deref_type: DerefType, path: &[u64]) -> Self {
         assert!(CAP != 0 && CAP >= path.len());
-
-        let mut deref_path = ArrayVec::new();
-        for &val in path {
-            deref_path.push(val);
-        }
-
         Self {
             base_address,
-            path: deref_path,
+            path: path.iter().cloned().collect(),
             deref_type,
         }
+    }
+
+    /// Creates a new DeepPointer with 32bit pointer size dereferencing
+    pub fn new_32bit(base_address: Address, path: &[u64]) -> Self {
+        Self::new(base_address, DerefType::Bit32, path)
+    }
+
+    /// Creates a new DeepPointer with 64bit pointer size dereferencing
+    pub fn new_64bit(base_address: Address, path: &[u64]) -> Self {
+        Self::new(base_address, DerefType::Bit64, path)
     }
 
     /// Dereferences the pointer path, returning the memory address of the value of interest
@@ -67,10 +71,11 @@ impl<const CAP: usize> DeepPointer<CAP> {
 }
 
 /// Describes the pointer size that should be used while deferecencing a pointer path
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 pub enum DerefType {
     /// 4-byte pointer size, used in 32bit processes
     Bit32,
     /// 8-byte pointer size, used in 64bit processes
+    #[default]
     Bit64,
 }
