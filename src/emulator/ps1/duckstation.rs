@@ -7,14 +7,21 @@ pub struct State {
 
 impl State {
     pub fn find_ram(&mut self, game: &Process) -> Option<Address> {
-        const SIG: Signature<8> = Signature::new("48 89 0D ?? ?? ?? ?? B8");
+        const SIG: Signature<12> = Signature::new("48 89 ?? ?? ?? ?? ?? ?? FF FF 1F 00");
+        const SIG_OLD: Signature<8> = Signature::new("48 89 0D ?? ?? ?? ?? B8");
 
         let main_module_range = super::PROCESS_NAMES
             .iter()
             .filter(|(_, state)| matches!(state, super::State::Duckstation(_)))
             .find_map(|(name, _)| game.get_module_range(name).ok())?;
 
-        let addr: Address = SIG.scan_process_range(game, main_module_range)? + 3;
+        let addr: Address = {
+            if let Some(ptr) = SIG.scan_process_range(game, main_module_range) {
+                ptr
+            } else {
+                SIG_OLD.scan_process_range(game, main_module_range)?
+            }
+        } + 3;
 
         self.addr = addr + 0x4 + game.read::<i32>(addr).ok()?;
 
