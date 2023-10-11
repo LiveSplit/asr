@@ -4,7 +4,7 @@ use core::{fmt, mem};
 
 use bytemuck::{Pod, Zeroable};
 
-use crate::{Address, FromEndian, Process};
+use crate::{string::ArrayCString, Address, FromEndian, Process};
 
 // Reference:
 // https://learn.microsoft.com/en-us/windows/win32/debug/pe-format
@@ -93,6 +93,16 @@ struct OptionalCOFFHeader {
     subsystem: u16,
     dll_characteristics: u16,
     // There's more but those vary depending on whether it's PE or PE+.
+}
+
+#[derive(Debug, Copy, Clone, Zeroable, Pod, Default)]
+#[repr(C)]
+struct ExportedSymbolsTableDef {
+    _unk: [u8; 0x14],
+    number_of_functions: u32,
+    _unk_1: u32,
+    function_address_array_index: u32,
+    function_name_array_index: u32,
 }
 
 /// The machine type (architecture) of a module in a process. An image file can
@@ -263,4 +273,70 @@ fn read_coff_header(process: &Process, module_address: Address) -> Option<(COFFH
     }
 
     Some((coff_header, coff_header_address))
+}
+
+/// A symbol exported into the current module.
+pub struct Symbol<const CAP: usize> {
+    /// The name of the current symbol
+    pub name: ArrayCString<CAP>,
+    /// The address associated with the current symbol
+    pub address: Address,
+}
+
+/// Recovers and iterates over the exported symbols for a given module.
+/// Returns an empty iterator if no symbols are exported into the current module.
+pub fn symbols<const CAP: usize>(
+    process: &Process,
+    module_address: impl Into<Address>,
+) -> impl DoubleEndedIterator<Item = Symbol<CAP>> + '_ {
+    let address: Address = module_address.into();
+    let dos_header = process.read::<DOSHeader>(address);
+
+    let is_64_bit = match dos_header {
+        Ok(_) => matches!(
+            MachineType::read(process, address),
+            Some(MachineType::X86_64)
+        ),
+        _ => false,
+    };
+
+    let export_directory = match dos_header {
+        Ok(x) => process
+            .read::<u32>(address + x.e_lfanew + if is_64_bit { 0x88 } else { 0x78 })
+            .ok(),
+        _ => None,
+    };
+
+    let symbols_def = match dos_header {
+        Ok(_) => match export_directory {
+            Some(0) => None,
+            Some(export_dir) => process
+                .read::<ExportedSymbolsTableDef>(address + export_dir)
+                .ok(),
+            _ => None,
+        },
+        _ => None,
+    }
+    .unwrap_or_default();
+
+    (0..symbols_def.number_of_functions).filter_map(move |i| {
+        let name_index = process
+            .read::<u32>(
+                address + symbols_def.function_name_array_index + i.wrapping_mul(4),
+            )
+            .ok()?;
+
+        let name = process
+            .read::<ArrayCString<CAP>>(address + name_index)
+            .ok()?;
+
+        let address: Address = address
+            + process
+                .read::<u32>(
+                    address + symbols_def.function_address_array_index + i.wrapping_mul(4),
+                )
+                .ok()?;
+
+        Some(Symbol { name, address })
+    })
 }
