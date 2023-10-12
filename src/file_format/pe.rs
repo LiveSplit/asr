@@ -4,7 +4,7 @@ use core::{fmt, mem};
 
 use bytemuck::{Pod, Zeroable};
 
-use crate::{string::ArrayCString, Address, FromEndian, Process};
+use crate::{string::ArrayCString, Address, FromEndian, Process, Error};
 
 // Reference:
 // https://learn.microsoft.com/en-us/windows/win32/debug/pe-format
