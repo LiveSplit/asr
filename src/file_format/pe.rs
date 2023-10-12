@@ -276,11 +276,18 @@ fn read_coff_header(process: &Process, module_address: Address) -> Option<(COFFH
 }
 
 /// A symbol exported into the current module.
-pub struct Symbol<const CAP: usize> {
-    /// The name of the current symbol
-    pub name: ArrayCString<CAP>,
+pub struct Symbol {
     /// The address associated with the current symbol
     pub address: Address,
+    /// The address storing the name of the current symbol
+    name_addr: Address,
+}
+
+impl Symbol {
+    /// Tries to retrieve the name of the current symbol
+    pub fn get_name<const CAP: usize>(&self, process: &Process) -> Result<ArrayCString<CAP>, Error> {
+        process.read(self.name_addr)
+    }
 }
 
 /// Recovers and iterates over the exported symbols for a given module.
@@ -320,15 +327,12 @@ pub fn symbols<const CAP: usize>(
     .unwrap_or_default();
 
     (0..symbols_def.number_of_functions).filter_map(move |i| {
-        let name_index = process
-            .read::<u32>(
-                address + symbols_def.function_name_array_index + i.wrapping_mul(4),
-            )
-            .ok()?;
-
-        let name = process
-            .read::<ArrayCString<CAP>>(address + name_index)
-            .ok()?;
+        let name_addr = address
+            + process
+                .read::<u32>(
+                    address + symbols_def.function_name_array_index + i.wrapping_mul(4),
+                )
+                .ok()?;
 
         let address: Address = address
             + process
@@ -337,6 +341,6 @@ pub fn symbols<const CAP: usize>(
                 )
                 .ok()?;
 
-        Some(Symbol { name, address })
+        Some(Symbol { address, name_addr })
     })
 }
