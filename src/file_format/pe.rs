@@ -292,7 +292,7 @@ impl Symbol {
 
 /// Recovers and iterates over the exported symbols for a given module.
 /// Returns an empty iterator if no symbols are exported into the current module.
-pub fn symbols<const CAP: usize>(
+pub fn symbols(
     process: &Process,
     module_address: impl Into<Address>,
 ) -> impl DoubleEndedIterator<Item = Symbol<CAP>> + '_ {
