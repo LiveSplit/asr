@@ -295,7 +295,7 @@ impl Symbol {
 pub fn symbols(
     process: &Process,
     module_address: impl Into<Address>,
-) -> impl DoubleEndedIterator<Item = Symbol<CAP>> + '_ {
+) -> impl DoubleEndedIterator<Item = Symbol> + '_ {
     let address: Address = module_address.into();
     let dos_header = process.read::<DOSHeader>(address);
 
