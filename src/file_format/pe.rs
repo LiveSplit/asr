@@ -4,7 +4,7 @@ use core::{fmt, mem};
 
 use bytemuck::{Pod, Zeroable};
 
-use crate::{string::ArrayCString, Address, FromEndian, Process, Error};
+use crate::{string::ArrayCString, Address, Error, FromEndian, Process};
 
 // Reference:
 // https://learn.microsoft.com/en-us/windows/win32/debug/pe-format
@@ -285,7 +285,10 @@ pub struct Symbol {
 
 impl Symbol {
     /// Tries to retrieve the name of the current symbol
-    pub fn get_name<const CAP: usize>(&self, process: &Process) -> Result<ArrayCString<CAP>, Error> {
+    pub fn get_name<const CAP: usize>(
+        &self,
+        process: &Process,
+    ) -> Result<ArrayCString<CAP>, Error> {
         process.read(self.name_addr)
     }
 }
@@ -308,8 +311,8 @@ pub fn symbols(
     };
 
     let export_directory = match dos_header {
-        Ok(x) => process
-            .read::<u32>(address + x.e_lfanew + if is_64_bit { 0x88 } else { 0x78 })
+        Ok(header) => process
+            .read::<u32>(address + header.e_lfanew + if is_64_bit { 0x88 } else { 0x78 })
             .ok(),
         _ => None,
     };
@@ -327,20 +330,19 @@ pub fn symbols(
     .unwrap_or_default();
 
     (0..symbols_def.number_of_functions).filter_map(move |i| {
-        let name_addr = address
-            + process
-                .read::<u32>(
-                    address + symbols_def.function_name_array_index + i.wrapping_mul(4),
-                )
-                .ok()?;
-
-        let address: Address = address
-            + process
-                .read::<u32>(
-                    address + symbols_def.function_address_array_index + i.wrapping_mul(4),
-                )
-                .ok()?;
-
-        Some(Symbol { address, name_addr })
+        Some(Symbol {
+            address: address
+                + process
+                    .read::<u32>(
+                        address + symbols_def.function_address_array_index + i.wrapping_mul(4),
+                    )
+                    .ok()?,
+            name_addr: address
+                + process
+                    .read::<u32>(
+                        address + symbols_def.function_name_array_index + i.wrapping_mul(4),
+                    )
+                    .ok()?,
+        })
     })
 }
