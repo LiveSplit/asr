@@ -10,6 +10,8 @@ use core::iter;
 #[cfg(feature = "derive")]
 pub use asr_derive::MonoClass as Class;
 
+const CSTR: usize = 128;
+
 /// Represents access to a Unity game that is using the standard Mono backend.
 pub struct Module {
     is_64_bit: bool,
@@ -38,53 +40,17 @@ impl Module {
             .find_map(|&name| process.get_module_address(name).ok())?;
 
         let is_64_bit = pe::MachineType::read(process, module)? == pe::MachineType::X86_64;
-        let pe_offsets = PEOffsets::new(is_64_bit);
         let offsets = Offsets::new(version, is_64_bit);
 
-        // Get root domain address: code essentially taken from UnitySpy -
-        // See https://github.com/hackf5/unityspy/blob/master/src/HackF5.UnitySpy/AssemblyImageFactory.cs#L123
-        let start_index = process.read::<u32>(module + pe_offsets.signature).ok()?;
+        let root_domain_function_address = pe::symbols(process, module)
+            .find(|symbol| {
+                symbol
+                    .get_name::<25>(process)
+                    .is_ok_and(|name| name.matches("mono_assembly_foreach"))
+            })?
+            .address;
 
-        let export_directory = process
-            .read::<u32>(module + start_index + pe_offsets.export_directory_index_pe)
-            .ok()?;
-
-        let number_of_functions = process
-            .read::<u32>(module + export_directory + pe_offsets.number_of_functions)
-            .ok()?;
-        let function_address_array_index = process
-            .read::<u32>(module + export_directory + pe_offsets.function_address_array_index)
-            .ok()?;
-        let function_name_array_index = process
-            .read::<u32>(module + export_directory + pe_offsets.function_name_array_index)
-            .ok()?;
-
-        let mut root_domain_function_address = Address::NULL;
-
-        for val in 0..number_of_functions {
-            let function_name_index = process
-                .read::<u32>(module + function_name_array_index + (val as u64).wrapping_mul(4))
-                .ok()?;
-
-            if process
-                .read::<[u8; 22]>(module + function_name_index)
-                .is_ok_and(|function_name| &function_name == b"mono_assembly_foreach\0")
-            {
-                root_domain_function_address = module
-                    + process
-                        .read::<u32>(
-                            module + function_address_array_index + (val as u64).wrapping_mul(4),
-                        )
-                        .ok()?;
-                break;
-            }
-        }
-
-        if root_domain_function_address.is_null() {
-            return None;
-        }
-
-        let assemblies: Address = match is_64_bit {
+        let assemblies_pointer: Address = match is_64_bit {
             true => {
                 const SIG_MONO_64: Signature<3> = Signature::new("48 8B 0D");
                 let scan_address: Address = SIG_MONO_64
@@ -96,65 +62,81 @@ impl Module {
                 const SIG_32_1: Signature<2> = Signature::new("FF 35");
                 const SIG_32_2: Signature<2> = Signature::new("8B 0D");
 
-                if let Some(addr) =
-                    SIG_32_1.scan_process_range(process, (root_domain_function_address, 0x100))
-                {
-                    process.read::<Address32>(addr + 2).ok()?.into()
-                } else if let Some(addr) =
-                    SIG_32_2.scan_process_range(process, (root_domain_function_address, 0x100))
-                {
-                    process.read::<Address32>(addr + 2).ok()?.into()
-                } else {
-                    return None;
-                }
+                let ptr = [SIG_32_1, SIG_32_2].iter().find_map(|sig| {
+                    sig.scan_process_range(process, (root_domain_function_address, 0x100))
+                })? + 2;
+
+                process.read::<Address32>(ptr + 2).ok()?.into()
             }
         };
 
-        Some(Self {
-            is_64_bit,
-            version,
-            offsets,
-            assemblies,
+        let assemblies: Address = match is_64_bit {
+            true => process.read::<Address64>(assemblies_pointer).ok()?.into(),
+            false => process.read::<Address32>(assemblies_pointer).ok()?.into(),
+        };
+
+        if assemblies.is_null() {
+            None
+        } else {
+            Some(Self {
+                is_64_bit,
+                version,
+                offsets,
+                assemblies,
+            })
+        }
+    }
+
+    fn assemblies<'a>(&'a self, process: &'a Process) -> impl Iterator<Item = Address> + 'a {
+        let mut assembly = self.assemblies;
+        let mut iter_break = assembly.is_null();
+        iter::from_fn(move || {
+            if iter_break {
+                None
+            } else {
+                let [data, next_assembly]: [Address; 2] = match self.is_64_bit {
+                    true => process
+                        .read::<[Address64; 2]>(assembly)
+                        .ok()?
+                        .map(|item| item.into()),
+                    false => process
+                        .read::<[Address32; 2]>(assembly)
+                        .ok()?
+                        .map(|item| item.into()),
+                };
+
+                if next_assembly.is_null() {
+                    iter_break = true;
+                } else {
+                    assembly = next_assembly;
+                }
+
+                Some(data)
+            }
         })
     }
 
     /// Looks for the specified binary [image](Image) inside the target process.
-    /// An [image](Image), also called an assembly, is a .NET DLL that is loaded
+    /// An [image](Image) is a .NET DLL that is loaded
     /// by the game. The `Assembly-CSharp` [image](Image) is the main game
     /// assembly, and contains all the game logic. The
     /// [`get_default_image`](Self::get_default_image) function is a shorthand
     /// for this function that accesses the `Assembly-CSharp` [image](Image).
     pub fn get_image(&self, process: &Process, assembly_name: &str) -> Option<Image> {
-        let mut assemblies = self.read_pointer(process, self.assemblies).ok()?;
+        let assembly = self.assemblies(process).find(|&assembly| {
+            self.read_pointer(process, assembly + self.offsets.monoassembly_aname)
+                .is_ok_and(|name_ptr| {
+                    process
+                        .read::<ArrayCString<CSTR>>(name_ptr)
+                        .is_ok_and(|name| name.matches(assembly_name))
+                })
+        })?;
 
-        let image = loop {
-            let data = self.read_pointer(process, assemblies).ok()?;
-
-            if data.is_null() {
-                return None;
-            }
-
-            let name_addr = self
-                .read_pointer(
-                    process,
-                    data + self.offsets.monoassembly_aname + self.offsets.monoassemblyname_name,
-                )
-                .ok()?;
-
-            let name = process.read::<ArrayCString<128>>(name_addr).ok()?;
-
-            if name.matches(assembly_name) {
-                break self
-                    .read_pointer(process, data + self.offsets.monoassembly_image)
-                    .ok()?;
-            }
-
-            assemblies = self
-                .read_pointer(process, assemblies + self.offsets.glist_next)
-                .ok()?;
-        };
-
-        Some(Image { image })
+        Some(Image {
+            image: self
+                .read_pointer(process, assembly + self.offsets.monoassembly_image)
+                .ok()?,
+        })
     }
 
     /// Looks for the `Assembly-CSharp` binary [image](Image) inside the target
@@ -220,18 +202,16 @@ impl Module {
 
     #[inline]
     const fn size_of_ptr(&self) -> u64 {
-        if self.is_64_bit {
-            8
-        } else {
-            4
+        match self.is_64_bit {
+            true => 8,
+            false => 4,
         }
     }
 
     fn read_pointer(&self, process: &Process, address: Address) -> Result<Address, Error> {
-        Ok(if self.is_64_bit {
-            process.read::<Address64>(address)?.into()
-        } else {
-            process.read::<Address32>(address)?.into()
+        Ok(match self.is_64_bit {
+            true => process.read::<Address64>(address)?.into(),
+            false => process.read::<Address32>(address)?.into(),
         })
     }
 }
@@ -248,71 +228,57 @@ impl Image {
         &self,
         process: &'a Process,
         module: &'a Module,
-    ) -> Result<impl Iterator<Item = Class> + 'a, Error> {
-        let Ok(class_cache_size) = process.read::<i32>(
-            self.image
-                + module.offsets.monoimage_class_cache
-                + module.offsets.monointernalhashtable_size,
-        ) else {
-            return Err(Error {});
-        };
+    ) -> impl Iterator<Item = Class> + 'a {
+        let class_cache_size = process
+            .read::<i32>(
+                self.image
+                    + module.offsets.monoimage_class_cache
+                    + module.offsets.monointernalhashtable_size,
+            );
 
-        let table_addr = module.read_pointer(
-            process,
-            self.image
-                + module.offsets.monoimage_class_cache
-                + module.offsets.monointernalhashtable_table,
-        )?;
-
-        Ok((0..class_cache_size).flat_map(move |i| {
-            let mut table = module
+        let table_addr = match class_cache_size {
+            Ok(_) => module
                 .read_pointer(
                     process,
-                    table_addr + (i as u64).wrapping_mul(module.size_of_ptr()),
-                )
-                .unwrap_or_default();
+                    self.image
+                        + module.offsets.monoimage_class_cache
+                        + module.offsets.monointernalhashtable_table,
+                ),
+            _ => Err(Error{}),
+        };
+
+        (0..class_cache_size.unwrap_or_default()).flat_map(move |i| {
+            let mut table = if let Ok(table_addr) = table_addr {
+                module
+                    .read_pointer(
+                        process,
+                        table_addr + (i as u64).wrapping_mul(module.size_of_ptr()),
+                    )
+                    .ok()
+            } else {
+                None
+            };
 
             iter::from_fn(move || {
-                if !table.is_null() {
-                    let class = module.read_pointer(process, table).ok()?;
-                    table = module
-                        .read_pointer(
-                            process,
-                            table + module.offsets.monoclassdef_next_class_cache,
-                        )
-                        .unwrap_or_default();
-                    Some(Class { class })
-                } else {
-                    None
-                }
+                let class = module.read_pointer(process, table?).ok()?;
+
+                table = module
+                    .read_pointer(
+                        process,
+                        table? + module.offsets.monoclassdef_next_class_cache,
+                    )
+                    .ok();
+
+                Some(Class { class })
             })
-        }))
+        })
     }
 
     /// Tries to find the specified [.NET class](struct@Class) in the image.
     pub fn get_class(&self, process: &Process, module: &Module, class_name: &str) -> Option<Class> {
-        let mut classes = self.classes(process, module).ok()?;
-        classes.find(|c| {
-            let Ok(name_addr) = module.read_pointer(
-                process,
-                c.class + module.offsets.monoclassdef_klass + module.offsets.monoclass_name,
-            ) else {
-                return false;
-            };
-
-            let Ok(name) = process.read::<ArrayCString<128>>(name_addr) else {
-                return false;
-            };
-            if !name.matches(class_name) {
-                return false;
-            }
-
-            module
-                .read_pointer(
-                    process,
-                    c.class + module.offsets.monoclassdef_klass + module.offsets.monoclass_fields,
-                )
-                .is_ok_and(|fields| !fields.is_null())
+        self.classes(process, module).find(|class| {
+            class.get_name::<CSTR>(process, module)
+                .is_some_and(|name| name.matches(class_name))
         })
     }
 
@@ -335,20 +301,44 @@ pub struct Class {
 }
 
 impl Class {
-    fn fields(&self, process: &Process, module: &Module) -> impl Iterator<Item = Address> {
-        let field_count = process
-            .read::<u32>(self.class + module.offsets.monoclassdef_field_count)
-            .unwrap_or_default();
-
-        let fields = module
+    fn get_name<const N: usize>(
+        &self,
+        process: &Process,
+        module: &Module,
+    ) -> Option<ArrayCString<N>> {
+        let name_addr = module
             .read_pointer(
                 process,
-                self.class + module.offsets.monoclassdef_klass + module.offsets.monoclass_fields,
+                self.class + module.offsets.monoclassdef_klass + module.offsets.monoclass_name,
             )
-            .unwrap_or_default();
+            .ok()?;
+        process.read(name_addr).ok()
+    }
+
+    fn fields(
+        &self,
+        process: &Process,
+        module: &Module,
+    ) -> impl DoubleEndedIterator<Item = Address> {
+        let field_count = process
+            .read::<u32>(self.class + module.offsets.monoclassdef_field_count)
+            .ok();
+
+        let fields = match field_count {
+            Some(_) => module
+                .read_pointer(
+                    process,
+                    self.class
+                        + module.offsets.monoclassdef_klass
+                        + module.offsets.monoclass_fields,
+                )
+                .ok(),
+            _ => None,
+        };
 
         let monoclassfieldalignment = module.offsets.monoclassfieldalignment as u64;
-        (0..field_count).map(move |i| fields + (i as u64).wrapping_mul(monoclassfieldalignment))
+        (0..field_count.unwrap_or_default())
+            .filter_map(move |i| Some(fields? + (i as u64).wrapping_mul(monoclassfieldalignment)))
     }
 
     /// Tries to find a field with the specified name in the class. This returns
@@ -357,17 +347,13 @@ impl Class {
     /// table.
     pub fn get_field(&self, process: &Process, module: &Module, field_name: &str) -> Option<u32> {
         let field = self.fields(process, module).find(|&field| {
-            let Ok(name_addr) =
-                module.read_pointer(process, field + module.offsets.monoclassfield_name)
-            else {
-                return false;
-            };
-
-            let Ok(name) = process.read::<ArrayCString<128>>(name_addr) else {
-                return false;
-            };
-
-            name.matches(field_name)
+            module
+                .read_pointer(process, field + module.offsets.monoclassfield_name)
+                .is_ok_and(|name_addr| {
+                    process
+                        .read::<ArrayCString<CSTR>>(name_addr)
+                        .is_ok_and(|name| name.matches(field_name))
+                })
         })?;
 
         process
@@ -483,8 +469,6 @@ impl Class {
 struct Offsets {
     monoassembly_aname: u8,
     monoassembly_image: u8,
-    monoassemblyname_name: u8,
-    glist_next: u8,
     monoimage_class_cache: u16,
     monointernalhashtable_table: u8,
     monointernalhashtable_size: u8,
@@ -510,8 +494,6 @@ impl Offsets {
                 Version::V1 => &Self {
                     monoassembly_aname: 0x10,
                     monoassembly_image: 0x58,
-                    monoassemblyname_name: 0x0,
-                    glist_next: 0x8,
                     monoimage_class_cache: 0x3D0,
                     monointernalhashtable_table: 0x20,
                     monointernalhashtable_size: 0x18,
@@ -532,8 +514,6 @@ impl Offsets {
                 Version::V2 => &Self {
                     monoassembly_aname: 0x10,
                     monoassembly_image: 0x60,
-                    monoassemblyname_name: 0x0,
-                    glist_next: 0x8,
                     monoimage_class_cache: 0x4C0,
                     monointernalhashtable_table: 0x20,
                     monointernalhashtable_size: 0x18,
@@ -554,8 +534,6 @@ impl Offsets {
                 Version::V3 => &Self {
                     monoassembly_aname: 0x10,
                     monoassembly_image: 0x60,
-                    monoassemblyname_name: 0x0,
-                    glist_next: 0x8,
                     monoimage_class_cache: 0x4D0,
                     monointernalhashtable_table: 0x20,
                     monointernalhashtable_size: 0x18,
@@ -578,8 +556,6 @@ impl Offsets {
                 Version::V1 => &Self {
                     monoassembly_aname: 0x8,
                     monoassembly_image: 0x40,
-                    monoassemblyname_name: 0x0,
-                    glist_next: 0x4,
                     monoimage_class_cache: 0x2A0,
                     monointernalhashtable_table: 0x14,
                     monointernalhashtable_size: 0xC,
@@ -600,8 +576,6 @@ impl Offsets {
                 Version::V2 => &Self {
                     monoassembly_aname: 0x8,
                     monoassembly_image: 0x44,
-                    monoassemblyname_name: 0x0,
-                    glist_next: 0x4,
                     monoimage_class_cache: 0x354,
                     monointernalhashtable_table: 0x14,
                     monointernalhashtable_size: 0xC,
@@ -622,8 +596,6 @@ impl Offsets {
                 Version::V3 => &Self {
                     monoassembly_aname: 0x8,
                     monoassembly_image: 0x48,
-                    monoassemblyname_name: 0x0,
-                    glist_next: 0x4,
                     monoimage_class_cache: 0x35C,
                     monointernalhashtable_table: 0x14,
                     monointernalhashtable_size: 0xC,
@@ -646,28 +618,6 @@ impl Offsets {
     }
 }
 
-struct PEOffsets {
-    signature: u8,
-    export_directory_index_pe: u8,
-    number_of_functions: u8,
-    function_address_array_index: u8,
-    function_name_array_index: u8,
-    //function_entry_size: u32,
-}
-
-impl PEOffsets {
-    const fn new(is_64_bit: bool) -> Self {
-        PEOffsets {
-            signature: 0x3C,
-            export_directory_index_pe: if is_64_bit { 0x88 } else { 0x78 },
-            number_of_functions: 0x14,
-            function_address_array_index: 0x1C,
-            function_name_array_index: 0x20,
-            //function_entry_size: 0x4,
-        }
-    }
-}
-
 /// The version of Mono that was used for the game. These don't correlate to the
 /// Mono version numbers.
 #[derive(Copy, Clone, PartialEq, Hash, Debug)]
@@ -685,18 +635,27 @@ fn detect_version(process: &Process) -> Option<Version> {
         return Some(Version::V1);
     }
 
-    const SIG: Signature<25> = Signature::new(
-        "55 00 6E 00 69 00 74 00 79 00 20 00 56 00 65 00 72 00 73 00 69 00 6F 00 6E",
-    );
-    const ZERO: u16 = b'0' as u16;
-    const NINE: u16 = b'9' as u16;
+    let unity_module = process.get_module_address("UnityPlayer.dll").ok()?;
+    let mut unity_module_size = pe::read_size_of_image(process, unity_module)? as u64;
 
-    let unity_module = process.get_module_range("UnityPlayer.dll").ok()?;
+    const SIGG: Signature<8> = Signature::new("00 32 ?? ?? ?? 2E ?? 2E");
+    const ZERO: u8 = b'0';
+    const NINE: u8 = b'9';
 
-    let addr = SIG.scan_process_range(process, unity_module)? + 0x1E;
-    let version_string = process.read::<[u16; 6]>(addr).ok()?;
+    let mut start_address = unity_module;
+    let mut scan_all = iter::from_fn(move || {
+        let found: Address = SIGG.scan_process_range(process, (start_address, unity_module_size))? + 1;
+
+        unity_module_size = found.value() - start_address.value() - 1;
+        start_address = found + 1;
+
+        Some(found)
+    });
+    let found = scan_all.find(|addr| addr.value() & 3 == 0)?;
+
+    let version_string = process.read::<[u8; 6]>(found).ok()?;
     let (before, after) =
-        version_string.split_at(version_string.iter().position(|&x| x == b'.' as u16)?);
+        version_string.split_at(version_string.iter().position(|&x| x == b'.')?);
 
     let mut unity: u32 = 0;
     for &val in before {
