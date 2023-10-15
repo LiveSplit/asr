@@ -108,13 +108,13 @@ impl Module {
             let [first, limit] = process
                 .read::<[u64; 2]>(self.assemblies)
                 .unwrap_or_default();
-            let count = (limit.saturating_sub(first)) / self.size_of_ptr();
+            let count = limit.saturating_sub(first) / self.size_of_ptr();
             (Address::new(first), count)
         } else {
             let [first, limit] = process
                 .read::<[u32; 2]>(self.assemblies)
                 .unwrap_or_default();
-            let count = (limit.saturating_sub(first)) as u64 / self.size_of_ptr();
+            let count = limit.saturating_sub(first) as u64 / self.size_of_ptr();
             (Address::new(first as _), count)
         };
 
