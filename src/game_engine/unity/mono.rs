@@ -2,13 +2,18 @@
 //! backend.
 
 use crate::{
-    file_format::pe, future::retry, signature::Signature, string::ArrayCString, Address, Address32,
-    Address64, Error, Process,
+    file_format::pe,
+    future::retry,
+    signature::Signature,
+    string::ArrayCString,
+    Address, Address32, Address64, Error, Process, deep_pointer::{DeepPointer, DerefType},
 };
-use core::iter;
+use core::{iter, cell::OnceCell};
 
+use arrayvec::{ArrayString, ArrayVec};
 #[cfg(feature = "derive")]
 pub use asr_derive::MonoClass as Class;
+use bytemuck::CheckedBitPattern;
 
 const CSTR: usize = 128;
 
@@ -87,7 +92,7 @@ impl Module {
         }
     }
 
-    fn assemblies<'a>(&'a self, process: &'a Process) -> impl Iterator<Item = Address> + 'a {
+    fn assemblies<'a>(&'a self, process: &'a Process) -> impl Iterator<Item = Assembly> + 'a {
         let mut assembly = self.assemblies;
         let mut iter_break = assembly.is_null();
         iter::from_fn(move || {
@@ -111,7 +116,7 @@ impl Module {
                     assembly = next_assembly;
                 }
 
-                Some(data)
+                Some(Assembly { assembly: data })
             }
         })
     }
@@ -123,25 +128,18 @@ impl Module {
     /// [`get_default_image`](Self::get_default_image) function is a shorthand
     /// for this function that accesses the `Assembly-CSharp` [image](Image).
     pub fn get_image(&self, process: &Process, assembly_name: &str) -> Option<Image> {
-        let assembly = self.assemblies(process).find(|&assembly| {
-            self.read_pointer(process, assembly + self.offsets.monoassembly_aname)
-                .is_ok_and(|name_ptr| {
-                    process
-                        .read::<ArrayCString<CSTR>>(name_ptr)
-                        .is_ok_and(|name| name.matches(assembly_name))
-                })
-        })?;
-
-        Some(Image {
-            image: self
-                .read_pointer(process, assembly + self.offsets.monoassembly_image)
-                .ok()?,
-        })
+        self.assemblies(process)
+            .find(|assembly| {
+                assembly
+                    .get_name::<CSTR>(process, self)
+                    .is_ok_and(|name| name.matches(assembly_name))
+            })?
+            .get_image(process, self)
     }
 
     /// Looks for the `Assembly-CSharp` binary [image](Image) inside the target
-    /// process. An [image](Image), also called an assembly, is a .NET DLL that
-    /// is loaded by the game. The `Assembly-CSharp` [image](Image) is the main
+    /// process. An [image](Image) is a .NET DLL that is loaded
+    /// by the game. The `Assembly-CSharp` [image](Image) is the main
     /// game assembly, and contains all the game logic. This function is a
     /// shorthand for [`get_image`](Self::get_image) that accesses the
     /// `Assembly-CSharp` [image](Image).
@@ -173,7 +171,7 @@ impl Module {
     }
 
     /// Looks for the specified binary [image](Image) inside the target process.
-    /// An [image](Image), also called an assembly, is a .NET DLL that is loaded
+    /// An [image](Image) is a .NET DLL that is loaded
     /// by the game. The `Assembly-CSharp` [image](Image) is the main game
     /// assembly, and contains all the game logic. The
     /// [`wait_get_default_image`](Self::wait_get_default_image) function is a
@@ -187,7 +185,7 @@ impl Module {
     }
 
     /// Looks for the `Assembly-CSharp` binary [image](Image) inside the target
-    /// process. An [image](Image), also called an assembly, is a .NET DLL that
+    /// process. An [image](Image) is a .NET DLL that
     /// is loaded by the game. The `Assembly-CSharp` [image](Image) is the main
     /// game assembly, and contains all the game logic. This function is a
     /// shorthand for [`wait_get_image`](Self::wait_get_image) that accesses the
@@ -216,6 +214,29 @@ impl Module {
     }
 }
 
+struct Assembly {
+    assembly: Address,
+}
+
+impl Assembly {
+    fn get_name<const N: usize>(
+        &self,
+        process: &Process,
+        module: &Module,
+    ) -> Result<ArrayCString<N>, Error> {
+        process
+            .read(module.read_pointer(process, self.assembly + module.offsets.monoassembly_aname)?)
+    }
+
+    fn get_image(&self, process: &Process, module: &Module) -> Option<Image> {
+        Some(Image {
+            image: module
+                .read_pointer(process, self.assembly + module.offsets.monoassembly_image)
+                .ok()?,
+        })
+    }
+}
+
 /// An image is a .NET DLL that is loaded by the game. The `Assembly-CSharp`
 /// image is the main game assembly, and contains all the game logic.
 pub struct Image {
@@ -229,22 +250,20 @@ impl Image {
         process: &'a Process,
         module: &'a Module,
     ) -> impl Iterator<Item = Class> + 'a {
-        let class_cache_size = process
-            .read::<i32>(
-                self.image
-                    + module.offsets.monoimage_class_cache
-                    + module.offsets.monointernalhashtable_size,
-            );
+        let class_cache_size = process.read::<i32>(
+            self.image
+                + module.offsets.monoimage_class_cache
+                + module.offsets.monointernalhashtable_size,
+        );
 
         let table_addr = match class_cache_size {
-            Ok(_) => module
-                .read_pointer(
-                    process,
-                    self.image
-                        + module.offsets.monoimage_class_cache
-                        + module.offsets.monointernalhashtable_table,
-                ),
-            _ => Err(Error{}),
+            Ok(_) => module.read_pointer(
+                process,
+                self.image
+                    + module.offsets.monoimage_class_cache
+                    + module.offsets.monointernalhashtable_table,
+            ),
+            _ => Err(Error {}),
         };
 
         (0..class_cache_size.unwrap_or_default()).flat_map(move |i| {
@@ -277,8 +296,9 @@ impl Image {
     /// Tries to find the specified [.NET class](struct@Class) in the image.
     pub fn get_class(&self, process: &Process, module: &Module, class_name: &str) -> Option<Class> {
         self.classes(process, module).find(|class| {
-            class.get_name::<CSTR>(process, module)
-                .is_some_and(|name| name.matches(class_name))
+            class
+                .get_name::<CSTR>(process, module)
+                .is_ok_and(|name| name.matches(class_name))
         })
     }
 
@@ -305,21 +325,14 @@ impl Class {
         &self,
         process: &Process,
         module: &Module,
-    ) -> Option<ArrayCString<N>> {
-        let name_addr = module
-            .read_pointer(
-                process,
-                self.class + module.offsets.monoclassdef_klass + module.offsets.monoclass_name,
-            )
-            .ok()?;
-        process.read(name_addr).ok()
+    ) -> Result<ArrayCString<N>, Error> {
+        process.read(module.read_pointer(
+            process,
+            self.class + module.offsets.monoclassdef_klass + module.offsets.monoclass_name,
+        )?)
     }
 
-    fn fields(
-        &self,
-        process: &Process,
-        module: &Module,
-    ) -> impl DoubleEndedIterator<Item = Address> {
+    fn fields(&self, process: &Process, module: &Module) -> impl DoubleEndedIterator<Item = Field> {
         let field_count = process
             .read::<u32>(self.class + module.offsets.monoclassdef_field_count)
             .ok();
@@ -337,28 +350,29 @@ impl Class {
         };
 
         let monoclassfieldalignment = module.offsets.monoclassfieldalignment as u64;
-        (0..field_count.unwrap_or_default())
-            .filter_map(move |i| Some(fields? + (i as u64).wrapping_mul(monoclassfieldalignment)))
+        (0..field_count.unwrap_or_default()).filter_map(move |i| {
+            Some(Field {
+                field: fields? + (i as u64).wrapping_mul(monoclassfieldalignment),
+            })
+        })
     }
 
-    /// Tries to find a field with the specified name in the class. This returns
-    /// the offset of the field from the start of an instance of the class. If
-    /// it's a static field, the offset will be from the start of the static
+    /// Tries to find the offset for a field with the specified name in the class.
+    /// If it's a static field, the offset will be from the start of the static
     /// table.
-    pub fn get_field(&self, process: &Process, module: &Module, field_name: &str) -> Option<u32> {
-        let field = self.fields(process, module).find(|&field| {
-            module
-                .read_pointer(process, field + module.offsets.monoclassfield_name)
-                .is_ok_and(|name_addr| {
-                    process
-                        .read::<ArrayCString<CSTR>>(name_addr)
-                        .is_ok_and(|name| name.matches(field_name))
-                })
-        })?;
-
-        process
-            .read(field + module.offsets.monoclassfield_offset)
-            .ok()
+    pub fn get_field_offset(
+        &self,
+        process: &Process,
+        module: &Module,
+        field_name: &str,
+    ) -> Option<u32> {
+        self.fields(process, module)
+            .find(|field| {
+                field
+                    .get_name::<CSTR>(process, module)
+                    .is_ok_and(|name| name.matches(field_name))
+            })?
+            .get_offset(process, module)
     }
 
     /// Tries to find the address of a static instance of the class based on its
@@ -370,7 +384,9 @@ impl Class {
         field_name: &str,
     ) -> Address {
         let static_table = self.wait_get_static_table(process, module).await;
-        let field_offset = self.wait_get_field(process, module, field_name).await;
+        let field_offset = self
+            .wait_get_field_offset(process, module, field_name)
+            .await;
         let singleton_location = static_table + field_offset;
 
         retry(|| {
@@ -438,9 +454,7 @@ impl Class {
             )
             .ok()?;
 
-        let parent = module.read_pointer(process, parent_addr).ok()?;
-
-        Some(Class { class: parent })
+        Some(Class { class: module.read_pointer(process, parent_addr).ok()? })
     }
 
     /// Tries to find a field with the specified name in the class. This returns
@@ -448,8 +462,13 @@ impl Class {
     /// it's a static field, the offset will be from the start of the static
     /// table. This is the `await`able version of the
     /// [`get_field`](Self::get_field) function.
-    pub async fn wait_get_field(&self, process: &Process, module: &Module, name: &str) -> u32 {
-        retry(|| self.get_field(process, module, name)).await
+    pub async fn wait_get_field_offset(
+        &self,
+        process: &Process,
+        module: &Module,
+        name: &str,
+    ) -> u32 {
+        retry(|| self.get_field_offset(process, module, name)).await
     }
 
     /// Returns the address of the static table of the class. This contains the
@@ -463,6 +482,170 @@ impl Class {
     /// [`get_parent`](Self::get_parent) function.
     pub async fn wait_get_parent(&self, process: &Process, module: &Module) -> Class {
         retry(|| self.get_parent(process, module)).await
+    }
+}
+
+struct Field {
+    field: Address,
+}
+
+impl Field {
+    fn get_name<const N: usize>(
+        &self,
+        process: &Process,
+        module: &Module,
+    ) -> Result<ArrayCString<N>, Error> {
+        let name_addr =
+            module.read_pointer(process, self.field + module.offsets.monoclassfield_name)?;
+        process.read(name_addr)
+    }
+
+    fn get_offset(&self, process: &Process, module: &Module) -> Option<u32> {
+        process
+            .read(self.field + module.offsets.monoclassfield_offset)
+            .ok()
+    }
+}
+
+/// A Mono-specific implementation useful for automatic pointer path resolution
+pub struct Pointer<const CAP: usize> {
+    deep_pointer: OnceCell<DeepPointer<CAP>>,
+    class_name: ArrayString<CSTR>,
+    nr_of_parents: u8,
+    fields: ArrayVec<ArrayString<CSTR>, CAP>,
+}
+
+impl<const CAP: usize> Pointer<CAP> {
+    /// Creates a new instance of the Pointer struct
+    ///
+    /// `CAP` must be higher or equal to the number of offsets defined in `fields`.
+    ///
+    /// If `CAP` is set to a value lower than the number of the offsets to be dereferenced, this function will ***Panic***
+    pub fn new(class_name: &str, nr_of_parents: u8, fields: &[&str]) -> Self {
+        assert!(!fields.is_empty() && fields.len() <= CAP);
+
+        Self {
+            deep_pointer: OnceCell::new(),
+            class_name: ArrayString::from(class_name).unwrap_or_default(),
+            nr_of_parents,
+            fields: fields
+                .iter()
+                .map(|&val| ArrayString::from(val).unwrap_or_default())
+                .collect(),
+        }
+    }
+
+    /// Tries to resolve the pointer path for the `Mono` class specified
+    fn find_offsets(&self, process: &Process, module: &Module, image: &Image) -> Result<(), Error> {
+        // If the pointer path has already been found, there's no need to continue
+        if self.deep_pointer.get().is_some() {
+            return Ok(());
+        }
+
+        let mut current_class = image
+            .get_class(process, module, &self.class_name)
+            .ok_or(Error {})?;
+
+        for _ in 0..self.nr_of_parents {
+            current_class = current_class.get_parent(process, module).ok_or(Error {})?;
+        }
+
+        let static_table = current_class
+            .get_static_table(process, module)
+            .ok_or(Error {})?;
+
+        let mut offsets: ArrayVec<u64, CAP> = ArrayVec::new();
+
+        for (i, &field_name) in self.fields.iter().enumerate() {
+            // Try to parse the offset, passed as a string, as an actual hex or decimal value
+            let offset_from_string = {
+                let mut temp_val = None;
+
+                if field_name.starts_with("0x") && field_name.len() > 2 {
+                    if let Some(hex_val) = field_name.get(2..field_name.len()) {
+                        if let Ok(val) = u32::from_str_radix(hex_val, 16) {
+                            temp_val = Some(val)
+                        }
+                    }
+                } else if let Ok(val) = field_name.parse::<u32>() {
+                    temp_val = Some(val)
+                }
+                temp_val
+            };
+
+            // Then we try finding the MonoClassField of interest, which is needed if we only provided the name of the field,
+            // and will be needed anyway when looking for the next offset.
+            let target_field = current_class
+                .fields(process, module)
+                .find(|field| {
+                    if let Some(val) = offset_from_string {
+                        field
+                            .get_offset(process, module)
+                            .is_some_and(|offset| offset == val)
+                    } else {
+                        field
+                            .get_name::<CSTR>(process, module)
+                            .is_ok_and(|name| name.matches(field_name.as_ref()))
+                    }
+                })
+                .ok_or(Error {})?;
+
+            offsets.push(if let Some(val) = offset_from_string {
+                val
+            } else {
+                target_field.get_offset(process, module).ok_or(Error {})?
+            } as u64);
+
+            // In every iteration of the loop, except the last one, we then need to find the Class address for the next offset
+            if i != self.fields.len() - 1 {
+                let vtable = module.read_pointer(process, target_field.field)?;
+                
+                current_class = Class {
+                    class: module.read_pointer(process, vtable)?,
+                };
+            }
+        }
+
+        let pointer = DeepPointer::new(
+            static_table,
+            if module.is_64_bit {
+                DerefType::Bit64
+            } else {
+                DerefType::Bit32
+            },
+            &offsets,
+        );
+        let _ = self.deep_pointer.set(pointer);
+        Ok(())
+    }
+
+    /// Dereferences the pointer path, returning the memory address of the value of interest
+    pub fn deref_offsets(
+        &self,
+        process: &Process,
+        module: &Module,
+        image: &Image,
+    ) -> Result<Address, Error> {
+        self.find_offsets(process, module, image)?;
+        self.deep_pointer.get().ok_or(Error {})?.deref_offsets(process)
+    }
+
+    /// Dereferences the pointer path, returning the value stored at the final memory address
+    pub fn deref<T: CheckedBitPattern>(
+        &self,
+        process: &Process,
+        module: &Module,
+        image: &Image,
+    ) -> Result<T, Error> {
+        self.find_offsets(process, module, image)?;
+        self.deep_pointer.get().ok_or(Error {})?.deref(process)
+    }
+
+    /// Recovers the `DeepPointer` struct contained inside this `UnityPointer`,
+    /// if the offsets have been found
+    pub fn get_deep_pointer(&self, process: &Process, module: &Module, image: &Image) -> Option<DeepPointer<CAP>> {
+        self.find_offsets(process, module, image).ok()?;
+        self.deep_pointer.get().cloned()
     }
 }
 
@@ -635,27 +818,22 @@ fn detect_version(process: &Process) -> Option<Version> {
         return Some(Version::V1);
     }
 
-    let unity_module = process.get_module_address("UnityPlayer.dll").ok()?;
-    let mut unity_module_size = pe::read_size_of_image(process, unity_module)? as u64;
+    const SIG: Signature<25> = Signature::new(
+        "55 00 6E 00 69 00 74 00 79 00 20 00 56 00 65 00 72 00 73 00 69 00 6F 00 6E",
+    );
+    const ZERO: u16 = b'0' as u16;
+    const NINE: u16 = b'9' as u16;
 
-    const SIGG: Signature<8> = Signature::new("00 32 ?? ?? ?? 2E ?? 2E");
-    const ZERO: u8 = b'0';
-    const NINE: u8 = b'9';
+    let unity_module = {
+        let address = process.get_module_address("UnityPlayer.dll").ok()?;
+        let range = pe::read_size_of_image(process, address)? as u64;
+        (address, range)
+    };
 
-    let mut start_address = unity_module;
-    let mut scan_all = iter::from_fn(move || {
-        let found: Address = SIGG.scan_process_range(process, (start_address, unity_module_size))? + 1;
-
-        unity_module_size = found.value() - start_address.value() - 1;
-        start_address = found + 1;
-
-        Some(found)
-    });
-    let found = scan_all.find(|addr| addr.value() & 3 == 0)?;
-
-    let version_string = process.read::<[u8; 6]>(found).ok()?;
+    let addr = SIG.scan_process_range(process, unity_module)? + 0x1E;
+    let version_string = process.read::<[u16; 6]>(addr).ok()?;
     let (before, after) =
-        version_string.split_at(version_string.iter().position(|&x| x == b'.')?);
+        version_string.split_at(version_string.iter().position(|&x| x == b'.' as u16)?);
 
     let mut unity: u32 = 0;
     for &val in before {
