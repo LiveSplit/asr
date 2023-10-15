@@ -725,49 +725,32 @@ fn detect_version(process: &Process) -> Option<Version> {
         return Some(Version::Base);
     }
 
-    const SIG: Signature<25> = Signature::new(
-        "55 00 6E 00 69 00 74 00 79 00 20 00 56 00 65 00 72 00 73 00 69 00 6F 00 6E",
-    );
-    const ZERO: u16 = b'0' as u16;
-    const NINE: u16 = b'9' as u16;
+    const SIG_202X: Signature<6> = Signature::new("00 32 30 32 ?? 2E");
+    const SIG_2019: Signature<6> = Signature::new("00 32 30 31 39 2E");
 
-    let addr = SIG.scan_process_range(process, unity_module)? + 0x1E;
-    let version_string = process.read::<[u16; 6]>(addr).ok()?;
-    let mut ver = version_string.split(|&b| b == b'.' as u16);
-
-    let version = ver.next()?;
-    let mut il2cpp: u32 = 0;
-    for &val in version {
-        match val {
-            ZERO..=NINE => il2cpp = il2cpp * 10 + (val - ZERO) as u32,
-            _ => break,
-        }
+    if SIG_202X.scan_process_range(process, unity_module).is_some() {
+        let il2cpp_version = {
+            const SIG: Signature<14> = Signature::new("48 2B ?? 48 2B ?? ?? ?? ?? ?? 48 F7 ?? 48");
+            let address = process.get_module_address("GameAssembly.dll").ok()?;
+            let size = pe::read_size_of_image(process, address)? as u64;
+    
+            let ptr = {
+                let addr = SIG.scan_process_range(process, (address, size))? + 6;
+                addr + 0x4 + process.read::<i32>(addr).ok()?
+            };
+    
+            let addr = process.read::<Address64>(ptr).ok()?;
+            process.read::<u32>(addr + 0x4).ok()?
+        };
+    
+        Some(if il2cpp_version >= 27 {
+            Version::V2020
+        } else {
+            Version::V2019
+        })
+    } else if SIG_2019.scan_process_range(process, unity_module).is_some() {
+        Some(Version::V2019)
+    } else {
+        Some(Version::Base)
     }
-
-    Some(match il2cpp.cmp(&2019) {
-        Ordering::Less => Version::Base,
-        Ordering::Equal => Version::V2019,
-        Ordering::Greater => {
-            const SIG_METADATA: Signature<9> = Signature::new("4C 8B 05 ?? ?? ?? ?? 49 63");
-            let game_assembly = {
-                let address = process.get_module_address("GameAssembly.dll").ok()?;
-                let size = pe::read_size_of_image(process, address)? as u64;
-                (address, size)
-            };
-
-            let Some(addr) = SIG_METADATA.scan_process_range(process, game_assembly) else {
-                return Some(Version::V2019);
-            };
-            let addr: Address = addr + 3;
-            let addr: Address = addr + 0x4 + process.read::<i32>(addr).ok()?;
-            let addr = process.read::<Address64>(addr).ok()?;
-            let version = process.read::<i32>(addr + 4).ok()?;
-
-            if version >= 27 {
-                Version::V2020
-            } else {
-                Version::V2019
-            }
-        }
-    })
 }
