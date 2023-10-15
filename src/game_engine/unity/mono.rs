@@ -511,14 +511,14 @@ impl Field {
 }
 
 /// A Mono-specific implementation useful for automatic pointer path resolution
-pub struct Pointer<const CAP: usize> {
+pub struct UnityPointer<const CAP: usize> {
     deep_pointer: OnceCell<DeepPointer<CAP>>,
     class_name: ArrayString<CSTR>,
     nr_of_parents: u8,
     fields: ArrayVec<ArrayString<CSTR>, CAP>,
 }
 
-impl<const CAP: usize> Pointer<CAP> {
+impl<const CAP: usize> UnityPointer<CAP> {
     /// Creates a new instance of the Pointer struct
     ///
     /// `CAP` must be higher or equal to the number of offsets defined in `fields`.
@@ -829,22 +829,24 @@ fn detect_version(process: &Process) -> Option<Version> {
         return Some(Version::V1);
     }
 
-    const SIG: Signature<25> = Signature::new(
-        "55 00 6E 00 69 00 74 00 79 00 20 00 56 00 65 00 72 00 73 00 69 00 6F 00 6E",
-    );
-    const ZERO: u16 = b'0' as u16;
-    const NINE: u16 = b'9' as u16;
-
     let unity_module = {
         let address = process.get_module_address("UnityPlayer.dll").ok()?;
         let range = pe::read_size_of_image(process, address)? as u64;
         (address, range)
     };
 
-    let addr = SIG.scan_process_range(process, unity_module)? + 0x1E;
-    let version_string = process.read::<[u16; 6]>(addr).ok()?;
-    let (before, after) =
-        version_string.split_at(version_string.iter().position(|&x| x == b'.' as u16)?);
+    const SIG_202X: Signature<6> = Signature::new("00 32 30 32 ?? 2E");
+
+    let Some(addr) = SIG_202X.scan_process_range(process, unity_module) else {
+        return Some(Version::V2)
+    };
+
+    const ZERO: u8 = b'0';
+    const NINE: u8 = b'9';
+
+    let version_string = process.read::<[u8; 6]>(addr + 1).ok()?;
+
+    let (before, after) = version_string.split_at(version_string.iter().position(|&x| x == b'.')?);
 
     let mut unity: u32 = 0;
     for &val in before {

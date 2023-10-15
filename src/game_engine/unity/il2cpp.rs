@@ -1,6 +1,6 @@
 //! Support for attaching to Unity games that are using the IL2CPP backend.
 
-use core::{cell::OnceCell, cmp::Ordering};
+use core::cell::OnceCell;
 
 use crate::{
     deep_pointer::{DeepPointer, DerefType},
@@ -733,16 +733,16 @@ fn detect_version(process: &Process) -> Option<Version> {
             const SIG: Signature<14> = Signature::new("48 2B ?? 48 2B ?? ?? ?? ?? ?? 48 F7 ?? 48");
             let address = process.get_module_address("GameAssembly.dll").ok()?;
             let size = pe::read_size_of_image(process, address)? as u64;
-    
+
             let ptr = {
                 let addr = SIG.scan_process_range(process, (address, size))? + 6;
                 addr + 0x4 + process.read::<i32>(addr).ok()?
             };
-    
+
             let addr = process.read::<Address64>(ptr).ok()?;
             process.read::<u32>(addr + 0x4).ok()?
         };
-    
+
         Some(if il2cpp_version >= 27 {
             Version::V2020
         } else {
