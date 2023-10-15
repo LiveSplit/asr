@@ -13,6 +13,8 @@ use crate::{
     Address64, Error, Process,
 };
 
+const CSTR: usize = 128;
+
 /// The scene manager allows you to easily identify the current scene loaded in
 /// the attached Unity game.
 ///
@@ -89,7 +91,8 @@ impl SceneManager {
         })
     }
 
-    fn pointer_size(&self) -> u8 {
+    #[inline]
+    const fn pointer_size(&self) -> u8 {
         match self.is_64_bit {
             true => 8,
             false => 4,
@@ -154,14 +157,14 @@ impl SceneManager {
         };
 
         (0..num_scenes).filter_map(move |index| {
-            if let Ok(address) = self.read_pointer(
-                process,
-                addr + (index as u64).wrapping_mul(self.pointer_size() as _),
-            ) {
-                Some(Scene { address })
-            } else {
-                None
-            }
+            Some(Scene {
+                address: self
+                    .read_pointer(
+                        process,
+                        addr + (index as u64).wrapping_mul(self.pointer_size() as _),
+                    )
+                    .ok()?,
+            })
         })
     }
 
@@ -177,14 +180,15 @@ impl SceneManager {
         &'a self,
         process: &'a Process,
         scene: &Scene,
-    ) -> Result<impl Iterator<Item = Transform> + 'a, Error> {
-        let list_first =
-            self.read_pointer(process, scene.address + self.offsets.root_storage_container)?;
+    ) -> impl Iterator<Item = Transform> + 'a {
+        let list_first = self
+            .read_pointer(process, scene.address + self.offsets.root_storage_container)
+            .unwrap_or_default();
 
         let mut current_list = list_first;
-        let mut iter_break = false;
+        let mut iter_break = current_list.is_null();
 
-        Ok(iter::from_fn(move || {
+        iter::from_fn(move || {
             if iter_break {
                 None
             } else {
@@ -201,21 +205,21 @@ impl SceneManager {
 
                 if first == list_first {
                     iter_break = true;
+                } else {
+                    current_list = first;
                 }
-
-                current_list = first;
 
                 Some(Transform { address: third })
             }
-        }))
+        })
     }
 
     /// Tries to find the specified root [`Transform`] from the currently
     /// active Unity scene.
     pub fn get_root_game_object(&self, process: &Process, name: &str) -> Result<Transform, Error> {
-        self.root_game_objects(process, &self.get_current_scene(process)?)?
+        self.root_game_objects(process, &self.get_current_scene(process)?)
             .find(|obj| {
-                obj.get_name::<128>(process, self)
+                obj.get_name::<CSTR>(process, self)
                     .is_ok_and(|obj_name| obj_name.matches(name))
             })
             .ok_or(Error {})
@@ -228,9 +232,9 @@ impl SceneManager {
         process: &Process,
         name: &str,
     ) -> Result<Transform, Error> {
-        self.root_game_objects(process, &self.get_dont_destroy_on_load_scene())?
+        self.root_game_objects(process, &self.get_dont_destroy_on_load_scene())
             .find(|obj| {
-                obj.get_name::<128>(process, self)
+                obj.get_name::<CSTR>(process, self)
                     .is_ok_and(|obj_name| obj_name.matches(name))
             })
             .ok_or(Error {})
@@ -333,7 +337,7 @@ impl Transform {
                     match scene_manager.is_il2cpp {
                         true => {
                             let Ok(name_ptr) = scene_manager
-                                .read_pointer(process, vtable + 2 * scene_manager.pointer_size())
+                                .read_pointer(process, vtable + 2_u64.wrapping_mul(scene_manager.pointer_size() as _))
                             else {
                                 return false;
                             };
@@ -357,7 +361,7 @@ impl Transform {
                 };
 
                 process
-                    .read::<ArrayCString<128>>(name_ptr)
+                    .read::<ArrayCString<CSTR>>(name_ptr)
                     .is_ok_and(|class_name| class_name.matches(name))
             })
             .ok_or(Error {})
@@ -415,7 +419,7 @@ impl Transform {
     ) -> Result<Self, Error> {
         self.children(process, scene_manager)?
             .find(|p| {
-                p.get_name::<128>(process, scene_manager)
+                p.get_name::<CSTR>(process, scene_manager)
                     .is_ok_and(|obj_name| obj_name.matches(name))
             })
             .ok_or(Error {})
