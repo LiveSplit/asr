@@ -2,13 +2,14 @@
 //! backend.
 
 use crate::{
+    deep_pointer::{DeepPointer, DerefType},
     file_format::pe,
     future::retry,
     signature::Signature,
     string::ArrayCString,
-    Address, Address32, Address64, Error, Process, deep_pointer::{DeepPointer, DerefType},
+    Address, Address32, Address64, Error, Process,
 };
-use core::{iter, cell::OnceCell};
+use core::{cell::OnceCell, iter};
 
 use arrayvec::{ArrayString, ArrayVec};
 #[cfg(feature = "derive")]
@@ -454,7 +455,9 @@ impl Class {
             )
             .ok()?;
 
-        Some(Class { class: module.read_pointer(process, parent_addr).ok()? })
+        Some(Class {
+            class: module.read_pointer(process, parent_addr).ok()?,
+        })
     }
 
     /// Tries to find a field with the specified name in the class. This returns
@@ -599,7 +602,7 @@ impl<const CAP: usize> Pointer<CAP> {
             // In every iteration of the loop, except the last one, we then need to find the Class address for the next offset
             if i != self.fields.len() - 1 {
                 let vtable = module.read_pointer(process, target_field.field)?;
-                
+
                 current_class = Class {
                     class: module.read_pointer(process, vtable)?,
                 };
@@ -627,7 +630,10 @@ impl<const CAP: usize> Pointer<CAP> {
         image: &Image,
     ) -> Result<Address, Error> {
         self.find_offsets(process, module, image)?;
-        self.deep_pointer.get().ok_or(Error {})?.deref_offsets(process)
+        self.deep_pointer
+            .get()
+            .ok_or(Error {})?
+            .deref_offsets(process)
     }
 
     /// Dereferences the pointer path, returning the value stored at the final memory address
@@ -643,7 +649,12 @@ impl<const CAP: usize> Pointer<CAP> {
 
     /// Recovers the `DeepPointer` struct contained inside this `UnityPointer`,
     /// if the offsets have been found
-    pub fn get_deep_pointer(&self, process: &Process, module: &Module, image: &Image) -> Option<DeepPointer<CAP>> {
+    pub fn get_deep_pointer(
+        &self,
+        process: &Process,
+        module: &Module,
+        image: &Image,
+    ) -> Option<DeepPointer<CAP>> {
         self.find_offsets(process, module, image).ok()?;
         self.deep_pointer.get().cloned()
     }

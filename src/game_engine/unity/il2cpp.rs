@@ -594,7 +594,10 @@ impl<const CAP: usize> UnityPointer<CAP> {
         image: &Image,
     ) -> Result<Address, Error> {
         self.find_offsets(process, module, image)?;
-        self.deep_pointer.get().ok_or(Error {})?.deref_offsets(process)
+        self.deep_pointer
+            .get()
+            .ok_or(Error {})?
+            .deref_offsets(process)
     }
 
     /// Dereferences the pointer path, returning the value stored at the final memory address
@@ -610,7 +613,12 @@ impl<const CAP: usize> UnityPointer<CAP> {
 
     /// Recovers the `DeepPointer` struct contained inside this `UnityPointer`,
     /// if the offsets have been found
-    pub fn get_deep_pointer(&self, process: &Process, module: &Module, image: &Image) -> Option<DeepPointer<CAP>> {
+    pub fn get_deep_pointer(
+        &self,
+        process: &Process,
+        module: &Module,
+        image: &Image,
+    ) -> Option<DeepPointer<CAP>> {
         self.find_offsets(process, module, image).ok()?;
         self.deep_pointer.get().cloned()
     }
