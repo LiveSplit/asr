@@ -47,7 +47,7 @@ impl Module {
             _ => PointerSize::Bit32,
         };
 
-        let offsets = Offsets::new(version, pointer_size)?;
+        let offsets = Offsets::new(version, pointer_size, BinaryFormat::PE)?;
 
         let root_domain_function_address = pe::symbols(process, module)
             .find(|symbol| {
@@ -794,6 +794,13 @@ impl<const CAP: usize> UnityPointer<CAP> {
     }
 }
 
+#[derive(Copy, Clone, PartialEq, Hash, Debug)]
+enum BinaryFormat {
+    PE,
+    #[cfg(feature = "std")]
+    MachO,
+}
+
 struct Offsets {
     monoassembly_aname: u8,
     monoassembly_image: u8,
@@ -817,9 +824,9 @@ struct Offsets {
 }
 
 impl Offsets {
-    const fn new(version: Version, pointer_size: PointerSize) -> Option<&'static Self> {
-        match pointer_size {
-            PointerSize::Bit64 => match version {
+    const fn new(version: Version, pointer_size: PointerSize, format: BinaryFormat) -> Option<&'static Self> {
+        match (pointer_size, format) {
+            (PointerSize::Bit64, BinaryFormat::PE) => match version {
                 Version::V1 => Some(&Self {
                     monoassembly_aname: 0x10,
                     monoassembly_image: 0x58,
@@ -886,7 +893,7 @@ impl Offsets {
                     monoclassfieldalignment: 0x20,
                 }),
             },
-            PointerSize::Bit32 => match version {
+            (PointerSize::Bit32, BinaryFormat::PE) => match version {
                 Version::V1 => Some(&Self {
                     monoassembly_aname: 0x8,
                     monoassembly_image: 0x40,
@@ -952,6 +959,54 @@ impl Offsets {
                     monovtable_vtable: 0x2C,
                     monoclassfieldalignment: 0x10,
                 }),
+            },
+            #[cfg(feature = "std")]
+            (PointerSize::Bit64, BinaryFormat::MachO) => match version {
+                Version::V1 => Some(&Self {
+                    monoassembly_aname: 0x10,
+                    monoassembly_image: 0x58, // matches 64-bit PE V1
+                    monoimage_class_cache: 0x3D0, // matches 64-bit PE V1
+                    monointernalhashtable_table: 0x20,
+                    monointernalhashtable_size: 0x18,
+                    monoclassdef_next_class_cache: 0xF8, // 0x8 less than 64-bit PE V1
+                    monoclassdef_klass: 0x0,
+                    monoclass_name: 0x40, // 0x8 less than 64-bit PE V1
+                    monoclass_name_space: 0x48, // 0x8 less than 64-bit PE V1
+                    monoclass_fields: 0xA0, // 0x8 less than 64-bit PE V1
+                    monoclassdef_field_count: 0x8C, // 0x8 less than 64-bit PE V1
+                    monoclass_runtime_info: 0xF0, // 0x8 less than 64-bit PE V1
+                    monoclass_vtable_size: 0x18, // MonoVtable.data
+                    monoclass_parent: 0x28, // 0x8 less than 64-bit PE V1
+                    monoclassfield_name: 0x8,
+                    monoclassfield_offset: 0x18,
+                    monoclassruntimeinfo_domain_vtables: 0x8,
+                    monovtable_vtable: 0x0, // UNUSED for V1
+                    monoclassfieldalignment: 0x20,
+                }),
+                // 64-bit MachO V2 matches Unity2019_4_2020_3_x64_MachO_Offsets from
+                // https://github.com/hackf5/unityspy/blob/master/src/HackF5.UnitySpy/Offsets/MonoLibraryOffsets.cs#L86
+                Version::V2 => Some(&Self {
+                    monoassembly_aname: 0x10,
+                    monoassembly_image: 0x60, // AssemblyImage = 0x44 + 0x1c
+                    monoimage_class_cache: 0x4C0, // ImageClassCache = 0x354 + 0x16c
+                    monointernalhashtable_table: 0x20, // HashTableTable = 0x14 + 0xc
+                    monointernalhashtable_size: 0x18, // HashTableSize = 0xc + 0xc
+                    monoclassdef_next_class_cache: 0x100, // TypeDefinitionNextClassCache = 0xa8 + 0x34 + 0x10 + 0x18 + 0x4 - 0x8
+                    monoclassdef_klass: 0x0,
+                    monoclass_name: 0x40, // TypeDefinitionName = 0x2c + 0x1c - 0x8
+                    monoclass_name_space: 0x48, // TypeDefinitionNamespace = 0x30 + 0x20 - 0x8
+                    monoclass_fields: 0x90, // TypeDefinitionFields = 0x60 + 0x20 + 0x18 - 0x8
+                    monoclassdef_field_count: 0xF8, // TypeDefinitionFieldCount = 0xa4 + 0x34 + 0x10 + 0x18 - 0x8
+                    monoclass_runtime_info: 0xC8, // TypeDefinitionRuntimeInfo = 0x84 + 0x34 + 0x18 - 0x8
+                    monoclass_vtable_size: 0x54, // TypeDefinitionVTableSize = 0x38 + 0x24 - 0x8
+                    monoclass_parent: 0x28, // TypeDefinitionParent = 0x20 + 0x10 - 0x8
+                    monoclassfield_name: 0x8,
+                    monoclassfield_offset: 0x18,
+                    monoclassruntimeinfo_domain_vtables: 0x8, // TypeDefinitionRuntimeInfoDomainVTables = 0x4 + 0x4
+                    monovtable_vtable: 0x40, // VTable = 0x28 + 0x18
+                    monoclassfieldalignment: 0x20,
+                }),
+                Version::V3 => None,
             },
             _ => None,
         }
