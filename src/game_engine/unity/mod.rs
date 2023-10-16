@@ -23,7 +23,7 @@
 //!
 //! // Once we have the address of the instance, we want to access one of its
 //! // fields, so we get the offset of the "currentTime" field.
-//! let current_time_offset = timer_class.wait_get_field(&process, &module, "currentTime").await;
+//! let current_time_offset = timer_class.wait_get_field_offset(&process, &module, "currentTime").await;
 //!
 //! // Now we can add it to the address of the instance and read the current time.
 //! if let Ok(current_time) = process.read::<f32>(instance + current_time_offset) {
