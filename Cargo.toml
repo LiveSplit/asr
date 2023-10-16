@@ -20,6 +20,7 @@ libm = { version = "0.2.7", optional = true }
 wasi = { version = "0.11.0+wasi-snapshot-preview1", default-features = false }
 
 [features]
+std = ["alloc"]
 alloc = []
 derive = ["asr-derive"]
 flags = ["bitflags"]
