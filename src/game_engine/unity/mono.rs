@@ -7,6 +7,8 @@ use crate::{
 };
 use core::{array, cell::RefCell, iter};
 
+#[cfg(all(debug_assertions, feature = "alloc"))]
+use alloc::collections::BTreeSet;
 #[cfg(feature = "derive")]
 pub use asr_derive::MonoClass as Class;
 use bytemuck::CheckedBitPattern;
@@ -266,6 +268,8 @@ impl Image {
         };
 
         (0..class_cache_size.unwrap_or_default()).flat_map(move |i| {
+            #[cfg(all(debug_assertions, feature = "alloc"))]
+            let mut seen = BTreeSet::new();
             let mut table = match table_addr {
                 Ok(table_addr) => process
                     .read_pointer(
@@ -277,6 +281,8 @@ impl Image {
             };
 
             iter::from_fn(move || {
+                #[cfg(all(debug_assertions, feature = "alloc"))]
+                if seen.replace(table?).is_some() { panic!("Image classes cycle detected"); }
                 let class = process.read_pointer(table?, module.pointer_size).ok()?;
 
                 table = process
