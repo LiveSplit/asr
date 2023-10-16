@@ -841,25 +841,27 @@ impl Offsets {
                     monovtable_vtable: 0x48,
                     monoclassfieldalignment: 0x20,
                 }),
+                // 64-bit PE V2 matches Unity2019_4_2020_3_x64_PE_Offsets from
+                // https://github.com/hackf5/unityspy/blob/master/src/HackF5.UnitySpy/Offsets/MonoLibraryOffsets.cs#L49
                 Version::V2 => Some(&Self {
                     monoassembly_aname: 0x10,
-                    monoassembly_image: 0x60,
-                    monoimage_class_cache: 0x4C0,
-                    monointernalhashtable_table: 0x20,
-                    monointernalhashtable_size: 0x18,
-                    monoclassdef_next_class_cache: 0x108,
+                    monoassembly_image: 0x60, // AssemblyImage = 0x44 + 0x1c
+                    monoimage_class_cache: 0x4C0, // ImageClassCache = 0x354 + 0x16c
+                    monointernalhashtable_table: 0x20, // HashTableTable = 0x14 + 0xc
+                    monointernalhashtable_size: 0x18, // HashTableSize = 0xc + 0xc
+                    monoclassdef_next_class_cache: 0x108, // TypeDefinitionNextClassCache = 0xa8 + 0x34 + 0x10 + 0x18 + 0x4
                     monoclassdef_klass: 0x0,
-                    monoclass_name: 0x48,
-                    monoclass_name_space: 0x50,
-                    monoclass_fields: 0x98,
-                    monoclassdef_field_count: 0x100,
-                    monoclass_runtime_info: 0xD0,
-                    monoclass_vtable_size: 0x5C,
-                    monoclass_parent: 0x30,
+                    monoclass_name: 0x48, // TypeDefinitionName = 0x2c + 0x1c
+                    monoclass_name_space: 0x50, // TypeDefinitionNamespace = 0x30 + 0x20
+                    monoclass_fields: 0x98, // TypeDefinitionFields = 0x60 + 0x20 + 0x18
+                    monoclassdef_field_count: 0x100, // TypeDefinitionFieldCount = 0xa4 + 0x34 + 0x10 + 0x18
+                    monoclass_runtime_info: 0xD0, // TypeDefinitionRuntimeInfo = 0x84 + 0x34 + 0x18
+                    monoclass_vtable_size: 0x5C, // TypeDefinitionVTableSize = 0x38 + 0x24
+                    monoclass_parent: 0x30, // TypeDefinitionParent = 0x20 + 0x10
                     monoclassfield_name: 0x8,
                     monoclassfield_offset: 0x18,
-                    monoclassruntimeinfo_domain_vtables: 0x8,
-                    monovtable_vtable: 0x40,
+                    monoclassruntimeinfo_domain_vtables: 0x8, // TypeDefinitionRuntimeInfoDomainVTables = 0x4 + 0x4
+                    monovtable_vtable: 0x40, // VTable = 0x28 + 0x18
                     monoclassfieldalignment: 0x20,
                 }),
                 Version::V3 => Some(&Self {
@@ -905,26 +907,28 @@ impl Offsets {
                     monoclassruntimeinfo_domain_vtables: 0x4,
                     monovtable_vtable: 0x28,
                     monoclassfieldalignment: 0x10,
+                // 32-bit PE V2 matches Unity2018_4_10_x86_PE_Offsets from
+                // https://github.com/hackf5/unityspy/blob/master/src/HackF5.UnitySpy/Offsets/MonoLibraryOffsets.cs#L12
                 }),
                 Version::V2 => Some(&Self {
                     monoassembly_aname: 0x8,
-                    monoassembly_image: 0x44,
-                    monoimage_class_cache: 0x354,
-                    monointernalhashtable_table: 0x14,
-                    monointernalhashtable_size: 0xC,
-                    monoclassdef_next_class_cache: 0xA8,
+                    monoassembly_image: 0x44, // AssemblyImage
+                    monoimage_class_cache: 0x354, // ImageClassCache
+                    monointernalhashtable_table: 0x14, // HashTableTable
+                    monointernalhashtable_size: 0xC, // HashTableSize
+                    monoclassdef_next_class_cache: 0xA8, // TypeDefinitionNextClassCache
                     monoclassdef_klass: 0x0,
-                    monoclass_name: 0x2C,
-                    monoclass_name_space: 0x30,
-                    monoclass_fields: 0x60,
-                    monoclassdef_field_count: 0xA4,
-                    monoclass_runtime_info: 0x84,
-                    monoclass_vtable_size: 0x38,
-                    monoclass_parent: 0x20,
+                    monoclass_name: 0x2C, // TypeDefinitionName
+                    monoclass_name_space: 0x30, // TypeDefinitionNamespace
+                    monoclass_fields: 0x60, // TypeDefinitionFields
+                    monoclassdef_field_count: 0xA4, // TypeDefinitionFieldCount
+                    monoclass_runtime_info: 0x84, // TypeDefinitionRuntimeInfo
+                    monoclass_vtable_size: 0x38, // TypeDefinitionVTableSize
+                    monoclass_parent: 0x20, // TypeDefinitionParent
                     monoclassfield_name: 0x4,
                     monoclassfield_offset: 0xC,
-                    monoclassruntimeinfo_domain_vtables: 0x4,
-                    monovtable_vtable: 0x28,
+                    monoclassruntimeinfo_domain_vtables: 0x4, // TypeDefinitionRuntimeInfoDomainVTables
+                    monovtable_vtable: 0x28, // VTable
                     monoclassfieldalignment: 0x10,
                 }),
                 Version::V3 => Some(&Self {
