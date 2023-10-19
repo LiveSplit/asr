@@ -510,7 +510,7 @@ impl<const CAP: usize> UnityPointer<CAP> {
         let static_table = current_class
             .get_static_table(process, module)
             .ok_or(Error {})?;
-
+        let mut current_instance = static_table;
         let mut offsets: ArrayVec<u64, CAP> = ArrayVec::new();
 
         for (i, &field_name) in self.fields.iter().enumerate() {
@@ -547,29 +547,21 @@ impl<const CAP: usize> UnityPointer<CAP> {
                 })
                 .ok_or(Error {})?;
 
-            offsets.push(if let Some(val) = offset_from_string {
-                val
-            } else {
-                target_field.get_offset(process, module).ok_or(Error {})?
-            } as u64);
+            let current_offset = match offset_from_string {
+                Some(val) => val,
+                _ => target_field.get_offset(process, module).ok_or(Error {})?,
+            } as _;
+
+            offsets.push(current_offset);
 
             // In every iteration of the loop, except the last one, we then need to find the Class address for the next offset
             if i != self.fields.len() - 1 {
-                let r#type =
-                    module.read_pointer(process, target_field.field + module.size_of_ptr())?;
-                let type_definition = module.read_pointer(process, r#type)?;
+                current_instance =
+                    module.read_pointer(process, current_instance + current_offset)?;
 
-                current_class = image
-                    .classes(process, module)
-                    .find(|c| {
-                        module
-                            .read_pointer(
-                                process,
-                                c.class + module.offsets.monoclass_type_definition,
-                            )
-                            .is_ok_and(|val| val == type_definition)
-                    })
-                    .ok_or(Error {})?;
+                current_class = Class {
+                    class: module.read_pointer(process, current_instance)?,
+                };
             }
         }
 
