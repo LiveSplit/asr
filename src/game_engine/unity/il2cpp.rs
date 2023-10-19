@@ -623,7 +623,6 @@ struct Offsets {
     monoimage_typecount: u8,
     monoimage_metadatahandle: u8,
     monoclass_name: u8,
-    monoclass_type_definition: u8,
     monoclass_fields: u8,
     monoclass_field_count: u16,
     monoclass_static_fields: u8,
@@ -649,7 +648,6 @@ impl Offsets {
                 monoimage_typecount: 0x1C,
                 monoimage_metadatahandle: 0x18, // MonoImage.typeStart
                 monoclass_name: 0x10,
-                monoclass_type_definition: 0x68,
                 monoclass_fields: 0x80,
                 monoclass_field_count: 0x114,
                 monoclass_static_fields: 0xB8,
@@ -665,7 +663,6 @@ impl Offsets {
                 monoimage_typecount: 0x1C,
                 monoimage_metadatahandle: 0x18, // MonoImage.typeStart
                 monoclass_name: 0x10,
-                monoclass_type_definition: 0x68,
                 monoclass_fields: 0x80,
                 monoclass_field_count: 0x11C,
                 monoclass_static_fields: 0xB8,
@@ -681,7 +678,6 @@ impl Offsets {
                 monoimage_typecount: 0x18,
                 monoimage_metadatahandle: 0x28,
                 monoclass_name: 0x10,
-                monoclass_type_definition: 0x68,
                 monoclass_fields: 0x80,
                 monoclass_field_count: 0x120,
                 monoclass_static_fields: 0xB8,
