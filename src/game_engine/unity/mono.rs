@@ -333,29 +333,73 @@ impl Class {
         )?)
     }
 
-    fn fields(&self, process: &Process, module: &Module) -> impl DoubleEndedIterator<Item = Field> {
-        let field_count = process
-            .read::<u32>(self.class + module.offsets.monoclassdef_field_count)
-            .ok();
+    fn get_name_space<const N: usize>(
+        &self,
+        process: &Process,
+        module: &Module,
+    ) -> Result<ArrayCString<N>, Error> {
+        process.read(module.read_pointer(
+            process,
+            self.class + module.offsets.monoclassdef_klass + module.offsets.monoclass_name_space,
+        )?)
+    }
 
-        let fields = match field_count {
-            Some(_) => module
-                .read_pointer(
-                    process,
-                    self.class
-                        + module.offsets.monoclassdef_klass
-                        + module.offsets.monoclass_fields,
+    fn fields<'a>(
+        &'a self,
+        process: &'a Process,
+        module: &'a Module,
+    ) -> impl Iterator<Item = Field> + 'a {
+        let mut this_class = Class { class: self.class };
+        let mut iter_break = this_class.class.is_null();
+
+        iter::from_fn(move || {
+            if iter_break {
+                None
+            } else if !this_class.class.is_null()
+                && this_class
+                    .get_name::<CSTR>(process, module)
+                    .is_ok_and(|name| !name.matches("Object"))
+                && this_class
+                    .get_name_space::<CSTR>(process, module)
+                    .is_ok_and(|name| !name.matches("UnityEngine"))
+            {
+                let field_count = process
+                    .read::<u32>(this_class.class + module.offsets.monoclassdef_field_count)
+                    .ok();
+
+                let fields = match field_count {
+                    Some(_) => module
+                        .read_pointer(
+                            process,
+                            this_class.class
+                                + module.offsets.monoclassdef_klass
+                                + module.offsets.monoclass_fields,
+                        )
+                        .ok(),
+                    _ => None,
+                };
+
+                let monoclassfieldalignment = module.offsets.monoclassfieldalignment as u64;
+
+                if let Some(x) = this_class.get_parent(process, module) {
+                    this_class = x;
+                } else {
+                    iter_break = true;
+                }
+
+                Some(
+                    (0..field_count.unwrap_or_default() as u64).filter_map(move |i| {
+                        Some(Field {
+                            field: fields? + i.wrapping_mul(monoclassfieldalignment),
+                        })
+                    }),
                 )
-                .ok(),
-            _ => None,
-        };
-
-        let monoclassfieldalignment = module.offsets.monoclassfieldalignment as u64;
-        (0..field_count.unwrap_or_default()).filter_map(move |i| {
-            Some(Field {
-                field: fields? + (i as u64).wrapping_mul(monoclassfieldalignment),
-            })
+            } else {
+                iter_break = true;
+                None
+            }
         })
+        .flatten()
     }
 
     /// Tries to find the offset for a field with the specified name in the class.
@@ -669,6 +713,7 @@ struct Offsets {
     monoclassdef_next_class_cache: u16,
     monoclassdef_klass: u8,
     monoclass_name: u8,
+    monoclass_name_space: u8,
     monoclass_fields: u8,
     monoclassdef_field_count: u16,
     monoclass_runtime_info: u8,
@@ -694,6 +739,7 @@ impl Offsets {
                     monoclassdef_next_class_cache: 0x100,
                     monoclassdef_klass: 0x0,
                     monoclass_name: 0x48,
+                    monoclass_name_space: 0x50,
                     monoclass_fields: 0xA8,
                     monoclassdef_field_count: 0x94,
                     monoclass_runtime_info: 0xF8,
@@ -714,6 +760,7 @@ impl Offsets {
                     monoclassdef_next_class_cache: 0x108,
                     monoclassdef_klass: 0x0,
                     monoclass_name: 0x48,
+                    monoclass_name_space: 0x50,
                     monoclass_fields: 0x98,
                     monoclassdef_field_count: 0x100,
                     monoclass_runtime_info: 0xD0,
@@ -734,6 +781,7 @@ impl Offsets {
                     monoclassdef_next_class_cache: 0x108,
                     monoclassdef_klass: 0x0,
                     monoclass_name: 0x48,
+                    monoclass_name_space: 0x50,
                     monoclass_fields: 0x98,
                     monoclassdef_field_count: 0x100,
                     monoclass_runtime_info: 0xD0,
@@ -756,6 +804,7 @@ impl Offsets {
                     monoclassdef_next_class_cache: 0xA8,
                     monoclassdef_klass: 0x0,
                     monoclass_name: 0x30,
+                    monoclass_name_space: 0x34,
                     monoclass_fields: 0x74,
                     monoclassdef_field_count: 0x64,
                     monoclass_runtime_info: 0xA4,
@@ -776,6 +825,7 @@ impl Offsets {
                     monoclassdef_next_class_cache: 0xA8,
                     monoclassdef_klass: 0x0,
                     monoclass_name: 0x2C,
+                    monoclass_name_space: 0x30,
                     monoclass_fields: 0x60,
                     monoclassdef_field_count: 0xA4,
                     monoclass_runtime_info: 0x84,
@@ -796,6 +846,7 @@ impl Offsets {
                     monoclassdef_next_class_cache: 0xA0,
                     monoclassdef_klass: 0x0,
                     monoclass_name: 0x2C,
+                    monoclass_name_space: 0x30,
                     monoclass_fields: 0x60,
                     monoclassdef_field_count: 0x9C,
                     monoclass_runtime_info: 0x7C,

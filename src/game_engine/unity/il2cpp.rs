@@ -1,6 +1,6 @@
 //! Support for attaching to Unity games that are using the IL2CPP backend.
 
-use core::cell::OnceCell;
+use core::{cell::OnceCell, iter};
 
 use crate::{
     deep_pointer::{DeepPointer, DerefType},
@@ -334,23 +334,65 @@ impl Class {
         process.read(module.read_pointer(process, self.class + module.offsets.monoclass_name)?)
     }
 
-    fn fields(&self, process: &Process, module: &Module) -> impl DoubleEndedIterator<Item = Field> {
-        let field_count = process.read::<u16>(self.class + module.offsets.monoclass_field_count);
+    fn get_name_space<const N: usize>(
+        &self,
+        process: &Process,
+        module: &Module,
+    ) -> Result<ArrayCString<N>, Error> {
+        process
+            .read(module.read_pointer(process, self.class + module.offsets.monoclass_name_space)?)
+    }
 
-        let fields = match field_count {
-            Ok(_) => module
-                .read_pointer(process, self.class + module.offsets.monoclass_fields)
-                .ok(),
-            _ => None,
-        };
+    fn fields<'a>(
+        &'a self,
+        process: &'a Process,
+        module: &'a Module,
+    ) -> impl Iterator<Item = Field> + 'a {
+        let mut this_class = Class { class: self.class };
+        let mut iter_break = this_class.class.is_null();
 
-        let monoclassfield_structsize = module.offsets.monoclassfield_structsize as u64;
+        iter::from_fn(move || {
+            if iter_break {
+                None
+            } else if !this_class.class.is_null()
+                && this_class
+                    .get_name::<CSTR>(process, module)
+                    .is_ok_and(|name| !name.matches("Object"))
+                && this_class
+                    .get_name_space::<CSTR>(process, module)
+                    .is_ok_and(|name| !name.matches("UnityEngine"))
+            {
+                let field_count =
+                    process.read::<u16>(this_class.class + module.offsets.monoclass_field_count);
 
-        (0..field_count.unwrap_or_default() as u64).filter_map(move |i| {
-            Some(Field {
-                field: fields? + i.wrapping_mul(monoclassfield_structsize),
-            })
+                let fields = match field_count {
+                    Ok(_) => module
+                        .read_pointer(process, this_class.class + module.offsets.monoclass_fields)
+                        .ok(),
+                    _ => None,
+                };
+
+                let monoclassfield_structsize = module.offsets.monoclassfield_structsize as u64;
+
+                if let Some(x) = this_class.get_parent(process, module) {
+                    this_class = x;
+                } else {
+                    iter_break = true;
+                }
+
+                Some(
+                    (0..field_count.unwrap_or_default() as u64).filter_map(move |i| {
+                        Some(Field {
+                            field: fields? + i.wrapping_mul(monoclassfield_structsize),
+                        })
+                    }),
+                )
+            } else {
+                iter_break = true;
+                None
+            }
         })
+        .flatten()
     }
 
     /// Tries to find a field with the specified name in the class. This returns
@@ -631,6 +673,7 @@ struct Offsets {
     monoimage_typecount: u8,
     monoimage_metadatahandle: u8,
     monoclass_name: u8,
+    monoclass_name_space: u8,
     monoclass_type_definition: u8,
     monoclass_fields: u8,
     monoclass_field_count: u16,
@@ -657,6 +700,7 @@ impl Offsets {
                 monoimage_typecount: 0x1C,
                 monoimage_metadatahandle: 0x18, // MonoImage.typeStart
                 monoclass_name: 0x10,
+                monoclass_name_space: 0x18,
                 monoclass_type_definition: 0x68,
                 monoclass_fields: 0x80,
                 monoclass_field_count: 0x114,
@@ -673,6 +717,7 @@ impl Offsets {
                 monoimage_typecount: 0x1C,
                 monoimage_metadatahandle: 0x18, // MonoImage.typeStart
                 monoclass_name: 0x10,
+                monoclass_name_space: 0x18,
                 monoclass_type_definition: 0x68,
                 monoclass_fields: 0x80,
                 monoclass_field_count: 0x11C,
@@ -689,6 +734,7 @@ impl Offsets {
                 monoimage_typecount: 0x18,
                 monoimage_metadatahandle: 0x28,
                 monoclass_name: 0x10,
+                monoclass_name_space: 0x18,
                 monoclass_type_definition: 0x68,
                 monoclass_fields: 0x80,
                 monoclass_field_count: 0x120,
