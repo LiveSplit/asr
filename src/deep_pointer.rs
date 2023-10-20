@@ -1,6 +1,5 @@
 //! Support for storing pointer paths for easy dereferencing inside the autosplitter logic.
 
-use arrayvec::ArrayVec;
 use bytemuck::CheckedBitPattern;
 
 use crate::{Address, Address32, Address64, Error, Process};
@@ -8,12 +7,15 @@ use crate::{Address, Address32, Address64, Error, Process};
 /// An abstraction of a pointer path, usable for easy dereferencing inside an autosplitter logic.
 ///
 /// The maximum depth of the pointer path is given by the generic parameter `CAP`.
-/// Of note, `CAP` must be higher or equal to the number of offsets provided in `path`,
-/// otherwise calling `new()` on this struct will trigger a ***Panic***.
-#[derive(Clone)]
+///
+/// `CAP` should be higher or equal to the number of offsets provided in `path`.
+/// If a higher number of offsets is provided, the pointer path will be truncated
+/// according to the value of `CAP`.
+#[derive(Copy, Clone)]
 pub struct DeepPointer<const CAP: usize> {
     base_address: Address,
-    path: ArrayVec<u64, CAP>,
+    path: [u64; CAP],
+    depth: usize,
     deref_type: DerefType,
 }
 
@@ -23,7 +25,8 @@ impl<const CAP: usize> Default for DeepPointer<CAP> {
     fn default() -> Self {
         Self {
             base_address: Address::default(),
-            path: ArrayVec::default(),
+            path: [u64::default(); CAP],
+            depth: usize::default(),
             deref_type: DerefType::default(),
         }
     }
@@ -33,10 +36,23 @@ impl<const CAP: usize> DeepPointer<CAP> {
     /// Creates a new DeepPointer and specify the pointer size dereferencing
     #[inline]
     pub fn new(base_address: Address, deref_type: DerefType, path: &[u64]) -> Self {
-        assert!(CAP != 0 && CAP >= path.len());
+        let this_path = {
+            let mut val = [u64::default(); CAP];
+            for (i, &item) in path.iter().enumerate() {
+                if i < CAP {
+                    val[i] = item;
+                }
+            }
+            val
+        };
+
+        let len = path.len();
+        let depth = if len > CAP { CAP } else { len };
+
         Self {
             base_address,
-            path: path.iter().cloned().collect(),
+            path: this_path,
+            depth,
             deref_type,
         }
     }
@@ -54,7 +70,7 @@ impl<const CAP: usize> DeepPointer<CAP> {
     /// Dereferences the pointer path, returning the memory address of the value of interest
     pub fn deref_offsets(&self, process: &Process) -> Result<Address, Error> {
         let mut address = self.base_address;
-        let (&last, path) = self.path.split_last().ok_or(Error {})?;
+        let (&last, path) = self.path[..self.depth].split_last().ok_or(Error {})?;
         for &offset in path {
             address = match self.deref_type {
                 DerefType::Bit32 => process.read::<Address32>(address + offset)?.into(),
