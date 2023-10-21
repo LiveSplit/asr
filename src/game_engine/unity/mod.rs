@@ -88,3 +88,18 @@ pub mod mono;
 
 mod scene;
 pub use self::scene::*;
+
+fn value_from_string(value: &str) -> Option<u32> {
+    let mut temp_val = None;
+
+    if value.starts_with("0x") && value.len() > 2 {
+        if let Some(hex_val) = value.get(2..value.len()) {
+            if let Ok(val) = u32::from_str_radix(hex_val, 16) {
+                temp_val = Some(val)
+            }
+        }
+    } else if let Ok(val) = value.parse::<u32>() {
+        temp_val = Some(val)
+    }
+    temp_val
+}

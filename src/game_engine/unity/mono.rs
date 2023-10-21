@@ -9,9 +9,8 @@ use crate::{
     string::ArrayCString,
     Address, Address32, Address64, Error, Process,
 };
-use core::{cell::OnceCell, iter};
+use core::{cell::RefCell, iter};
 
-use arrayvec::{ArrayString, ArrayVec};
 #[cfg(feature = "derive")]
 pub use asr_derive::MonoClass as Class;
 use bytemuck::CheckedBitPattern;
@@ -215,6 +214,7 @@ impl Module {
     }
 }
 
+#[derive(Copy, Clone)]
 struct Assembly {
     assembly: Address,
 }
@@ -240,6 +240,7 @@ impl Assembly {
 
 /// An image is a .NET DLL that is loaded by the game. The `Assembly-CSharp`
 /// image is the main game assembly, and contains all the game logic.
+#[derive(Copy, Clone)]
 pub struct Image {
     image: Address,
 }
@@ -316,7 +317,8 @@ impl Image {
     }
 }
 
-/// A .NET class that is part of an [`Image`].
+/// A .NET class that is part of an [`Image`](Image).
+#[derive(Copy, Clone)]
 pub struct Class {
     class: Address,
 }
@@ -488,6 +490,7 @@ impl Class {
     }
 }
 
+#[derive(Copy, Clone)]
 struct Field {
     field: Address,
 }
@@ -510,115 +513,183 @@ impl Field {
     }
 }
 
-/// A Mono-specific implementation useful for automatic pointer path resolution
+/// A Mono-specific implementation for automatic pointer path resolution
+#[derive(Clone)]
 pub struct UnityPointer<const CAP: usize> {
-    deep_pointer: OnceCell<DeepPointer<CAP>>,
-    class_name: ArrayString<CSTR>,
-    nr_of_parents: u8,
-    fields: ArrayVec<ArrayString<CSTR>, CAP>,
+    cache: RefCell<UnityPointerCache<CAP>>,
+    class_name: &'static str,
+    nr_of_parents: usize,
+    fields: [&'static str; CAP],
+    depth: usize,
+}
+
+#[derive(Clone)]
+struct UnityPointerCache<const CAP: usize> {
+    base_address: Address,
+    offsets: [u64; CAP],
+    resolved_offsets: usize,
+    current_instance_pointer: Option<Address>,
+    starting_class: Option<Class>,
 }
 
 impl<const CAP: usize> UnityPointer<CAP> {
     /// Creates a new instance of the Pointer struct
     ///
-    /// `CAP` must be higher or equal to the number of offsets defined in `fields`.
+    /// `CAP` should be higher or equal to the number of offsets defined in `fields`.
     ///
-    /// If `CAP` is set to a value lower than the number of the offsets to be dereferenced, this function will ***Panic***
-    pub fn new(class_name: &str, nr_of_parents: u8, fields: &[&str]) -> Self {
-        assert!(!fields.is_empty() && fields.len() <= CAP);
+    /// If a higher number of offsets is provided, the pointer path will be truncated
+    /// according to the value of `CAP`.
+    pub fn new(class_name: &'static str, nr_of_parents: usize, fields: &[&'static str]) -> Self {
+        let this_fields = {
+            let mut val = [""; CAP];
+            for (i, &item) in fields.iter().enumerate() {
+                if i < CAP {
+                    val[i] = item;
+                }
+            }
+            val
+        };
+
+        let len = fields.len();
+        let depth = if len > CAP { CAP } else { len };
+
+        let cache = RefCell::new(UnityPointerCache {
+            base_address: Address::default(),
+            offsets: [u64::default(); CAP],
+            current_instance_pointer: None,
+            starting_class: None,
+            resolved_offsets: usize::default(),
+        });
 
         Self {
-            deep_pointer: OnceCell::new(),
-            class_name: ArrayString::from(class_name).unwrap_or_default(),
+            cache,
+            class_name,
             nr_of_parents,
-            fields: fields
-                .iter()
-                .map(|&val| ArrayString::from(val).unwrap_or_default())
-                .collect(),
+            fields: this_fields,
+            depth,
         }
     }
 
     /// Tries to resolve the pointer path for the `Mono` class specified
     fn find_offsets(&self, process: &Process, module: &Module, image: &Image) -> Result<(), Error> {
+        let mut cache = self.cache.borrow_mut();
+
         // If the pointer path has already been found, there's no need to continue
-        if self.deep_pointer.get().is_some() {
+        if cache.resolved_offsets == self.depth {
             return Ok(());
         }
 
-        let mut current_class = image
-            .get_class(process, module, &self.class_name)
-            .ok_or(Error {})?;
-
-        for _ in 0..self.nr_of_parents {
-            current_class = current_class.get_parent(process, module).ok_or(Error {})?;
-        }
-
-        let static_table = current_class
-            .get_static_table(process, module)
-            .ok_or(Error {})?;
-
-        let mut offsets: ArrayVec<u64, CAP> = ArrayVec::new();
-
-        for (i, &field_name) in self.fields.iter().enumerate() {
-            // Try to parse the offset, passed as a string, as an actual hex or decimal value
-            let offset_from_string = {
-                let mut temp_val = None;
-
-                if field_name.starts_with("0x") && field_name.len() > 2 {
-                    if let Some(hex_val) = field_name.get(2..field_name.len()) {
-                        if let Ok(val) = u32::from_str_radix(hex_val, 16) {
-                            temp_val = Some(val)
-                        }
-                    }
-                } else if let Ok(val) = field_name.parse::<u32>() {
-                    temp_val = Some(val)
-                }
-                temp_val
-            };
-
-            // Then we try finding the MonoClassField of interest, which is needed if we only provided the name of the field,
-            // and will be needed anyway when looking for the next offset.
-            let target_field = current_class
-                .fields(process, module)
-                .find(|field| {
-                    if let Some(val) = offset_from_string {
-                        field
-                            .get_offset(process, module)
-                            .is_some_and(|offset| offset == val)
-                    } else {
-                        field
-                            .get_name::<CSTR>(process, module)
-                            .is_ok_and(|name| name.matches(field_name.as_ref()))
-                    }
-                })
+        // Logic: the starting class can be recovered with the get_class() function,
+        // and parent class can be recovered if needed. However, this is a VERY
+        // intensive process because it involves looping through all the main classes
+        // in the game. For this reason, once the class is found, we want to store it
+        // into the cache, where it can be recovered if this function need to be run again
+        // (for example if a previous attempt at pointer path resolution failed)
+        let starting_class = if let Some(starting_class) = cache.starting_class {
+            starting_class
+        } else {
+            let mut current_class = image
+                .get_class(process, module, self.class_name)
                 .ok_or(Error {})?;
 
-            offsets.push(if let Some(val) = offset_from_string {
-                val
-            } else {
-                target_field.get_offset(process, module).ok_or(Error {})?
-            } as u64);
-
-            // In every iteration of the loop, except the last one, we then need to find the Class address for the next offset
-            if i != self.fields.len() - 1 {
-                let vtable = module.read_pointer(process, target_field.field)?;
-
-                current_class = Class {
-                    class: module.read_pointer(process, vtable)?,
-                };
+            for _ in 0..self.nr_of_parents {
+                current_class = current_class.get_parent(process, module).ok_or(Error {})?;
             }
+
+            cache.starting_class = Some(current_class);
+            current_class
+        };
+
+        // Recovering the address of the static table is not very CPU intensive,
+        // but it might be worth caching it as well
+        if cache.base_address.is_null() {
+            let s_table = starting_class
+                .get_static_table(process, module)
+                .ok_or(Error {})?;
+            cache.base_address = s_table;
+        };
+
+        // As we need to be able to find instances in a more reliable way,
+        // instead of the Class itself, we need the address pointing to an
+        // instance of that Class. If the cache is empty, we start from the
+        // pointer to the static table of the first class.
+        let mut current_instance_pointer = if let Some(val) = cache.current_instance_pointer {
+            val
+        } else {
+            let runtime_info = module.read_pointer(
+                process,
+                starting_class.class
+                    + module.offsets.monoclassdef_klass
+                    + module.offsets.monoclass_runtime_info,
+            )?;
+
+            let mut vtables = module.read_pointer(
+                process,
+                runtime_info + module.offsets.monoclassruntimeinfo_domain_vtables,
+            )?;
+
+            // Mono V1 behaves differently when it comes to recover the static table
+            if module.version == Version::V1 {
+                vtables + module.offsets.monoclass_vtable_size
+            } else {
+                vtables = vtables + module.offsets.monovtable_vtable;
+
+                let vtable_size = process.read::<u32>(
+                    starting_class.class
+                        + module.offsets.monoclassdef_klass
+                        + module.offsets.monoclass_vtable_size,
+                )?;
+
+                vtables + (vtable_size as u64).wrapping_mul(module.size_of_ptr())
+            }
+        };
+
+        // We keep track of the already resolved offsets in order to skip resolving them again
+        for i in cache.resolved_offsets..self.depth {
+            let class_instance = module.read_pointer(process, current_instance_pointer)?;
+
+            // If either of those two addresses is null, something went wrong during the pointer path resolution
+            if class_instance.is_null() {
+                return Err(Error {});
+            }
+
+            // Try to parse the offset, passed as a string, as an actual hex or decimal value
+            let offset_from_string = super::value_from_string(self.fields[i]);
+
+            let current_offset = if let Some(offset) = offset_from_string {
+                offset as u64
+            } else {
+                let current_class = if i == 0 {
+                    starting_class
+                } else {
+                    let vtable = module.read_pointer(process, class_instance)?;
+                    let class = module.read_pointer(process, vtable)?;
+                    if class.is_null() {
+                        return Err(Error {});
+                    } else {
+                        Class { class }
+                    }
+                };
+
+                current_class
+                    .fields(process, module)
+                    .find(|field| {
+                        field
+                            .get_name::<CSTR>(process, module)
+                            .is_ok_and(|name| name.matches(self.fields[i]))
+                    })
+                    .ok_or(Error {})?
+                    .get_offset(process, module)
+                    .ok_or(Error {})? as u64
+            };
+
+            cache.offsets[i] = current_offset;
+
+            current_instance_pointer = class_instance + current_offset;
+            cache.current_instance_pointer = Some(current_instance_pointer);
+            cache.resolved_offsets += 1;
         }
 
-        let pointer = DeepPointer::new(
-            static_table,
-            if module.is_64_bit {
-                DerefType::Bit64
-            } else {
-                DerefType::Bit32
-            },
-            &offsets,
-        );
-        let _ = self.deep_pointer.set(pointer);
         Ok(())
     }
 
@@ -630,10 +701,16 @@ impl<const CAP: usize> UnityPointer<CAP> {
         image: &Image,
     ) -> Result<Address, Error> {
         self.find_offsets(process, module, image)?;
-        self.deep_pointer
-            .get()
-            .ok_or(Error {})?
-            .deref_offsets(process)
+        let cache = self.cache.borrow();
+        let mut address = cache.base_address;
+        let (&last, path) = cache.offsets[..self.depth].split_last().ok_or(Error {})?;
+        for &offset in path {
+            address = match module.is_64_bit {
+                true => process.read::<Address64>(address + offset)?.into(),
+                false => process.read::<Address32>(address + offset)?.into(),
+            };
+        }
+        Ok(address + last)
     }
 
     /// Dereferences the pointer path, returning the value stored at the final memory address
@@ -644,11 +721,11 @@ impl<const CAP: usize> UnityPointer<CAP> {
         image: &Image,
     ) -> Result<T, Error> {
         self.find_offsets(process, module, image)?;
-        self.deep_pointer.get().ok_or(Error {})?.deref(process)
+        process.read(self.deref_offsets(process, module, image)?)
     }
 
-    /// Recovers the `DeepPointer` struct contained inside this `UnityPointer`,
-    /// if the offsets have been found
+    /// Generates a `DeepPointer` struct based on the offsets
+    /// recovered from this `UnityPointer`.
     pub fn get_deep_pointer(
         &self,
         process: &Process,
@@ -656,7 +733,16 @@ impl<const CAP: usize> UnityPointer<CAP> {
         image: &Image,
     ) -> Option<DeepPointer<CAP>> {
         self.find_offsets(process, module, image).ok()?;
-        self.deep_pointer.get().cloned()
+        let cache = self.cache.borrow();
+        Some(DeepPointer::<CAP>::new(
+            cache.base_address,
+            if module.is_64_bit {
+                DerefType::Bit64
+            } else {
+                DerefType::Bit32
+            },
+            &cache.offsets[..self.depth],
+        ))
     }
 }
 
