@@ -1,5 +1,7 @@
 //! Support for storing pointer paths for easy dereferencing inside the autosplitter logic.
 
+use core::array;
+
 use bytemuck::CheckedBitPattern;
 
 use crate::{Address, Address32, Address64, Error, Process};
@@ -35,35 +37,27 @@ impl<const CAP: usize> Default for DeepPointer<CAP> {
 impl<const CAP: usize> DeepPointer<CAP> {
     /// Creates a new DeepPointer and specify the pointer size dereferencing
     #[inline]
-    pub fn new(base_address: Address, deref_type: DerefType, path: &[u64]) -> Self {
+    pub fn new(base_address: impl Into<Address>, deref_type: DerefType, path: &[u64]) -> Self {
         let this_path = {
-            let mut val = [u64::default(); CAP];
-            for (i, &item) in path.iter().enumerate() {
-                if i < CAP {
-                    val[i] = item;
-                }
-            }
-            val
+            let mut iter = path.iter();
+            array::from_fn(|_| iter.next().copied().unwrap_or_default())
         };
 
-        let len = path.len();
-        let depth = if len > CAP { CAP } else { len };
-
         Self {
-            base_address,
+            base_address: base_address.into(),
             path: this_path,
-            depth,
+            depth: path.len().min(CAP),
             deref_type,
         }
     }
 
     /// Creates a new DeepPointer with 32bit pointer size dereferencing
-    pub fn new_32bit(base_address: Address, path: &[u64]) -> Self {
+    pub fn new_32bit(base_address: impl Into<Address>, path: &[u64]) -> Self {
         Self::new(base_address, DerefType::Bit32, path)
     }
 
     /// Creates a new DeepPointer with 64bit pointer size dereferencing
-    pub fn new_64bit(base_address: Address, path: &[u64]) -> Self {
+    pub fn new_64bit(base_address: impl Into<Address>, path: &[u64]) -> Self {
         Self::new(base_address, DerefType::Bit64, path)
     }
 
