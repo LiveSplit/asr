@@ -1,6 +1,6 @@
 //! Support for attaching to Unity games that are using the IL2CPP backend.
 
-use core::cell::RefCell;
+use core::{array, cell::RefCell};
 
 use crate::{
     deep_pointer::{DeepPointer, DerefType},
@@ -495,18 +495,10 @@ impl<const CAP: usize> UnityPointer<CAP> {
     /// If a higher number of offsets is provided, the pointer path will be truncated
     /// according to the value of `CAP`.
     pub fn new(class_name: &'static str, nr_of_parents: usize, fields: &[&'static str]) -> Self {
-        let this_fields = {
-            let mut val = [""; CAP];
-            for (i, &item) in fields.iter().enumerate() {
-                if i < CAP {
-                    val[i] = item;
-                }
-            }
-            val
+        let this_fields: [&str; CAP] = {
+            let mut iter = fields.iter();
+            array::from_fn(|_| iter.next().copied().unwrap_or_default())
         };
-
-        let len = fields.len();
-        let depth = if len > CAP { CAP } else { len };
 
         let cache = RefCell::new(UnityPointerCache {
             base_address: Address::default(),
@@ -521,7 +513,7 @@ impl<const CAP: usize> UnityPointer<CAP> {
             class_name,
             nr_of_parents,
             fields: this_fields,
-            depth,
+            depth: fields.len().min(CAP),
         }
     }
 
