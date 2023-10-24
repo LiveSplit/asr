@@ -401,11 +401,15 @@ impl Class {
         .await
     }
 
+    fn get_static_table_pointer(&self, module: &Module) -> Address {
+        self.class + module.offsets.monoclass_static_fields
+    }
+
     /// Returns the address of the static table of the class. This contains the
     /// values of all the static fields.
     pub fn get_static_table(&self, process: &Process, module: &Module) -> Option<Address> {
         module
-            .read_pointer(process, self.class + module.offsets.monoclass_static_fields)
+            .read_pointer(process, self.get_static_table_pointer(module))
             .ok()
             .filter(|a| !a.is_null())
     }
@@ -414,7 +418,8 @@ impl Class {
     pub fn get_parent(&self, process: &Process, module: &Module) -> Option<Class> {
         let parent = module
             .read_pointer(process, self.class + module.offsets.monoclass_parent)
-            .ok()?;
+            .ok()
+            .filter(|val| !val.is_null())?;
 
         Some(Class { class: parent })
     }
@@ -560,20 +565,18 @@ impl<const CAP: usize> UnityPointer<CAP> {
         // instead of the Class itself, we need the address pointing to an
         // instance of that Class. If the cache is empty, we start from the
         // pointer to the static table of the first class.
-        let mut current_instance_pointer = if let Some(val) = cache.current_instance_pointer {
-            val
-        } else {
-            starting_class.class + module.offsets.monoclass_static_fields
+        let mut current_instance_pointer = match cache.current_instance_pointer {
+            Some(val) => val,
+            _ => starting_class.get_static_table_pointer(module),
         };
 
         // We keep track of the already resolved offsets in order to skip resolving them again
         for i in cache.resolved_offsets..self.depth {
-            let class_instance = module.read_pointer(process, current_instance_pointer)?;
-
-            // If either of those two addresses is null, something went wrong during the pointer path resolution
-            if class_instance.is_null() {
-                return Err(Error {});
-            }
+            let class_instance = module
+                .read_pointer(process, current_instance_pointer)
+                .ok()
+                .filter(|val| !val.is_null())
+                .ok_or(Error {})?;
 
             // Try to parse the offset, passed as a string, as an actual hex or decimal value
             let offset_from_string = super::value_from_string(self.fields[i]);
@@ -584,12 +587,12 @@ impl<const CAP: usize> UnityPointer<CAP> {
                 let current_class = if i == 0 {
                     starting_class
                 } else {
-                    let class = module.read_pointer(process, class_instance)?;
-                    if class.is_null() {
-                        return Err(Error {});
-                    } else {
-                        Class { class }
-                    }
+                    let class = module
+                        .read_pointer(process, class_instance)
+                        .ok()
+                        .filter(|val| !val.is_null())
+                        .ok_or(Error {})?;
+                    Class { class }
                 };
 
                 current_class
@@ -626,10 +629,7 @@ impl<const CAP: usize> UnityPointer<CAP> {
         let mut address = cache.base_address;
         let (&last, path) = cache.offsets[..self.depth].split_last().ok_or(Error {})?;
         for &offset in path {
-            address = match module.is_64_bit {
-                true => process.read::<Address64>(address + offset)?.into(),
-                false => process.read::<Address32>(address + offset)?.into(),
-            };
+            address = module.read_pointer(process, address + offset)?;
         }
         Ok(address + last)
     }
@@ -657,10 +657,9 @@ impl<const CAP: usize> UnityPointer<CAP> {
         let cache = self.cache.borrow();
         Some(DeepPointer::<CAP>::new(
             cache.base_address,
-            if module.is_64_bit {
-                DerefType::Bit64
-            } else {
-                DerefType::Bit32
+            match module.is_64_bit {
+                true => DerefType::Bit64,
+                false => DerefType::Bit32,
             },
             &cache.offsets[..self.depth],
         ))

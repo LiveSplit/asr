@@ -404,9 +404,7 @@ impl Class {
         .await
     }
 
-    /// Returns the address of the static table of the class. This contains the
-    /// values of all the static fields.
-    pub fn get_static_table(&self, process: &Process, module: &Module) -> Option<Address> {
+    fn get_static_table_pointer(&self, process: &Process, module: &Module) -> Option<Address> {
         let runtime_info = module
             .read_pointer(
                 process,
@@ -425,9 +423,7 @@ impl Class {
 
         // Mono V1 behaves differently when it comes to recover the static table
         if module.version == Version::V1 {
-            module
-                .read_pointer(process, vtables + module.offsets.monoclass_vtable_size)
-                .ok()
+            Some(vtables + module.offsets.monoclass_vtable_size)
         } else {
             vtables = vtables + module.offsets.monovtable_vtable;
 
@@ -439,13 +435,17 @@ impl Class {
                 )
                 .ok()?;
 
-            module
-                .read_pointer(
-                    process,
-                    vtables + (vtable_size as u64).wrapping_mul(module.size_of_ptr()),
-                )
-                .ok()
+            Some(vtables + (vtable_size as u64).wrapping_mul(module.size_of_ptr()))
         }
+    }
+
+    /// Returns the address of the static table of the class. This contains the
+    /// values of all the static fields.
+    pub fn get_static_table(&self, process: &Process, module: &Module) -> Option<Address> {
+        module
+            .read_pointer(process, self.get_static_table_pointer(process, module)?)
+            .ok()
+            .filter(|a| !a.is_null())
     }
 
     /// Tries to find the parent class.
@@ -458,7 +458,10 @@ impl Class {
             .ok()?;
 
         Some(Class {
-            class: module.read_pointer(process, parent_addr).ok()?,
+            class: module
+                .read_pointer(process, parent_addr)
+                .ok()
+                .filter(|val| !val.is_null())?,
         })
     }
 
@@ -605,45 +608,20 @@ impl<const CAP: usize> UnityPointer<CAP> {
         // instead of the Class itself, we need the address pointing to an
         // instance of that Class. If the cache is empty, we start from the
         // pointer to the static table of the first class.
-        let mut current_instance_pointer = if let Some(val) = cache.current_instance_pointer {
-            val
-        } else {
-            let runtime_info = module.read_pointer(
-                process,
-                starting_class.class
-                    + module.offsets.monoclassdef_klass
-                    + module.offsets.monoclass_runtime_info,
-            )?;
-
-            let mut vtables = module.read_pointer(
-                process,
-                runtime_info + module.offsets.monoclassruntimeinfo_domain_vtables,
-            )?;
-
-            // Mono V1 behaves differently when it comes to recover the static table
-            if module.version == Version::V1 {
-                vtables + module.offsets.monoclass_vtable_size
-            } else {
-                vtables = vtables + module.offsets.monovtable_vtable;
-
-                let vtable_size = process.read::<u32>(
-                    starting_class.class
-                        + module.offsets.monoclassdef_klass
-                        + module.offsets.monoclass_vtable_size,
-                )?;
-
-                vtables + (vtable_size as u64).wrapping_mul(module.size_of_ptr())
-            }
+        let mut current_instance_pointer = match cache.current_instance_pointer {
+            Some(val) => val,
+            _ => starting_class
+                .get_static_table_pointer(process, module)
+                .ok_or(Error {})?,
         };
 
         // We keep track of the already resolved offsets in order to skip resolving them again
         for i in cache.resolved_offsets..self.depth {
-            let class_instance = module.read_pointer(process, current_instance_pointer)?;
-
-            // If either of those two addresses is null, something went wrong during the pointer path resolution
-            if class_instance.is_null() {
-                return Err(Error {});
-            }
+            let class_instance = module
+                .read_pointer(process, current_instance_pointer)
+                .ok()
+                .filter(|val| !val.is_null())
+                .ok_or(Error {})?;
 
             // Try to parse the offset, passed as a string, as an actual hex or decimal value
             let offset_from_string = super::value_from_string(self.fields[i]);
@@ -654,13 +632,12 @@ impl<const CAP: usize> UnityPointer<CAP> {
                 let current_class = if i == 0 {
                     starting_class
                 } else {
-                    let vtable = module.read_pointer(process, class_instance)?;
-                    let class = module.read_pointer(process, vtable)?;
-                    if class.is_null() {
-                        return Err(Error {});
-                    } else {
-                        Class { class }
-                    }
+                    let class = module
+                        .read_pointer(process, module.read_pointer(process, class_instance)?)
+                        .ok()
+                        .filter(|val| !val.is_null())
+                        .ok_or(Error {})?;
+                    Class { class }
                 };
 
                 current_class
@@ -697,10 +674,7 @@ impl<const CAP: usize> UnityPointer<CAP> {
         let mut address = cache.base_address;
         let (&last, path) = cache.offsets[..self.depth].split_last().ok_or(Error {})?;
         for &offset in path {
-            address = match module.is_64_bit {
-                true => process.read::<Address64>(address + offset)?.into(),
-                false => process.read::<Address32>(address + offset)?.into(),
-            };
+            address = module.read_pointer(process, address + offset)?;
         }
         Ok(address + last)
     }
@@ -728,10 +702,9 @@ impl<const CAP: usize> UnityPointer<CAP> {
         let cache = self.cache.borrow();
         Some(DeepPointer::<CAP>::new(
             cache.base_address,
-            if module.is_64_bit {
-                DerefType::Bit64
-            } else {
-                DerefType::Bit32
+            match module.is_64_bit {
+                true => DerefType::Bit64,
+                false => DerefType::Bit32,
             },
             &cache.offsets[..self.depth],
         ))
