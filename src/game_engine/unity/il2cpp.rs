@@ -1,14 +1,10 @@
 //! Support for attaching to Unity games that are using the IL2CPP backend.
 
-use core::{array, cell::RefCell};
+use core::{array, cell::RefCell, iter};
 
 use crate::{
-    deep_pointer::{DeepPointer, DerefType},
-    file_format::pe,
-    future::retry,
-    signature::Signature,
-    string::ArrayCString,
-    Address, Address32, Address64, Error, Process,
+    deep_pointer::DeepPointer, file_format::pe, future::retry, signature::Signature,
+    string::ArrayCString, Address, Address64, Error, PointerSize, Process,
 };
 
 #[cfg(feature = "derive")]
@@ -19,7 +15,7 @@ const CSTR: usize = 128;
 
 /// Represents access to a Unity game that is using the IL2CPP backend.
 pub struct Module {
-    is_64_bit: bool,
+    pointer_size: PointerSize,
     version: Version,
     offsets: &'static Offsets,
     assemblies: Address,
@@ -47,22 +43,32 @@ impl Module {
             (address, size)
         };
 
-        let is_64_bit = pe::MachineType::read(process, mono_module.0)? == pe::MachineType::X86_64;
-
-        let assemblies_trg_addr = if is_64_bit {
-            const ASSEMBLIES_TRG_SIG: Signature<12> =
-                Signature::new("48 FF C5 80 3C ?? 00 75 ?? 48 8B 1D");
-
-            let addr = ASSEMBLIES_TRG_SIG.scan_process_range(process, mono_module)? + 12;
-            addr + 0x4 + process.read::<i32>(addr).ok()?
-        } else {
-            const ASSEMBLIES_TRG_SIG: Signature<9> = Signature::new("8A 07 47 84 C0 75 ?? 8B 35");
-
-            let addr = ASSEMBLIES_TRG_SIG.scan_process_range(process, mono_module)? + 9;
-            process.read::<Address32>(addr).ok()?.into()
+        let pointer_size = match pe::MachineType::read(process, mono_module.0)? {
+            pe::MachineType::X86_64 => PointerSize::Bit64,
+            _ => PointerSize::Bit32,
         };
 
-        let type_info_definition_table_trg_addr: Address = if is_64_bit {
+        let offsets = Offsets::new(version, pointer_size)?;
+
+        let assemblies = match pointer_size {
+            PointerSize::Bit64 => {
+                const ASSEMBLIES_TRG_SIG: Signature<12> =
+                    Signature::new("48 FF C5 80 3C ?? 00 75 ?? 48 8B 1D");
+
+                let addr = ASSEMBLIES_TRG_SIG.scan_process_range(process, mono_module)? + 12;
+                addr + 0x4 + process.read::<i32>(addr).ok()?
+            }
+            PointerSize::Bit32 => {
+                const ASSEMBLIES_TRG_SIG: Signature<9> =
+                    Signature::new("8A 07 47 84 C0 75 ?? 8B 35");
+
+                let addr = ASSEMBLIES_TRG_SIG.scan_process_range(process, mono_module)? + 9;
+                process.read_pointer(addr, pointer_size).ok()?
+            }
+            _ => return None,
+        };
+
+        let type_info_definition_table = if pointer_size == PointerSize::Bit64 {
             const TYPE_INFO_DEFINITION_TABLE_TRG_SIG: Signature<10> =
                 Signature::new("48 83 3C ?? 00 75 ?? 8B C? E8");
 
@@ -71,9 +77,9 @@ impl Module {
                 .add_signed(-4);
 
             process
-                .read::<Address64>(addr + 0x4 + process.read::<i32>(addr).ok()?)
-                .ok()?
-                .into()
+                .read_pointer(addr + 0x4 + process.read::<i32>(addr).ok()?, pointer_size)
+                .ok()
+                .filter(|val| !val.is_null())?
         } else {
             const TYPE_INFO_DEFINITION_TABLE_TRG_SIG: Signature<10> =
                 Signature::new("C3 A1 ?? ?? ?? ?? 83 3C ?? 00");
@@ -82,46 +88,48 @@ impl Module {
                 TYPE_INFO_DEFINITION_TABLE_TRG_SIG.scan_process_range(process, mono_module)? + 2;
 
             process
-                .read::<Address32>(process.read::<Address32>(addr).ok()?)
-                .ok()?
-                .into()
+                .read_pointer(process.read_pointer(addr, pointer_size).ok()?, pointer_size)
+                .ok()
+                .filter(|val| !val.is_null())?
         };
 
-        if type_info_definition_table_trg_addr.is_null() {
-            None
-        } else {
-            Some(Self {
-                is_64_bit,
-                version,
-                offsets: Offsets::new(version, is_64_bit)?,
-                assemblies: assemblies_trg_addr,
-                type_info_definition_table: type_info_definition_table_trg_addr,
-            })
-        }
+        Some(Self {
+            pointer_size,
+            version,
+            offsets,
+            assemblies,
+            type_info_definition_table,
+        })
     }
 
     fn assemblies<'a>(
         &'a self,
         process: &'a Process,
     ) -> impl DoubleEndedIterator<Item = Assembly> + 'a {
-        let (assemblies, nr_of_assemblies): (Address, u64) = if self.is_64_bit {
-            let [first, limit] = process
-                .read::<[u64; 2]>(self.assemblies)
-                .unwrap_or_default();
-            let count = limit.saturating_sub(first) / self.size_of_ptr();
-            (Address::new(first), count)
-        } else {
-            let [first, limit] = process
-                .read::<[u32; 2]>(self.assemblies)
-                .unwrap_or_default();
-            let count = limit.saturating_sub(first) as u64 / self.size_of_ptr();
-            (Address::new(first as _), count)
+        let (assemblies, nr_of_assemblies): (Address, u64) = match self.pointer_size {
+            PointerSize::Bit64 => {
+                let [first, limit] = process
+                    .read::<[u64; 2]>(self.assemblies)
+                    .unwrap_or_default();
+                let count = limit.saturating_sub(first) / self.size_of_ptr();
+                (Address::new(first), count)
+            }
+            _ => {
+                let [first, limit] = process
+                    .read::<[u32; 2]>(self.assemblies)
+                    .unwrap_or_default();
+                let count = limit.saturating_sub(first) as u64 / self.size_of_ptr();
+                (Address::new(first as _), count)
+            }
         };
 
         (0..nr_of_assemblies).filter_map(move |i| {
             Some(Assembly {
-                assembly: self
-                    .read_pointer(process, assemblies + i.wrapping_mul(self.size_of_ptr()))
+                assembly: process
+                    .read_pointer(
+                        assemblies + i.wrapping_mul(self.size_of_ptr()),
+                        self.pointer_size,
+                    )
                     .ok()?,
             })
         })
@@ -206,17 +214,7 @@ impl Module {
 
     #[inline]
     const fn size_of_ptr(&self) -> u64 {
-        match self.is_64_bit {
-            true => 8,
-            false => 4,
-        }
-    }
-
-    fn read_pointer(&self, process: &Process, address: Address) -> Result<Address, Error> {
-        Ok(match self.is_64_bit {
-            true => process.read::<Address64>(address)?.into(),
-            false => process.read::<Address32>(address)?.into(),
-        })
+        self.pointer_size as u64
     }
 }
 
@@ -231,18 +229,21 @@ impl Assembly {
         process: &Process,
         module: &Module,
     ) -> Result<ArrayCString<N>, Error> {
-        process.read(module.read_pointer(
-            process,
+        process.read(process.read_pointer(
             self.assembly
                 + module.offsets.monoassembly_aname
                 + module.offsets.monoassemblyname_name,
+            module.pointer_size,
         )?)
     }
 
     fn get_image(&self, process: &Process, module: &Module) -> Option<Image> {
         Some(Image {
-            image: module
-                .read_pointer(process, self.assembly + module.offsets.monoassembly_image)
+            image: process
+                .read_pointer(
+                    self.assembly + module.offsets.monoassembly_image,
+                    module.pointer_size,
+                )
                 .ok()?,
         })
     }
@@ -266,9 +267,9 @@ impl Image {
 
         let metadata_ptr = match type_count {
             Ok(_) => match module.version {
-                Version::V2020 => module.read_pointer(
-                    process,
+                Version::V2020 => process.read_pointer(
                     self.image + module.offsets.monoimage_metadatahandle,
+                    module.pointer_size,
                 ),
                 _ => Ok(self.image + module.offsets.monoimage_metadatahandle),
             },
@@ -289,14 +290,14 @@ impl Image {
         });
 
         (0..type_count.unwrap_or_default() as u64).filter_map(move |i| {
-            let class = module
-                .read_pointer(process, ptr? + i.wrapping_mul(module.size_of_ptr()))
-                .ok()?;
-
-            match class.is_null() {
-                false => Some(Class { class }),
-                true => None,
-            }
+            let class = process
+                .read_pointer(
+                    ptr? + i.wrapping_mul(module.size_of_ptr()),
+                    module.pointer_size,
+                )
+                .ok()
+                .filter(|val| !val.is_null())?;
+            Some(Class { class })
         })
     }
 
@@ -334,26 +335,79 @@ impl Class {
         process: &Process,
         module: &Module,
     ) -> Result<ArrayCString<N>, Error> {
-        process.read(module.read_pointer(process, self.class + module.offsets.monoclass_name)?)
+        process.read_pointer_path(
+            self.class,
+            module.pointer_size,
+            &[module.offsets.monoclass_name.into(), 0x0],
+        )
+        //process.read(module.read_pointer(process, self.class + module.offsets.monoclass_name)?)
     }
 
-    fn fields(&self, process: &Process, module: &Module) -> impl DoubleEndedIterator<Item = Field> {
-        let field_count = process.read::<u16>(self.class + module.offsets.monoclass_field_count);
+    fn get_name_space<const N: usize>(
+        &self,
+        process: &Process,
+        module: &Module,
+    ) -> Result<ArrayCString<N>, Error> {
+        process.read_pointer_path(
+            self.class,
+            module.pointer_size,
+            &[module.offsets.monoclass_name_space.into(), 0x0],
+        )
+    }
 
-        let fields = match field_count {
-            Ok(_) => module
-                .read_pointer(process, self.class + module.offsets.monoclass_fields)
-                .ok(),
-            _ => None,
-        };
+    fn fields<'a>(
+        &'a self,
+        process: &'a Process,
+        module: &'a Module,
+    ) -> impl Iterator<Item = Field> + '_ {
+        let mut this_class = Class { class: self.class };
+        let mut iter_break = this_class.class.is_null();
 
-        let monoclassfield_structsize = module.offsets.monoclassfield_structsize as u64;
+        iter::from_fn(move || {
+            if iter_break {
+                None
+            } else if !this_class.class.is_null()
+                && this_class
+                    .get_name::<CSTR>(process, module)
+                    .is_ok_and(|name| !name.matches("Object"))
+                && this_class
+                    .get_name_space::<CSTR>(process, module)
+                    .is_ok_and(|name| !name.matches("UnityEngine"))
+            {
+                let field_count =
+                    process.read::<u16>(this_class.class + module.offsets.monoclass_field_count);
 
-        (0..field_count.unwrap_or_default() as u64).filter_map(move |i| {
-            Some(Field {
-                field: fields? + i.wrapping_mul(monoclassfield_structsize),
-            })
+                let fields = match field_count {
+                    Ok(_) => process
+                        .read_pointer(
+                            this_class.class + module.offsets.monoclass_fields,
+                            module.pointer_size,
+                        )
+                        .ok(),
+                    _ => None,
+                };
+
+                let monoclassfield_structsize = module.offsets.monoclassfield_structsize as u64;
+
+                if let Some(x) = this_class.get_parent(process, module) {
+                    this_class = x;
+                } else {
+                    iter_break = true;
+                }
+
+                Some(
+                    (0..field_count.unwrap_or_default() as u64).filter_map(move |i| {
+                        Some(Field {
+                            field: fields? + i.wrapping_mul(monoclassfield_structsize),
+                        })
+                    }),
+                )
+            } else {
+                iter_break = true;
+                None
+            }
         })
+        .flatten()
     }
 
     /// Tries to find a field with the specified name in the class. This returns
@@ -390,13 +444,10 @@ impl Class {
         let singleton_location = static_table + field_offset;
 
         retry(|| {
-            let addr = module.read_pointer(process, singleton_location).ok()?;
-
-            if addr.is_null() {
-                None
-            } else {
-                Some(addr)
-            }
+            process
+                .read_pointer(singleton_location, module.pointer_size)
+                .ok()
+                .filter(|val| !val.is_null())
         })
         .await
     }
@@ -408,19 +459,21 @@ impl Class {
     /// Returns the address of the static table of the class. This contains the
     /// values of all the static fields.
     pub fn get_static_table(&self, process: &Process, module: &Module) -> Option<Address> {
-        module
-            .read_pointer(process, self.get_static_table_pointer(module))
+        process
+            .read_pointer(self.get_static_table_pointer(module), module.pointer_size)
             .ok()
-            .filter(|a| !a.is_null())
+            .filter(|val| !val.is_null())
     }
 
     /// Tries to find the parent class.
     pub fn get_parent(&self, process: &Process, module: &Module) -> Option<Class> {
-        let parent = module
-            .read_pointer(process, self.class + module.offsets.monoclass_parent)
+        let parent = process
+            .read_pointer(
+                self.class + module.offsets.monoclass_parent,
+                module.pointer_size,
+            )
             .ok()
             .filter(|val| !val.is_null())?;
-
         Some(Class { class: parent })
     }
 
@@ -463,7 +516,11 @@ impl Field {
         process: &Process,
         module: &Module,
     ) -> Result<ArrayCString<N>, Error> {
-        process.read(module.read_pointer(process, self.field + module.offsets.monoclassfield_name)?)
+        process.read_pointer_path(
+            self.field,
+            module.pointer_size,
+            &[module.offsets.monoclassfield_name.into(), 0x0],
+        )
     }
 
     fn get_offset(&self, process: &Process, module: &Module) -> Option<u32> {
@@ -483,7 +540,7 @@ pub struct UnityPointer<const CAP: usize> {
     depth: usize,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 struct UnityPointerCache<const CAP: usize> {
     base_address: Address,
     offsets: [u64; CAP],
@@ -537,19 +594,20 @@ impl<const CAP: usize> UnityPointer<CAP> {
         // in the game. For this reason, once the class is found, we want to store it
         // into the cache, where it can be recovered if this function need to be run again
         // (for example if a previous attempt at pointer path resolution failed)
-        let starting_class = if let Some(starting_class) = cache.starting_class {
-            starting_class
-        } else {
-            let mut current_class = image
-                .get_class(process, module, self.class_name)
-                .ok_or(Error {})?;
+        let starting_class = match cache.starting_class {
+            Some(starting_class) => starting_class,
+            _ => {
+                let mut current_class = image
+                    .get_class(process, module, self.class_name)
+                    .ok_or(Error {})?;
 
-            for _ in 0..self.nr_of_parents {
-                current_class = current_class.get_parent(process, module).ok_or(Error {})?;
+                for _ in 0..self.nr_of_parents {
+                    current_class = current_class.get_parent(process, module).ok_or(Error {})?;
+                }
+
+                cache.starting_class = Some(current_class);
+                current_class
             }
-
-            cache.starting_class = Some(current_class);
-            current_class
         };
 
         // Recovering the address of the static table is not very CPU intensive,
@@ -572,8 +630,8 @@ impl<const CAP: usize> UnityPointer<CAP> {
 
         // We keep track of the already resolved offsets in order to skip resolving them again
         for i in cache.resolved_offsets..self.depth {
-            let class_instance = module
-                .read_pointer(process, current_instance_pointer)
+            let class_instance = process
+                .read_pointer(current_instance_pointer, module.pointer_size)
                 .ok()
                 .filter(|val| !val.is_null())
                 .ok_or(Error {})?;
@@ -581,30 +639,36 @@ impl<const CAP: usize> UnityPointer<CAP> {
             // Try to parse the offset, passed as a string, as an actual hex or decimal value
             let offset_from_string = super::value_from_string(self.fields[i]);
 
-            let current_offset = if let Some(offset) = offset_from_string {
-                offset as u64
-            } else {
-                let current_class = if i == 0 {
-                    starting_class
-                } else {
-                    let class = module
-                        .read_pointer(process, class_instance)
-                        .ok()
-                        .filter(|val| !val.is_null())
-                        .ok_or(Error {})?;
-                    Class { class }
-                };
+            let current_offset = match offset_from_string {
+                Some(offset) => offset as u64,
+                _ => {
+                    let current_class = match i {
+                        0 => starting_class,
+                        _ => {
+                            let class = process
+                                .read_pointer(class_instance, module.pointer_size)
+                                .ok()
+                                .filter(|val| !val.is_null())
+                                .ok_or(Error {})?;
+                            Class { class }
+                        }
+                    };
 
-                current_class
-                    .fields(process, module)
-                    .find(|field| {
-                        field
-                            .get_name::<CSTR>(process, module)
-                            .is_ok_and(|name| name.matches(self.fields[i]))
-                    })
-                    .ok_or(Error {})?
-                    .get_offset(process, module)
-                    .ok_or(Error {})? as u64
+                    let val = current_class
+                        .fields(process, module)
+                        .find(|field| {
+                            field
+                                .get_name::<CSTR>(process, module)
+                                .is_ok_and(|name| name.matches(self.fields[i]))
+                        })
+                        .ok_or(Error {})?
+                        .get_offset(process, module)
+                        .ok_or(Error {})? as u64;
+
+                    // Explicitly allowing this clippy because of borrowing rules shenanigans
+                    #[allow(clippy::let_and_return)]
+                    val
+                }
             };
 
             cache.offsets[i] = current_offset;
@@ -629,7 +693,7 @@ impl<const CAP: usize> UnityPointer<CAP> {
         let mut address = cache.base_address;
         let (&last, path) = cache.offsets[..self.depth].split_last().ok_or(Error {})?;
         for &offset in path {
-            address = module.read_pointer(process, address + offset)?;
+            address = process.read_pointer(address + offset, module.pointer_size)?;
         }
         Ok(address + last)
     }
@@ -642,7 +706,12 @@ impl<const CAP: usize> UnityPointer<CAP> {
         image: &Image,
     ) -> Result<T, Error> {
         self.find_offsets(process, module, image)?;
-        process.read(self.deref_offsets(process, module, image)?)
+        let cache = self.cache.borrow();
+        process.read_pointer_path(
+            cache.base_address,
+            module.pointer_size,
+            &cache.offsets[..self.depth],
+        )
     }
 
     /// Generates a `DeepPointer` struct based on the offsets
@@ -657,10 +726,7 @@ impl<const CAP: usize> UnityPointer<CAP> {
         let cache = self.cache.borrow();
         Some(DeepPointer::<CAP>::new(
             cache.base_address,
-            match module.is_64_bit {
-                true => DerefType::Bit64,
-                false => DerefType::Bit32,
-            },
+            module.pointer_size,
             &cache.offsets[..self.depth],
         ))
     }
@@ -673,6 +739,7 @@ struct Offsets {
     monoimage_typecount: u8,
     monoimage_metadatahandle: u8,
     monoclass_name: u8,
+    monoclass_name_space: u8,
     monoclass_fields: u8,
     monoclass_field_count: u16,
     monoclass_static_fields: u8,
@@ -683,60 +750,62 @@ struct Offsets {
 }
 
 impl Offsets {
-    const fn new(version: Version, is_64_bit: bool) -> Option<&'static Self> {
-        if !is_64_bit {
-            // Il2Cpp on 32-bit is unsupported. Although there are some games
-            // using Il2Cpp_base, there are known issues with its offsets.
-            return None;
+    const fn new(version: Version, pointer_size: PointerSize) -> Option<&'static Self> {
+        match pointer_size {
+            PointerSize::Bit64 => {
+                Some(match version {
+                    Version::Base => &Self {
+                        monoassembly_image: 0x0,
+                        monoassembly_aname: 0x18,
+                        monoassemblyname_name: 0x0,
+                        monoimage_typecount: 0x1C,
+                        monoimage_metadatahandle: 0x18, // MonoImage.typeStart
+                        monoclass_name: 0x10,
+                        monoclass_name_space: 0x18,
+                        monoclass_fields: 0x80,
+                        monoclass_field_count: 0x114,
+                        monoclass_static_fields: 0xB8,
+                        monoclass_parent: 0x58,
+                        monoclassfield_structsize: 0x20,
+                        monoclassfield_name: 0x0,
+                        monoclassfield_offset: 0x18,
+                    },
+                    Version::V2019 => &Self {
+                        monoassembly_image: 0x0,
+                        monoassembly_aname: 0x18,
+                        monoassemblyname_name: 0x0,
+                        monoimage_typecount: 0x1C,
+                        monoimage_metadatahandle: 0x18, // MonoImage.typeStart
+                        monoclass_name: 0x10,
+                        monoclass_name_space: 0x18,
+                        monoclass_fields: 0x80,
+                        monoclass_field_count: 0x11C,
+                        monoclass_static_fields: 0xB8,
+                        monoclass_parent: 0x58,
+                        monoclassfield_structsize: 0x20,
+                        monoclassfield_name: 0x0,
+                        monoclassfield_offset: 0x18,
+                    },
+                    Version::V2020 => &Self {
+                        monoassembly_image: 0x0,
+                        monoassembly_aname: 0x18,
+                        monoassemblyname_name: 0x0,
+                        monoimage_typecount: 0x18,
+                        monoimage_metadatahandle: 0x28,
+                        monoclass_name: 0x10,
+                        monoclass_name_space: 0x18,
+                        monoclass_fields: 0x80,
+                        monoclass_field_count: 0x120,
+                        monoclass_static_fields: 0xB8,
+                        monoclass_parent: 0x58,
+                        monoclassfield_structsize: 0x20,
+                        monoclassfield_name: 0x0,
+                        monoclassfield_offset: 0x18,
+                    },
+                })
+            }
+            _ => None,
         }
-
-        Some(match version {
-            Version::Base => &Self {
-                monoassembly_image: 0x0,
-                monoassembly_aname: 0x18,
-                monoassemblyname_name: 0x0,
-                monoimage_typecount: 0x1C,
-                monoimage_metadatahandle: 0x18, // MonoImage.typeStart
-                monoclass_name: 0x10,
-                monoclass_fields: 0x80,
-                monoclass_field_count: 0x114,
-                monoclass_static_fields: 0xB8,
-                monoclass_parent: 0x58,
-                monoclassfield_structsize: 0x20,
-                monoclassfield_name: 0x0,
-                monoclassfield_offset: 0x18,
-            },
-            Version::V2019 => &Self {
-                monoassembly_image: 0x0,
-                monoassembly_aname: 0x18,
-                monoassemblyname_name: 0x0,
-                monoimage_typecount: 0x1C,
-                monoimage_metadatahandle: 0x18, // MonoImage.typeStart
-                monoclass_name: 0x10,
-                monoclass_fields: 0x80,
-                monoclass_field_count: 0x11C,
-                monoclass_static_fields: 0xB8,
-                monoclass_parent: 0x58,
-                monoclassfield_structsize: 0x20,
-                monoclassfield_name: 0x0,
-                monoclassfield_offset: 0x18,
-            },
-            Version::V2020 => &Self {
-                monoassembly_image: 0x0,
-                monoassembly_aname: 0x18,
-                monoassemblyname_name: 0x0,
-                monoimage_typecount: 0x18,
-                monoimage_metadatahandle: 0x28,
-                monoclass_name: 0x10,
-                monoclass_fields: 0x80,
-                monoclass_field_count: 0x120,
-                monoclass_static_fields: 0xB8,
-                monoclass_parent: 0x58,
-                monoclassfield_structsize: 0x20,
-                monoclassfield_name: 0x0,
-                monoclassfield_offset: 0x18,
-            },
-        })
     }
 }
 

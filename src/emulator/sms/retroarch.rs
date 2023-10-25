@@ -1,4 +1,6 @@
-use crate::{file_format::pe, signature::Signature, Address, Address32, Address64, Process};
+use crate::{
+    file_format::pe, signature::Signature, Address, Address32, Address64, PointerSize, Process,
+};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct State {
@@ -94,8 +96,9 @@ impl State {
                 .read::<u8>(ptr + 13 + 0x4 + game.read::<i32>(ptr + 13).ok()? + 3)
                 .ok()?;
             let addr = game
-                .read_pointer_path64::<Address64>(
+                .read_pointer_path::<Address64>(
                     ptr + 0x4 + game.read::<i32>(ptr).ok()?,
+                    PointerSize::Bit64,
                     &[0x0, 0x0, offset as _],
                 )
                 .ok()?;
@@ -111,7 +114,11 @@ impl State {
                 .read::<u8>(ptr + 12 + 0x4 + game.read::<i32>(ptr + 12).ok()? + 2)
                 .ok()?;
             let addr = game
-                .read_pointer_path32::<Address32>(ptr, &[0x0, 0x0, 0x0, offset as _])
+                .read_pointer_path::<Address32>(
+                    ptr,
+                    PointerSize::Bit32,
+                    &[0x0, 0x0, 0x0, offset as _],
+                )
                 .ok()?;
             if addr.is_null() {
                 return None;
