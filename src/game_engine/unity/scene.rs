@@ -10,7 +10,7 @@ use core::{array, iter, mem::MaybeUninit};
 
 use crate::{
     file_format::pe, future::retry, signature::Signature, string::ArrayCString, Address, Address32,
-    Address64, Error, Process,
+    Address64, Error, PointerSize, Process,
 };
 
 const CSTR: usize = 128;
@@ -21,7 +21,7 @@ const CSTR: usize = 128;
 /// It can be useful to identify splitting conditions or as an alternative to
 /// the traditional class lookup in games with no useful static references.
 pub struct SceneManager {
-    is_64_bit: bool,
+    pointer_size: PointerSize,
     is_il2cpp: bool,
     address: Address,
     offsets: &'static Offsets,
@@ -37,12 +37,16 @@ impl SceneManager {
 
         let unity_player = process.get_module_range("UnityPlayer.dll").ok()?;
 
-        let is_64_bit = pe::MachineType::read(process, unity_player.0)? == pe::MachineType::X86_64;
+        let pointer_size = match pe::MachineType::read(process, unity_player.0)? {
+            pe::MachineType::X86_64 => PointerSize::Bit64,
+            _ => PointerSize::Bit32,
+        };
+
         let is_il2cpp = process.get_module_address("GameAssembly.dll").is_ok();
 
         // There are multiple signatures that can be used, depending on the version of Unity
         // used in the target game.
-        let base_address: Address = if is_64_bit {
+        let base_address: Address = if pointer_size == PointerSize::Bit64 {
             let addr = SIG_64_BIT.scan_process_range(process, unity_player)? + 7;
             addr + 0x4 + process.read::<i32>(addr).ok()?
         } else if let Some(addr) = SIG_32_1.scan_process_range(process, unity_player) {
@@ -55,25 +59,21 @@ impl SceneManager {
             return None;
         };
 
-        let offsets = Offsets::new(is_64_bit);
+        let offsets = Offsets::new(pointer_size);
 
         // Dereferencing one level because this pointer never changes as long as the game is open.
         // It might not seem a lot, but it helps make things a bit faster when querying for scene stuff.
-        let address: Address = match is_64_bit {
-            true => process.read::<Address64>(base_address).ok()?.into(),
-            false => process.read::<Address32>(base_address).ok()?.into(),
-        };
+        let address = process
+            .read_pointer(base_address, pointer_size)
+            .ok()
+            .filter(|val| !val.is_null())?;
 
-        if address.is_null() {
-            None
-        } else {
-            Some(Self {
-                is_64_bit,
-                is_il2cpp,
-                address,
-                offsets,
-            })
-        }
+        Some(Self {
+            pointer_size,
+            is_il2cpp,
+            address,
+            offsets,
+        })
     }
 
     /// Attaches to the scene manager in the given process.
@@ -84,25 +84,19 @@ impl SceneManager {
         retry(|| Self::attach(process)).await
     }
 
-    fn read_pointer(&self, process: &Process, address: Address) -> Result<Address, Error> {
-        Ok(match self.is_64_bit {
-            true => process.read::<Address64>(address)?.into(),
-            false => process.read::<Address32>(address)?.into(),
-        })
-    }
-
     #[inline]
-    const fn pointer_size(&self) -> u8 {
-        match self.is_64_bit {
-            true => 8,
-            false => 4,
-        }
+    const fn size_of_ptr(&self) -> u64 {
+        self.pointer_size as u64
     }
 
     /// Tries to retrieve the current active scene.
     fn get_current_scene(&self, process: &Process) -> Result<Scene, Error> {
         Ok(Scene {
-            address: self.read_pointer(process, self.address + self.offsets.active_scene)?,
+            address: process
+                .read_pointer(self.address + self.offsets.active_scene, self.pointer_size)
+                .ok()
+                .filter(|val| !val.is_null())
+                .ok_or(Error {})?,
         })
     }
 
@@ -143,26 +137,30 @@ impl SceneManager {
         &'a self,
         process: &'a Process,
     ) -> impl DoubleEndedIterator<Item = Scene> + 'a {
-        let (num_scenes, addr): (usize, Address) = if self.is_64_bit {
-            let [first, _, third] = process
-                .read::<[u64; 3]>(self.address + self.offsets.scene_count)
-                .unwrap_or_default();
-            (first as usize, Address::new(third))
-        } else {
-            let [first, _, third] = process
-                .read::<[u32; 3]>(self.address + self.offsets.scene_count)
-                .unwrap_or_default();
-            (first as usize, Address::new(third as _))
+        let (num_scenes, addr): (usize, Address) = match self.pointer_size {
+            PointerSize::Bit64 => {
+                let [first, _, third] = process
+                    .read::<[u64; 3]>(self.address + self.offsets.scene_count)
+                    .unwrap_or_default();
+                (first as usize, Address::new(third))
+            }
+            _ => {
+                let [first, _, third] = process
+                    .read::<[u32; 3]>(self.address + self.offsets.scene_count)
+                    .unwrap_or_default();
+                (first as usize, Address::new(third as _))
+            }
         };
 
         (0..num_scenes).filter_map(move |index| {
             Some(Scene {
-                address: self
+                address: process
                     .read_pointer(
-                        process,
-                        addr + (index as u64).wrapping_mul(self.pointer_size() as _),
+                        addr + (index as u64).wrapping_mul(self.size_of_ptr()),
+                        self.pointer_size,
                     )
-                    .ok()?,
+                    .ok()
+                    .filter(|val| !val.is_null())?,
             })
         })
     }
@@ -180,8 +178,11 @@ impl SceneManager {
         process: &'a Process,
         scene: &Scene,
     ) -> impl Iterator<Item = Transform> + 'a {
-        let list_first = self
-            .read_pointer(process, scene.address + self.offsets.root_storage_container)
+        let list_first = process
+            .read_pointer(
+                scene.address + self.offsets.root_storage_container,
+                self.pointer_size,
+            )
             .unwrap_or_default();
 
         let mut current_list = list_first;
@@ -191,12 +192,12 @@ impl SceneManager {
             if iter_break {
                 None
             } else {
-                let [first, _, third]: [Address; 3] = match self.is_64_bit {
-                    true => process
+                let [first, _, third]: [Address; 3] = match self.pointer_size {
+                    PointerSize::Bit64 => process
                         .read::<[Address64; 3]>(current_list)
                         .ok()?
                         .map(|a| a.into()),
-                    false => process
+                    _ => process
                         .read::<[Address32; 3]>(current_list)
                         .ok()?
                         .map(|a| a.into()),
@@ -254,13 +255,15 @@ impl Transform {
         process: &Process,
         scene_manager: &SceneManager,
     ) -> Result<ArrayCString<N>, Error> {
-        let game_object = scene_manager
-            .read_pointer(process, self.address + scene_manager.offsets.game_object)?;
-        let name_ptr = scene_manager.read_pointer(
-            process,
-            game_object + scene_manager.offsets.game_object_name,
-        )?;
-        process.read(name_ptr)
+        process.read_pointer_path(
+            self.address,
+            scene_manager.pointer_size,
+            &[
+                scene_manager.offsets.game_object as u64,
+                scene_manager.offsets.game_object_name as u64,
+                0x0,
+            ],
+        )
     }
 
     /// Iterates over the classes referred to in the current `Transform`.
@@ -269,17 +272,23 @@ impl Transform {
         process: &'a Process,
         scene_manager: &'a SceneManager,
     ) -> Result<impl Iterator<Item = Address> + 'a, Error> {
-        let game_object = scene_manager
-            .read_pointer(process, self.address + scene_manager.offsets.game_object)?;
+        let game_object = process.read_pointer(
+            self.address + scene_manager.offsets.game_object,
+            scene_manager.pointer_size,
+        )?;
 
-        let (number_of_components, main_object): (usize, Address) = if scene_manager.is_64_bit {
-            let array =
-                process.read::<[Address64; 3]>(game_object + scene_manager.offsets.game_object)?;
-            (array[2].value() as usize, array[0].into())
-        } else {
-            let array =
-                process.read::<[Address32; 3]>(game_object + scene_manager.offsets.game_object)?;
-            (array[2].value() as usize, array[0].into())
+        let (number_of_components, main_object): (usize, Address) = match scene_manager.pointer_size
+        {
+            PointerSize::Bit64 => {
+                let array = process
+                    .read::<[Address64; 3]>(game_object + scene_manager.offsets.game_object)?;
+                (array[2].value() as usize, array[0].into())
+            }
+            _ => {
+                let array = process
+                    .read::<[Address32; 3]>(game_object + scene_manager.offsets.game_object)?;
+                (array[2].value() as usize, array[0].into())
+            }
         };
 
         if number_of_components == 0 {
@@ -288,34 +297,41 @@ impl Transform {
 
         const ARRAY_SIZE: usize = 128;
 
-        let components: [Address; ARRAY_SIZE] = if scene_manager.is_64_bit {
-            let mut buf = [MaybeUninit::<[Address64; 2]>::uninit(); ARRAY_SIZE];
-            let slice =
-                process.read_into_uninit_slice(main_object, &mut buf[..number_of_components])?;
+        let components: [Address; ARRAY_SIZE] = match scene_manager.pointer_size {
+            PointerSize::Bit64 => {
+                let mut buf = [MaybeUninit::<[Address64; 2]>::uninit(); ARRAY_SIZE];
+                let slice = process
+                    .read_into_uninit_slice(main_object, &mut buf[..number_of_components])?;
 
-            let mut iter = slice.iter_mut();
-            array::from_fn(|_| {
-                iter.next()
-                    .map(|&mut [_, second]| second.into())
-                    .unwrap_or_default()
-            })
-        } else {
-            let mut buf = [MaybeUninit::<[Address32; 2]>::uninit(); ARRAY_SIZE];
-            let slice =
-                process.read_into_uninit_slice(main_object, &mut buf[..number_of_components])?;
+                let mut iter = slice.iter_mut();
+                array::from_fn(|_| {
+                    iter.next()
+                        .map(|&mut [_, second]| second.into())
+                        .unwrap_or_default()
+                })
+            }
+            _ => {
+                let mut buf = [MaybeUninit::<[Address32; 2]>::uninit(); ARRAY_SIZE];
+                let slice = process
+                    .read_into_uninit_slice(main_object, &mut buf[..number_of_components])?;
 
-            let mut iter = slice.iter_mut();
-            array::from_fn(|_| {
-                iter.next()
-                    .map(|&mut [_, second]| second.into())
-                    .unwrap_or_default()
-            })
+                let mut iter = slice.iter_mut();
+                array::from_fn(|_| {
+                    iter.next()
+                        .map(|&mut [_, second]| second.into())
+                        .unwrap_or_default()
+                })
+            }
         };
 
         Ok((1..number_of_components).filter_map(move |m| {
-            scene_manager
-                .read_pointer(process, components[m] + scene_manager.offsets.klass)
+            process
+                .read_pointer(
+                    components[m] + scene_manager.offsets.klass,
+                    scene_manager.pointer_size,
+                )
                 .ok()
+                .filter(|val| !val.is_null())
         }))
     }
 
@@ -327,42 +343,21 @@ impl Transform {
         name: &str,
     ) -> Result<Address, Error> {
         self.classes(process, scene_manager)?
-            .find(|&c| {
-                let Ok(vtable) = scene_manager.read_pointer(process, c) else {
-                    return false;
+            .find(|&addr| {
+                let val: Result<ArrayCString<CSTR>, Error> = match scene_manager.is_il2cpp {
+                    true => process.read_pointer_path(
+                        addr,
+                        scene_manager.pointer_size,
+                        &[0x0, scene_manager.size_of_ptr().wrapping_mul(2), 0x0],
+                    ),
+                    false => process.read_pointer_path(
+                        addr,
+                        scene_manager.pointer_size,
+                        &[0x0, 0x0, scene_manager.offsets.klass_name as u64, 0x0],
+                    ),
                 };
 
-                let name_ptr = {
-                    match scene_manager.is_il2cpp {
-                        true => {
-                            let Ok(name_ptr) = scene_manager.read_pointer(
-                                process,
-                                vtable + 2_u64.wrapping_mul(scene_manager.pointer_size() as _),
-                            ) else {
-                                return false;
-                            };
-
-                            name_ptr
-                        }
-                        false => {
-                            let Ok(vtable) = scene_manager.read_pointer(process, vtable) else {
-                                return false;
-                            };
-
-                            let Ok(name_ptr) = scene_manager
-                                .read_pointer(process, vtable + scene_manager.offsets.klass_name)
-                            else {
-                                return false;
-                            };
-
-                            name_ptr
-                        }
-                    }
-                };
-
-                process
-                    .read::<ArrayCString<CSTR>>(name_ptr)
-                    .is_ok_and(|class_name| class_name.matches(name))
+                val.is_ok_and(|class_name| class_name.matches(name))
             })
             .ok_or(Error {})
     }
@@ -373,14 +368,17 @@ impl Transform {
         process: &'a Process,
         scene_manager: &'a SceneManager,
     ) -> Result<impl Iterator<Item = Self> + 'a, Error> {
-        let (child_count, child_pointer): (usize, Address) = if scene_manager.is_64_bit {
-            let [first, _, third] =
-                process.read::<[u64; 3]>(self.address + scene_manager.offsets.children_pointer)?;
-            (third as usize, Address::new(first))
-        } else {
-            let [first, _, third] =
-                process.read::<[u32; 3]>(self.address + scene_manager.offsets.children_pointer)?;
-            (third as usize, Address::new(first as _))
+        let (child_count, child_pointer): (usize, Address) = match scene_manager.pointer_size {
+            PointerSize::Bit64 => {
+                let [first, _, third] = process
+                    .read::<[u64; 3]>(self.address + scene_manager.offsets.children_pointer)?;
+                (third as usize, Address::new(first))
+            }
+            _ => {
+                let [first, _, third] = process
+                    .read::<[u32; 3]>(self.address + scene_manager.offsets.children_pointer)?;
+                (third as usize, Address::new(first as _))
+            }
         };
 
         // Define an empty array and fill it later with the addresses of all child classes found for the current Transform.
@@ -391,18 +389,23 @@ impl Transform {
             return Err(Error {});
         }
 
-        let children: [Address; ARRAY_SIZE] = if scene_manager.is_64_bit {
-            let mut buf = [MaybeUninit::<Address64>::uninit(); ARRAY_SIZE];
-            let slice = process.read_into_uninit_slice(child_pointer, &mut buf[..child_count])?;
+        let children: [Address; ARRAY_SIZE] = match scene_manager.pointer_size {
+            PointerSize::Bit64 => {
+                let mut buf = [MaybeUninit::<Address64>::uninit(); ARRAY_SIZE];
+                let slice =
+                    process.read_into_uninit_slice(child_pointer, &mut buf[..child_count])?;
 
-            let mut iter = slice.iter_mut();
-            array::from_fn(|_| iter.next().copied().map(Into::into).unwrap_or_default())
-        } else {
-            let mut buf = [MaybeUninit::<Address32>::uninit(); ARRAY_SIZE];
-            let slice = process.read_into_uninit_slice(child_pointer, &mut buf[..child_count])?;
+                let mut iter = slice.iter_mut();
+                array::from_fn(|_| iter.next().copied().map(Into::into).unwrap_or_default())
+            }
+            _ => {
+                let mut buf = [MaybeUninit::<Address32>::uninit(); ARRAY_SIZE];
+                let slice =
+                    process.read_into_uninit_slice(child_pointer, &mut buf[..child_count])?;
 
-            let mut iter = slice.iter_mut();
-            array::from_fn(|_| iter.next().copied().map(Into::into).unwrap_or_default())
+                let mut iter = slice.iter_mut();
+                array::from_fn(|_| iter.next().copied().map(Into::into).unwrap_or_default())
+            }
         };
 
         Ok((0..child_count).map(move |f| Self {
@@ -441,9 +444,9 @@ struct Offsets {
 }
 
 impl Offsets {
-    pub const fn new(is_64_bit: bool) -> &'static Self {
-        match is_64_bit {
-            true => &Self {
+    pub const fn new(pointer_size: PointerSize) -> &'static Self {
+        match pointer_size {
+            PointerSize::Bit64 => &Self {
                 scene_count: 0x18,
                 active_scene: 0x48,
                 dont_destroy_on_load_scene: 0x70,
@@ -456,7 +459,7 @@ impl Offsets {
                 klass_name: 0x48,
                 children_pointer: 0x70,
             },
-            false => &Self {
+            _ => &Self {
                 scene_count: 0x10,
                 active_scene: 0x28,
                 dont_destroy_on_load_scene: 0x40,
@@ -502,9 +505,11 @@ impl Scene {
         process: &Process,
         scene_manager: &SceneManager,
     ) -> Result<ArrayCString<N>, Error> {
-        let addr =
-            scene_manager.read_pointer(process, self.address + scene_manager.offsets.asset_path)?;
-        process.read(addr)
+        process.read_pointer_path(
+            self.address,
+            scene_manager.pointer_size,
+            &[scene_manager.offsets.asset_path as u64, 0x0],
+        )
     }
 }
 
