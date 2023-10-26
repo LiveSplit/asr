@@ -316,7 +316,7 @@ impl Image {
     }
 }
 
-/// A .NET class that is part of an [`Image`](Image).
+/// A .NET class that is part of an [`Image`].
 pub struct Class {
     class: Address,
 }
@@ -464,7 +464,7 @@ impl Class {
     /// the offset of the field from the start of an instance of the class. If
     /// it's a static field, the offset will be from the start of the static
     /// table. This is the `await`able version of the
-    /// [`get_field`](Self::get_field) function.
+    /// [`get_field_offset`](Self::get_field_offset) function.
     pub async fn wait_get_field_offset(
         &self,
         process: &Process,
@@ -838,7 +838,7 @@ fn detect_version(process: &Process) -> Option<Version> {
     const SIG_202X: Signature<6> = Signature::new("00 32 30 32 ?? 2E");
 
     let Some(addr) = SIG_202X.scan_process_range(process, unity_module) else {
-        return Some(Version::V2)
+        return Some(Version::V2);
     };
 
     const ZERO: u8 = b'0';

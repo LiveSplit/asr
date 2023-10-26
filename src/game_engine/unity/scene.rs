@@ -124,9 +124,8 @@ impl SceneManager {
         self.get_current_scene(process)?.index(process, self)
     }
 
-    /// Returns the full path to the current scene. Use
-    /// [`get_scene_name`](Self::get_scene_name) afterwards to
-    /// get the scene name.
+    /// Returns the full path to the current scene. Use [`get_scene_name`]
+    /// afterwards to get the scene name.
     pub fn get_current_scene_path<const N: usize>(
         &self,
         process: &Process,
@@ -336,9 +335,10 @@ impl Transform {
                 let name_ptr = {
                     match scene_manager.is_il2cpp {
                         true => {
-                            let Ok(name_ptr) = scene_manager
-                                .read_pointer(process, vtable + 2_u64.wrapping_mul(scene_manager.pointer_size() as _))
-                            else {
+                            let Ok(name_ptr) = scene_manager.read_pointer(
+                                process,
+                                vtable + 2_u64.wrapping_mul(scene_manager.pointer_size() as _),
+                            ) else {
                                 return false;
                             };
 

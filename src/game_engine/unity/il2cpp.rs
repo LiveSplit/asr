@@ -320,7 +320,7 @@ impl Image {
     }
 }
 
-/// A .NET class that is part of an [`Image`](Image).
+/// A .NET class that is part of an [`Image`].
 pub struct Class {
     class: Address,
 }
@@ -420,7 +420,7 @@ impl Class {
     /// the offset of the field from the start of an instance of the class. If
     /// it's a static field, the offset will be from the start of the static
     /// table. This is the `await`able version of the
-    /// [`get_field`](Self::get_field) function.
+    /// [`get_field_offset`](Self::get_field_offset) function.
     pub async fn wait_get_field_offset(
         &self,
         process: &Process,
