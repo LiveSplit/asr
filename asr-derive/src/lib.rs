@@ -3,14 +3,15 @@ use proc_macro::TokenStream;
 use quote::{quote, quote_spanned};
 use syn::{spanned::Spanned, Data, DeriveInput, Expr, ExprLit, Lit, Meta};
 
-/// Generates a `register` method for a struct that automatically registers its
-/// fields as settings and returns the struct with the user's settings applied.
+/// Implements the `Gui` trait for a struct that allows you to register its
+/// fields as settings widgets and returns the struct with the user's settings
+/// applied.
 ///
 /// # Example
 ///
 /// ```no_run
-/// #[derive(Settings)]
-/// struct MySettings {
+/// #[derive(Gui)]
+/// struct Settings {
 ///     /// General Settings
 ///     _general_settings: Title,
 ///     /// Use Game Time
@@ -20,19 +21,17 @@ use syn::{spanned::Spanned, Data, DeriveInput, Expr, ExprLit, Lit, Meta};
 /// }
 /// ```
 ///
-/// This will generate the following code:
+/// The type can then be used like so:
 ///
 /// ```no_run
-/// impl MySettings {
-///    pub fn register() -> Self {
-///       asr::user_settings::add_title("_general_settings", "General Settings", 0);
-///       let use_game_time = asr::user_settings::add_bool("use_game_time", "Use Game Time", false);
-///       asr::user_settings::set_tooltip("use_game_time", "This is the tooltip.");
-///       Self { use_game_time }
-///    }
+/// let mut settings = Settings::register();
+///
+/// loop {
+///    settings.update();
+///    // Do something with the settings.
 /// }
 /// ```
-#[proc_macro_derive(Settings, attributes(default, heading_level))]
+#[proc_macro_derive(Gui, attributes(default, heading_level))]
 pub fn settings_macro(input: TokenStream) -> TokenStream {
     let ast: DeriveInput = syn::parse(input).unwrap();
 
@@ -58,14 +57,21 @@ pub fn settings_macro(input: TokenStream) -> TokenStream {
         let mut tooltip_string = String::new();
         let mut is_in_tooltip = false;
         for attr in &field.attrs {
-            let Meta::NameValue(nv) = &attr.meta else { continue };
-            let Some(ident) =  nv.path.get_ident() else { continue };
+            let Meta::NameValue(nv) = &attr.meta else {
+                continue;
+            };
+            let Some(ident) = nv.path.get_ident() else {
+                continue;
+            };
             if ident != "doc" {
                 continue;
             }
             let Expr::Lit(ExprLit {
                 lit: Lit::Str(s), ..
-            }) = &nv.value else { continue };
+            }) = &nv.value
+            else {
+                continue;
+            };
             let value = s.value();
             let value = value.trim();
             let target_string = if is_in_tooltip {
@@ -102,7 +108,9 @@ pub fn settings_macro(input: TokenStream) -> TokenStream {
             .attrs
             .iter()
             .filter_map(|x| {
-                let Meta::NameValue(nv) = &x.meta else { return None };
+                let Meta::NameValue(nv) = &x.meta else {
+                    return None;
+                };
                 let span = nv.span();
                 if nv.path.is_ident("default") {
                     let value = &nv.value;
@@ -119,17 +127,29 @@ pub fn settings_macro(input: TokenStream) -> TokenStream {
     }
 
     quote! {
-        impl #struct_name {
-            pub fn register() -> Self {
+        impl asr::settings::Gui for #struct_name {
+            fn register() -> Self {
                 Self {
                     #(#field_names: {
-                        let mut args = <#field_tys as asr::user_settings::Setting>::Args::default();
+                        let mut args = <#field_tys as asr::settings::gui::Widget>::Args::default();
                         #args_init
-                        let mut value = asr::user_settings::Setting::register(#field_name_strings, #field_descs, args);
+                        let mut value = asr::settings::gui::Widget::register(#field_name_strings, #field_descs, args);
                         #field_tooltips
                         value
                     },)*
                 }
+            }
+
+            fn update_from(&mut self, settings_map: &asr::settings::Map) {
+                #({
+                    let mut args = <#field_tys as asr::settings::gui::Widget>::Args::default();
+                    #args_init
+                    asr::settings::gui::Widget::update_from(&mut self.#field_names, settings_map, #field_name_strings, args);
+                })*
+            }
+
+            fn update(&mut self) {
+                self.update_from(&asr::settings::Map::load());
             }
         }
     }

@@ -413,8 +413,7 @@ macro_rules! async_main {
                             let size = mem::size_of::<F>();
                             const PAGE_SIZE: usize = 64 << 10;
                             assert!(mem::align_of::<F>() <= PAGE_SIZE);
-                            // TODO: div_ceil
-                            let pages = (size + (PAGE_SIZE - 1)) / PAGE_SIZE;
+                            let pages = size.div_ceil(PAGE_SIZE);
 
                             #[cfg(target_arch = "wasm32")]
                             let old_page_count = core::arch::wasm32::memory_grow(0, pages);

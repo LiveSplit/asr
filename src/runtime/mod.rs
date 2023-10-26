@@ -5,8 +5,8 @@ mod memory_range;
 mod process;
 mod sys;
 
+pub mod settings;
 pub mod timer;
-pub mod user_settings;
 
 /// An error returned by a runtime function.
 #[derive(Debug)]
@@ -56,7 +56,7 @@ pub fn get_os() -> Result<arrayvec::ArrayString<16>, Error> {
     let mut buf = arrayvec::ArrayString::<16>::new();
     // SAFETY: We provide a valid pointer and length to the buffer. We check
     // whether the buffer was successfully filled and set the length of the
-    // buffer accordingly.
+    // buffer accordingly. The buffer is guaranteed to be valid UTF-8.
     unsafe {
         let mut len = buf.capacity();
         let success = sys::runtime_get_os(buf.as_mut_ptr(), &mut len);
@@ -80,7 +80,7 @@ pub fn get_arch() -> Result<arrayvec::ArrayString<16>, Error> {
     let mut buf = arrayvec::ArrayString::<16>::new();
     // SAFETY: We provide a valid pointer and length to the buffer. We check
     // whether the buffer was successfully filled and set the length of the
-    // buffer accordingly.
+    // buffer accordingly. The buffer is guaranteed to be valid UTF-8.
     unsafe {
         let mut len = buf.capacity();
         let success = sys::runtime_get_arch(buf.as_mut_ptr(), &mut len);

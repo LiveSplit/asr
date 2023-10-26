@@ -1,6 +1,4 @@
-use crate::{
-    file_format::pe, signature::Signature, Address, Address32, Address64, Process,
-};
+use crate::{file_format::pe, signature::Signature, Address, Address32, Address64, Process};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct State {
@@ -32,8 +30,10 @@ impl State {
         self.core_base = core_address;
 
         match core_name {
-            "vbam_libretro.dll" | "vba_next_libretro.dll" | "mednafen_gba_libretro.dll" => self.vba(game, is_64_bit, core_name),
-            "mgba_libretro.dll" => super::mgba::State::find_ram(&mut super::mgba::State, game),
+            "vbam_libretro.dll" | "vba_next_libretro.dll" | "mednafen_gba_libretro.dll" => {
+                self.vba(game, is_64_bit, core_name)
+            }
+            "mgba_libretro.dll" => super::mgba::State::find_ram(&super::mgba::State, game),
             "gpsp_libretro.dll" => self.gpsp(game, is_64_bit, core_name),
             _ => None,
         }
@@ -70,8 +70,8 @@ impl State {
                         return None;
                     }
                 }
-                
-                addr           
+
+                addr
             };
 
             let ewram = game.read::<Address64>(ewram_pointer).ok()?;
@@ -93,7 +93,7 @@ impl State {
                 let ptr = SIG2.scan_process_range(game, module_range)?;
                 game.read::<Address32>(ptr + 1).ok()?.into()
             };
-    
+
             let ewram = game.read::<Address32>(ewram_pointer).ok()?;
             let iwram = game.read::<Address32>(iwram_pointer).ok()?;
 

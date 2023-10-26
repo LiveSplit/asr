@@ -26,7 +26,9 @@ pub fn process(input: TokenStream, mono_module: impl ToTokens) -> TokenStream {
         let field_name = field.ident.clone().unwrap();
         let span = field_name.span();
         let is_static = field.attrs.iter().any(|x| {
-            let Meta::Path(path) = &x.meta else { return false };
+            let Meta::Path(path) = &x.meta else {
+                return false;
+            };
             path.is_ident("static_field")
         });
         field_reads.push(if is_static {
@@ -42,13 +44,19 @@ pub fn process(input: TokenStream, mono_module: impl ToTokens) -> TokenStream {
             .attrs
             .iter()
             .find_map(|x| {
-                let Meta::NameValue(name_value) = &x.meta else { return None };
+                let Meta::NameValue(name_value) = &x.meta else {
+                    return None;
+                };
                 if !name_value.path.is_ident("rename") {
                     return None;
                 }
                 let Expr::Lit(ExprLit {
-                lit: Lit::Str(name), ..
-            }) = &name_value.value else { return None };
+                    lit: Lit::Str(name),
+                    ..
+                }) = &name_value.value
+                else {
+                    return None;
+                };
                 Some(name.value())
             })
             .unwrap_or_else(|| field.ident.clone().unwrap().to_string());
@@ -97,7 +105,7 @@ pub fn process(input: TokenStream, mono_module: impl ToTokens) -> TokenStream {
                 let class = image.wait_get_class(process, module, #stuct_name_string).await;
 
                 #(
-                    let #field_names = class.wait_get_field(process, module, #lookup_names).await;
+                    let #field_names = class.wait_get_field_offset(process, module, #lookup_names).await;
                 )*
 
                 #binding_name {
