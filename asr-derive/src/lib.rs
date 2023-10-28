@@ -100,7 +100,7 @@ pub fn settings_macro(input: TokenStream) -> TokenStream {
         field_tooltips.push(if tooltip_string.is_empty() {
             quote! {}
         } else {
-            quote! { asr::user_settings::set_tooltip(#ident_name, #tooltip_string); }
+            quote! { asr::settings::gui::set_tooltip(#ident_name, #tooltip_string); }
         });
         field_name_strings.push(ident_name);
 
