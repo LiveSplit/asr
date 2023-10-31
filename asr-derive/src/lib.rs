@@ -3,9 +3,19 @@ use proc_macro::TokenStream;
 use quote::{quote, quote_spanned};
 use syn::{spanned::Spanned, Data, DeriveInput, Expr, ExprLit, Lit, Meta};
 
+// FIXME: https://github.com/rust-lang/rust/issues/117463
+#[allow(rustdoc::redundant_explicit_links)]
 /// Implements the `Gui` trait for a struct that allows you to register its
 /// fields as settings widgets and returns the struct with the user's settings
 /// applied.
+///
+/// The name of each field is used as the key for the setting for storing it in
+/// the global settings map and looking up the current value.
+///
+/// The first paragraph in the doc comment of each field is used as the
+/// description of the setting. The rest of the doc comment is used as the
+/// tooltip. If there is no doc comment, the name of the field is used as the
+/// description (in title case).
 ///
 /// # Example
 ///
@@ -30,6 +40,30 @@ use syn::{spanned::Spanned, Data, DeriveInput, Expr, ExprLit, Lit, Meta};
 ///    settings.update();
 ///    // Do something with the settings.
 /// }
+/// ```
+///
+/// # Attributes
+///
+/// The default value of the setting normally matches the
+/// [`Default`](core::default::Default) trait. If you want to specify a
+/// different default you can specify it like so:
+///
+/// ```no_run
+/// # struct Settings {
+/// #[default = true]
+/// foo: bool,
+/// # }
+/// ```
+///
+/// The heading level of a title can be specified to form a hierarchy. The top
+/// level titles use a heading level of 0. It is also the default heading level.
+/// You can specify a different heading level like so:
+///
+/// ```no_run
+/// # struct Settings {
+/// #[heading_level = 2]
+/// _title: Title,
+/// # }
 /// ```
 #[proc_macro_derive(Gui, attributes(default, heading_level))]
 pub fn settings_macro(input: TokenStream) -> TokenStream {
