@@ -1,6 +1,8 @@
 use core::mem::MaybeUninit;
 
-use crate::runtime::sys;
+use arrayvec::ArrayString;
+
+use crate::{runtime::sys, Error};
 
 use super::Map;
 
@@ -66,8 +68,8 @@ impl Value {
         // that the buffer is valid UTF-8.
         unsafe {
             let mut len = 0;
-            let sucess = sys::setting_value_get_string(self.0, core::ptr::null_mut(), &mut len);
-            if len == 0 && !sucess {
+            let success = sys::setting_value_get_string(self.0, core::ptr::null_mut(), &mut len);
+            if len == 0 && !success {
                 return None;
             }
             let mut buf = alloc::vec::Vec::with_capacity(len);
@@ -75,6 +77,31 @@ impl Value {
             assert!(success);
             buf.set_len(len);
             Some(alloc::string::String::from_utf8_unchecked(buf))
+        }
+    }
+
+    /// Returns the value as an array backed string if it is a string. Returns
+    /// an error if the string is too long. The constant `N` determines the
+    /// maximum length of the string in bytes.
+    #[inline]
+    pub fn get_array_string<const N: usize>(&self) -> Option<Result<ArrayString<N>, Error>> {
+        // SAFETY: The handle is valid. We provide a pointer to our buffer and
+        // the length of the buffer. If the function fails, we check the length
+        // and if it's 0, then that indicates that the value is not a string and
+        // we return None. Otherwise we return an error. If the function
+        // succeeds, we set the length of the buffer to the returned length and
+        // return the string. The function also guarantees that the buffer is
+        // valid UTF-8.
+        unsafe {
+            let mut buf = ArrayString::<N>::new();
+            let mut len = N;
+            let success =
+                sys::setting_value_get_string(self.0, buf.as_bytes_mut().as_mut_ptr(), &mut len);
+            if !success {
+                return if len == 0 { None } else { Some(Err(Error {})) };
+            }
+            buf.set_len(len);
+            Some(Ok(buf))
         }
     }
 }

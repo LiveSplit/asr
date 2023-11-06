@@ -304,7 +304,6 @@ extern "C" {
     /// UTF-8 and is not nul-terminated. No matter what happens, you still
     /// retain ownership of the setting value, which means you still need to
     /// free it.
-    #[cfg(feature = "alloc")]
     pub fn setting_value_get_string(
         value: SettingValue,
         buf_ptr: *mut u8,
