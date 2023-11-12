@@ -48,24 +48,24 @@ impl State {
                         return None;
                     }
                 }
-                
-                addr           
+
+                addr
             };
 
-
             self.is_emulating = {
-                const SIG_RUNNING: Signature<19> = Signature::new("83 3D ?? ?? ?? ?? 00 74 ?? 80 3D ?? ?? ?? ?? 00 75 ?? 66");
-                const SIG_RUNNING2: Signature<16> = Signature::new("48 8B 15 ?? ?? ?? ?? 31 C0 8B 12 85 D2 74 ?? 48");
+                const SIG_RUNNING: Signature<19> =
+                    Signature::new("83 3D ?? ?? ?? ?? 00 74 ?? 80 3D ?? ?? ?? ?? 00 75 ?? 66");
+                const SIG_RUNNING2: Signature<16> =
+                    Signature::new("48 8B 15 ?? ?? ?? ?? 31 C0 8B 12 85 D2 74 ?? 48");
 
                 if let Some(ptr) = SIG_RUNNING.scan_process_range(game, main_module_range) {
                     let ptr = ptr + 2;
-                    ptr + 0x4 + game.read::<i32>(ptr).ok()? + 0x1 
+                    ptr + 0x4 + game.read::<i32>(ptr).ok()? + 0x1
                 } else {
                     let ptr = SIG_RUNNING2.scan_process_range(game, main_module_range)? + 3;
                     let ptr = ptr + 0x4 + game.read::<i32>(ptr).ok()?;
                     game.read::<Address64>(ptr).ok()?.into()
                 }
-
             };
 
             let ewram = game.read::<Address64>(self.cached_ewram_pointer).ok()?;
@@ -75,7 +75,7 @@ impl State {
         } else {
             const SIG: Signature<11> = Signature::new("A1 ?? ?? ?? ?? 81 ?? FF FF 03 00");
             const SIG_OLD: Signature<12> = Signature::new("81 E6 FF FF 03 00 8B 15 ?? ?? ?? ??");
-            
+
             if let Some(ptr) = SIG.scan_process_range(game, main_module_range) {
                 self.cached_ewram_pointer = game.read::<Address32>(ptr + 1).ok()?.into();
                 self.cached_iwram_pointer = {
@@ -83,17 +83,20 @@ impl State {
                     let ptr = SIG2.scan_process_range(game, main_module_range)?;
                     game.read::<Address32>(ptr + 1).ok()?.into()
                 };
-                
-                self.is_emulating = {
-                    const SIG: Signature<19> = Signature::new("83 3D ?? ?? ?? ?? 00 74 ?? 80 3D ?? ?? ?? ?? 00 75 ?? 66");
-                    const SIG_OLD: Signature<13> = Signature::new("8B 15 ?? ?? ?? ?? 31 C0 85 D2 74 ?? 0F");
 
-                    let ptr = SIG.scan_process_range(game, main_module_range)
+                self.is_emulating = {
+                    const SIG: Signature<19> =
+                        Signature::new("83 3D ?? ?? ?? ?? 00 74 ?? 80 3D ?? ?? ?? ?? 00 75 ?? 66");
+                    const SIG_OLD: Signature<13> =
+                        Signature::new("8B 15 ?? ?? ?? ?? 31 C0 85 D2 74 ?? 0F");
+
+                    let ptr = SIG
+                        .scan_process_range(game, main_module_range)
                         .or_else(|| SIG_OLD.scan_process_range(game, main_module_range))?;
 
                     game.read::<Address32>(ptr + 2).ok()?.into()
                 };
-        
+
                 let ewram = game.read::<Address32>(self.cached_ewram_pointer).ok()?;
                 let iwram = game.read::<Address32>(self.cached_iwram_pointer).ok()?;
 
@@ -104,11 +107,12 @@ impl State {
                 self.cached_iwram_pointer = self.cached_ewram_pointer.add_signed(0x4);
 
                 self.is_emulating = {
-                    const SIG_RUNNING: Signature<11> = Signature::new("8B 0D ?? ?? ?? ?? 85 C9 74 ?? 8A");
+                    const SIG_RUNNING: Signature<11> =
+                        Signature::new("8B 0D ?? ?? ?? ?? 85 C9 74 ?? 8A");
                     let ptr = SIG_RUNNING.scan_process_range(game, main_module_range)? + 2;
                     game.read::<Address32>(ptr).ok()?.into()
                 };
-    
+
                 let ewram = game.read::<Address32>(self.cached_ewram_pointer).ok()?;
                 let iwram = game.read::<Address32>(self.cached_iwram_pointer).ok()?;
 

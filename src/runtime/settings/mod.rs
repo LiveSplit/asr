@@ -55,9 +55,11 @@
 //! Check the [`Map`](struct@Map) struct for more information.
 
 pub mod gui;
+mod list;
 mod map;
 mod value;
 
 pub use gui::Gui;
+pub use list::*;
 pub use map::*;
 pub use value::*;

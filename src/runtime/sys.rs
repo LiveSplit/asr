@@ -40,6 +40,10 @@ pub struct SettingsMap(NonZeroU64);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(transparent)]
+pub struct SettingsList(NonZeroU64);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(transparent)]
 pub struct SettingValue(NonZeroU64);
 
 extern "C" {
@@ -266,6 +270,51 @@ extern "C" {
         key_ptr: *const u8,
         key_len: usize,
     ) -> Option<SettingValue>;
+    /// Gets the length of a settings map.
+    pub fn settings_map_len(map: SettingsMap) -> u64;
+    /// Gets the key of a setting value from the settings map based on the index
+    /// by storing it into the buffer provided. Returns `false` if the buffer is
+    /// too small. After this call, no matter whether it was successful or not,
+    /// the `buf_len_ptr` will be set to the required buffer size. If `false` is
+    /// returned and the `buf_len_ptr` got set to 0, the index is out of bounds.
+    /// The key is guaranteed to be valid UTF-8 and is not nul-terminated.
+    pub fn settings_map_get_key_by_index(
+        map: SettingsMap,
+        idx: u64,
+        buf_ptr: *mut u8,
+        buf_len_ptr: *mut usize,
+    ) -> bool;
+    /// Gets a copy of the setting value from the settings map based on the
+    /// index. Returns `None` if the index is out of bounds. Any changes to it
+    /// are only perceived if it's stored back. You own the setting value and
+    /// are responsible for freeing it.
+    pub fn settings_map_get_value_by_index(map: SettingsMap, idx: u64) -> Option<SettingValue>;
+
+    /// Creates a new settings list. You own the settings list and are
+    /// responsible for freeing it.
+    pub fn settings_list_new() -> SettingsList;
+    /// Frees a settings list.
+    pub fn settings_list_free(list: SettingsList);
+    /// Copies a settings list. No changes inside the copy affect the original
+    /// settings list. You own the new settings list and are responsible for
+    /// freeing it.
+    pub fn settings_list_copy(list: SettingsList) -> SettingsList;
+    /// Gets the length of a settings list.
+    pub fn settings_list_len(list: SettingsList) -> u64;
+    /// Gets a copy of the setting value from the settings list based on the
+    /// index. Returns `None` if the index is out of bounds. Any changes to it
+    /// are only perceived if it's stored back. You own the setting value and
+    /// are responsible for freeing it.
+    pub fn settings_list_get(list: SettingsList, idx: u64) -> Option<SettingValue>;
+    /// Pushes a copy of the setting value to the end of the settings list. You
+    /// still retain ownership of the setting value, which means you still need
+    /// to free it.
+    pub fn settings_list_push(list: SettingsList, value: SettingValue);
+    /// Inserts a copy of the setting value into the settings list at the index
+    /// given. Returns `false` if the index is out of bounds. No matter what
+    /// happens, you still retain ownership of the setting value, which means
+    /// you still need to free it.
+    pub fn settings_list_insert(list: SettingsList, idx: u64, value: SettingValue) -> bool;
 
     /// Creates a new setting value from a settings map. The value is a copy of
     /// the settings map. Any changes to the original settings map afterwards
@@ -273,15 +322,31 @@ extern "C" {
     /// value and are responsible for freeing it. You also retain ownership of
     /// the settings map, which means you still need to free it.
     pub fn setting_value_new_map(value: SettingsMap) -> SettingValue;
+    /// Creates a new setting value from a settings list. The value is a copy of
+    /// the settings list. Any changes to the original settings list afterwards
+    /// are not going to be perceived by the setting value. You own the setting
+    /// value and are responsible for freeing it. You also retain ownership of
+    /// the settings list, which means you still need to free it.
+    pub fn setting_value_new_list(value: SettingsList) -> SettingValue;
     /// Creates a new boolean setting value. You own the setting value and are
     /// responsible for freeing it.
     pub fn setting_value_new_bool(value: bool) -> SettingValue;
+    /// Creates a new 64-bit signed integer setting value. You own the setting
+    /// value and are responsible for freeing it.
+    pub fn setting_value_new_i64(value: i64) -> SettingValue;
+    /// Creates a new 64-bit floating point setting value. You own the setting
+    /// value and are responsible for freeing it.
+    pub fn setting_value_new_f64(value: f64) -> SettingValue;
     /// Creates a new string setting value. The pointer needs to point to valid
     /// UTF-8 encoded text with the given length. You own the setting value and
     /// are responsible for freeing it.
     pub fn setting_value_new_string(value_ptr: *const u8, value_len: usize) -> SettingValue;
     /// Frees a setting value.
     pub fn setting_value_free(value: SettingValue);
+    /// Copies a setting value. No changes inside the copy affect the original
+    /// setting value. You own the new setting value and are responsible for
+    /// freeing it.
+    pub fn setting_value_copy(value: SettingValue) -> SettingValue;
     /// Gets the value of a setting value as a settings map by storing it into
     /// the pointer provided. Returns `false` if the setting value is not a
     /// settings map. No value is stored into the pointer in that case. No
@@ -289,12 +354,31 @@ extern "C" {
     /// which means you still need to free it. You own the settings map and are
     /// responsible for freeing it.
     pub fn setting_value_get_map(value: SettingValue, value_ptr: *mut SettingsMap) -> bool;
+    /// Gets the value of a setting value as a settings list by storing it into
+    /// the pointer provided. Returns `false` if the setting value is not a
+    /// settings list. No value is stored into the pointer in that case. No
+    /// matter what happens, you still retain ownership of the setting value,
+    /// which means you still need to free it. You own the settings list and are
+    /// responsible for freeing it.
+    pub fn setting_value_get_list(value: SettingValue, value_ptr: *mut SettingsList) -> bool;
     /// Gets the value of a boolean setting value by storing it into the pointer
     /// provided. Returns `false` if the setting value is not a boolean. No
     /// value is stored into the pointer in that case. No matter what happens,
     /// you still retain ownership of the setting value, which means you still
     /// need to free it.
     pub fn setting_value_get_bool(value: SettingValue, value_ptr: *mut bool) -> bool;
+    /// Gets the value of a 64-bit signed integer setting value by storing it
+    /// into the pointer provided. Returns `false` if the setting value is not a
+    /// 64-bit signed integer. No value is stored into the pointer in that case.
+    /// No matter what happens, you still retain ownership of the setting value,
+    /// which means you still need to free it.
+    pub fn setting_value_get_i64(value: SettingValue, value_ptr: *mut i64) -> bool;
+    /// Gets the value of a 64-bit floating point setting value by storing it
+    /// into the pointer provided. Returns `false` if the setting value is not a
+    /// 64-bit floating point number. No value is stored into the pointer in
+    /// that case. No matter what happens, you still retain ownership of the
+    /// setting value, which means you still need to free it.
+    pub fn setting_value_get_f64(value: SettingValue, value_ptr: *mut f64) -> bool;
     /// Gets the value of a string setting value by storing it into the buffer
     /// provided. Returns `false` if the buffer is too small or if the setting
     /// value is not a string. After this call, no matter whether it was

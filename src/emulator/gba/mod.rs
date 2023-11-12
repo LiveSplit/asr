@@ -3,12 +3,12 @@
 use crate::{Address, Error, Process};
 use bytemuck::CheckedBitPattern;
 
+mod emuhawk;
+mod mednafen;
 mod mgba;
 mod nocashgba;
 mod retroarch;
 mod vba;
-mod emuhawk;
-mod mednafen;
 
 /// A Nintendo Gameboy Advance emulator that the auto splitter is attached to.
 pub struct Emulator {
@@ -84,7 +84,7 @@ impl Emulator {
             false => {
                 self.ram_base = None;
                 false
-            },
+            }
         }
     }
 
