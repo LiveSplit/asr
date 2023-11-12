@@ -11,7 +11,6 @@ use super::{sys, Error, MemoryRange};
 pub use super::sys::ProcessId;
 
 /// A process that the auto splitter is attached to.
-#[derive(Debug)]
 #[repr(transparent)]
 pub struct Process(pub(super) sys::Process);
 

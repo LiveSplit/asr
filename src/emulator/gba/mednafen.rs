@@ -33,9 +33,9 @@ impl State {
                 addr
             };
 
-            
             self.cached_iwram_pointer = {
-                const SIG2: Signature<13> = Signature::new("48 8B 05 ?? ?? ?? ?? 81 E1 FF 7F 00 00");
+                const SIG2: Signature<13> =
+                    Signature::new("48 8B 05 ?? ?? ?? ?? 81 E1 FF 7F 00 00");
                 let ptr: Address = SIG2.scan_process_range(game, main_module_range)? + 3;
                 let mut addr: Address = ptr + 0x4 + game.read::<i32>(ptr).ok()?;
 
@@ -45,8 +45,8 @@ impl State {
                         return None;
                     }
                 }
-                
-                addr           
+
+                addr
             };
 
             let ewram = game.read::<Address64>(self.cached_ewram_pointer).ok()?;
@@ -60,13 +60,12 @@ impl State {
                 game.read::<Address32>(ptr + 1).ok()?.into()
             };
 
-
             self.cached_iwram_pointer = {
                 const SIG2: Signature<11> = Signature::new("A1 ?? ?? ?? ?? 81 ?? FF 7F 00 00");
                 let ptr = SIG2.scan_process_range(game, main_module_range)?;
                 game.read::<Address32>(ptr + 1).ok()?.into()
             };
-    
+
             let ewram = game.read::<Address32>(self.cached_ewram_pointer).ok()?;
             let iwram = game.read::<Address32>(self.cached_iwram_pointer).ok()?;
 

@@ -1,4 +1,8 @@
-use crate::runtime::sys;
+use core::fmt;
+
+use arrayvec::ArrayString;
+
+use crate::{runtime::sys, Error};
 
 use super::Value;
 
@@ -11,9 +15,18 @@ use super::Value;
 /// the settings widget is used as the key for the settings map. Additional
 /// settings that are not part of the GUI can be stored in the map as well, such
 /// as a version of the settings for handling old versions of an auto splitter.
-#[derive(Debug)]
 #[repr(transparent)]
 pub struct Map(pub(super) sys::SettingsMap);
+
+impl fmt::Debug for Map {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        #[cfg(feature = "alloc")]
+        let entries = self.iter();
+        #[cfg(not(feature = "alloc"))]
+        let entries = self.iter_array_string::<128>();
+        f.debug_map().entries(entries).finish()
+    }
+}
 
 impl Drop for Map {
     #[inline]
@@ -94,5 +107,157 @@ impl Map {
         // SAFETY: The settings map handle is valid. We provide a valid pointer
         // and length to the key which is guaranteed to be valid UTF-8.
         unsafe { sys::settings_map_get(self.0, key.as_ptr(), key.len()).map(Value) }
+    }
+
+    /// Returns the number of key value pairs in the map.
+    #[inline]
+    pub fn len(&self) -> u64 {
+        // SAFETY: The handle is valid, so we can safely call this function.
+        unsafe { sys::settings_map_len(self.0) }
+    }
+
+    /// Returns [`true`] if the map has a length of 0.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Returns the key at the given index. Returns [`None`] if the index is out
+    /// of bounds.
+    #[cfg(feature = "alloc")]
+    #[inline]
+    pub fn get_key_by_index(&self, index: u64) -> Option<alloc::string::String> {
+        // SAFETY: The handle is valid. We provide a null pointer and 0 as the
+        // length to get the length of the string. If it failed and the length
+        // is 0, then that indicates that the index is out of bounds and we
+        // return None. Otherwise we allocate a buffer of the returned length
+        // and call the function again with the buffer. This should now always
+        // succeed and we can return the string. The function also guarantees
+        // that the buffer is valid UTF-8.
+        unsafe {
+            let mut len = 0;
+            let success =
+                sys::settings_map_get_key_by_index(self.0, index, core::ptr::null_mut(), &mut len);
+            if len == 0 && !success {
+                return None;
+            }
+            let mut buf = alloc::vec::Vec::with_capacity(len);
+            let success =
+                sys::settings_map_get_key_by_index(self.0, index, buf.as_mut_ptr(), &mut len);
+            assert!(success);
+            buf.set_len(len);
+            Some(alloc::string::String::from_utf8_unchecked(buf))
+        }
+    }
+
+    /// Returns the key at the given index as an [`ArrayString`]. Returns
+    /// [`None`] if the index is out of bounds. Returns an error if the key is
+    /// does not fit into the array string.
+    #[inline]
+    pub fn get_key_by_index_array_string<const N: usize>(
+        &self,
+        index: u64,
+    ) -> Option<Result<ArrayString<N>, Error>> {
+        // SAFETY: The handle is valid. We provide a pointer to our buffer and
+        // the length of the buffer. If the function fails, we check the length
+        // and if it's 0, then that indicates that the index is out of bounds
+        // and we return None. Otherwise we return an error. If the function
+        // succeeds, we set the length of the buffer to the returned length and
+        // return the string. The function also guarantees that the buffer is
+        // valid UTF-8.
+        unsafe {
+            let mut buf = ArrayString::<N>::new();
+            let mut len = N;
+            let success = sys::settings_map_get_key_by_index(
+                self.0,
+                index,
+                buf.as_bytes_mut().as_mut_ptr(),
+                &mut len,
+            );
+            if !success {
+                return if len == 0 { None } else { Some(Err(Error {})) };
+            }
+            buf.set_len(len);
+            Some(Ok(buf))
+        }
+    }
+
+    /// Returns a copy of the value at the given index. Returns [`None`] if the index is
+    /// out of bounds. Any changes to it are only perceived if it's stored back.
+    #[inline]
+    pub fn get_value_by_index(&self, index: u64) -> Option<Value> {
+        // SAFETY: The settings map handle is valid. We do proper error handling
+        // afterwards.
+        unsafe { sys::settings_map_get_value_by_index(self.0, index).map(Value) }
+    }
+
+    /// Returns an iterator over the key value pairs of the map. Every value is
+    /// a copy, so any changes to them are only perceived if they are stored
+    /// back. The iterator is double-ended, so it can be iterated backwards as
+    /// well. While it's possible to modify the map while iterating over it,
+    /// it's not recommended to do so, as the iterator might skip pairs or
+    /// return duplicates. In that case it's better to clone the map before and
+    /// iterate over the clone.
+    #[cfg(feature = "alloc")]
+    #[inline]
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = (alloc::string::String, Value)> + '_ {
+        (0..self.len()).flat_map(|i| Some((self.get_key_by_index(i)?, self.get_value_by_index(i)?)))
+    }
+
+    /// Returns an iterator over the key value pairs of the map. The keys are
+    /// returned as [`ArrayString`]. The iterator yields an error for every key
+    /// that does not fit into the array string. Every value is a copy, so any
+    /// changes to them are only perceived if they are stored back. The iterator is
+    /// double-ended, so it can be iterated backwards as well. While it's
+    /// possible to modify the map while iterating over it, it's not recommended
+    /// to do so, as the iterator might skip pairs or return duplicates. In that
+    /// case it's better to clone the map before and iterate over the clone.
+    #[inline]
+    pub fn iter_array_string<const N: usize>(
+        &self,
+    ) -> impl DoubleEndedIterator<Item = (Result<ArrayString<N>, Error>, Value)> + '_ {
+        (0..self.len()).flat_map(|i| {
+            Some((
+                self.get_key_by_index_array_string::<N>(i)?,
+                self.get_value_by_index(i)?,
+            ))
+        })
+    }
+
+    /// Returns an iterator over the keys of the map. The iterator is
+    /// double-ended, so it can be iterated backwards as well. While it's
+    /// possible to modify the map while iterating over it, it's not recommended
+    /// to do so, as the iterator might skip keys or return duplicates. In that
+    /// case it's better to clone the map before and iterate over the clone.s
+    #[cfg(feature = "alloc")]
+    #[inline]
+    pub fn keys(&self) -> impl DoubleEndedIterator<Item = alloc::string::String> + '_ {
+        (0..self.len()).flat_map(|i| self.get_key_by_index(i))
+    }
+
+    /// Returns an iterator over the keys of the map. The keys are returned as
+    /// [`ArrayString`]. The iterator yields an error for every key that does
+    /// not fit into the array string. The iterator is double-ended, so it can
+    /// be iterated backwards as well. While it's possible to modify the map
+    /// while iterating over it, it's not recommended to do so, as the iterator
+    /// might skip keys or return duplicates. In that case it's better to clone
+    /// the map before and iterate over the clone.
+    #[inline]
+    pub fn keys_array_string<const N: usize>(
+        &self,
+    ) -> impl DoubleEndedIterator<Item = Result<ArrayString<N>, Error>> + '_ {
+        (0..self.len()).flat_map(|i| self.get_key_by_index_array_string(i))
+    }
+
+    /// Returns an iterator over the values of the map. Every value is a copy,
+    /// so any changes to them are only perceived if they are stored back. The
+    /// iterator is double-ended, so it can be iterated backwards as well. While
+    /// it's possible to modify the map while iterating over it, it's not
+    /// recommended to do so, as the iterator might skip values or return
+    /// duplicate values. In that case it's better to clone the map before and
+    /// iterate over the clone.
+    #[inline]
+    pub fn values(&self) -> impl DoubleEndedIterator<Item = Value> + '_ {
+        (0..self.len()).flat_map(|i| self.get_value_by_index(i))
     }
 }
