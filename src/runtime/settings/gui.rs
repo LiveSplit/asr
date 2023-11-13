@@ -4,7 +4,7 @@
 #[cfg(feature = "derive")]
 pub use asr_derive::Gui;
 
-use crate::runtime::sys;
+use crate::{runtime::sys, watcher::Pair};
 
 use super::map::Map;
 
@@ -78,9 +78,7 @@ pub trait Gui {
     fn update_from(&mut self, settings_map: &Map);
 }
 
-/// A settings widget that can be added to the settings GUI. This is an internal
-/// trait that you don't need to worry about.
-#[doc(hidden)]
+/// A settings widget that can be used as a field when defining a settings [`Gui`].
 pub trait Widget {
     /// The arguments that are needed to register the widget.
     type Args: Default;
@@ -145,4 +143,21 @@ impl Widget for Title {
 
     #[inline]
     fn update_from(&mut self, _settings_map: &Map, _key: &str, _args: Self::Args) {}
+}
+
+impl<T: Copy + Widget> Widget for Pair<T> {
+    type Args = T::Args;
+
+    fn register(key: &str, description: &str, args: Self::Args) -> Self {
+        let value = T::register(key, description, args);
+        Pair {
+            old: value,
+            current: value,
+        }
+    }
+
+    fn update_from(&mut self, settings_map: &Map, key: &str, args: Self::Args) {
+        self.old = self.current;
+        self.current.update_from(settings_map, key, args);
+    }
 }
