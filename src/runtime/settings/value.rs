@@ -6,6 +6,27 @@ use crate::{runtime::sys, Error};
 
 use super::{List, Map};
 
+/// The type of a setting [`Value`].
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ValueType {
+    /// A [`Map`] of key-value pairs of [`Value`]s.
+    Map = 1,
+    /// A [`List`] of [`Value`]s.
+    List,
+    /// A boolean.
+    Bool,
+    /// A 64-bit signed integer.
+    I64,
+    /// A 64-bit floating point number.
+    F64,
+    /// A string.
+    String,
+    /// The type is not known. This is likely the case if the auto splitter is
+    /// running on a newer runtime that supports more types.
+    Unknown,
+}
+
 /// A value of a setting. This can be a value of any type that a setting can
 /// hold. Currently this is either a [`Map`], a [`List`], a [`bool`], an
 /// [`i64`], an [`f64`], or a string.
@@ -15,32 +36,48 @@ pub struct Value(pub(super) sys::SettingValue);
 impl fmt::Debug for Value {
     #[allow(clippy::collapsible_match)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // TODO: Do a type check first.
-        if let Some(v) = self.get_map() {
-            fmt::Debug::fmt(&v, f)
-        } else if let Some(v) = self.get_list() {
-            fmt::Debug::fmt(&v, f)
-        } else if let Some(v) = self.get_bool() {
-            fmt::Debug::fmt(&v, f)
-        } else if let Some(v) = self.get_i64() {
-            fmt::Debug::fmt(&v, f)
-        } else if let Some(v) = self.get_f64() {
-            fmt::Debug::fmt(&v, f)
-        } else {
-            if let Some(v) = self.get_array_string::<128>() {
-                if let Ok(v) = v {
+        match self.get_type() {
+            ValueType::Map => {
+                if let Some(v) = self.get_map() {
                     return fmt::Debug::fmt(&v, f);
                 }
-                #[cfg(not(feature = "alloc"))]
-                return f.write_str("<Long string>");
             }
-            #[cfg(feature = "alloc")]
-            if let Some(v) = self.get_string() {
-                return fmt::Debug::fmt(&v, f);
+            ValueType::List => {
+                if let Some(v) = self.get_list() {
+                    return fmt::Debug::fmt(&v, f);
+                }
             }
-
-            f.write_str("<Unknown>")
+            ValueType::Bool => {
+                if let Some(v) = self.get_bool() {
+                    return fmt::Debug::fmt(&v, f);
+                }
+            }
+            ValueType::I64 => {
+                if let Some(v) = self.get_i64() {
+                    return fmt::Debug::fmt(&v, f);
+                }
+            }
+            ValueType::F64 => {
+                if let Some(v) = self.get_f64() {
+                    return fmt::Debug::fmt(&v, f);
+                }
+            }
+            ValueType::String => {
+                if let Some(v) = self.get_array_string::<128>() {
+                    if let Ok(v) = v {
+                        return fmt::Debug::fmt(&v, f);
+                    }
+                    #[cfg(not(feature = "alloc"))]
+                    return f.write_str("<Long string>");
+                }
+                #[cfg(feature = "alloc")]
+                if let Some(v) = self.get_string() {
+                    return fmt::Debug::fmt(&v, f);
+                }
+            }
+            _ => {}
         }
+        f.write_str("<Unknown>")
     }
 }
 
@@ -59,6 +96,23 @@ impl Value {
     #[inline]
     pub fn new(value: impl Into<Self>) -> Self {
         value.into()
+    }
+
+    /// Returns the type of the value.
+    #[inline]
+    pub fn get_type(&self) -> ValueType {
+        // SAFETY: The handle is valid, so we can safely call this function.
+        unsafe {
+            match sys::setting_value_get_type(self.0) {
+                sys::SettingValueType::MAP => ValueType::Map,
+                sys::SettingValueType::LIST => ValueType::List,
+                sys::SettingValueType::BOOL => ValueType::Bool,
+                sys::SettingValueType::I64 => ValueType::I64,
+                sys::SettingValueType::F64 => ValueType::F64,
+                sys::SettingValueType::STRING => ValueType::String,
+                _ => ValueType::Unknown,
+            }
+        }
     }
 
     /// Returns the value as a [`Map`] if it is a map. The map is a copy, so any
