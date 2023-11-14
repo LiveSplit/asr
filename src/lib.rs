@@ -130,6 +130,7 @@ extern crate alloc;
 mod primitives;
 mod runtime;
 
+pub mod deep_pointer;
 pub mod emulator;
 #[macro_use]
 pub mod future;
@@ -143,7 +144,6 @@ pub mod time_util;
 #[cfg(all(feature = "wasi-no-std", target_os = "wasi"))]
 mod wasi_no_std;
 pub mod watcher;
-pub mod deep_pointer;
 
 pub use self::{primitives::*, runtime::*};
 pub use arrayvec;
