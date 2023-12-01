@@ -1,10 +1,10 @@
-use core::fmt;
+use core::{borrow::Borrow, fmt};
 
 use arrayvec::ArrayString;
 
 use crate::{runtime::sys, Error};
 
-use super::Value;
+use super::{AsValue, Value};
 
 /// A map consisting of settings that are configured. Every setting has a string
 /// based key and a [`Value`]. There is a global settings map that represents
@@ -90,13 +90,15 @@ impl Map {
     }
 
     /// Inserts a copy of the setting value into the settings map based on the
-    /// key. If the key already exists, it will be overwritten.
+    /// key. If the key already exists, the existing value will be overwritten.
     #[inline]
-    pub fn insert(&self, key: &str, value: &Value) {
+    pub fn insert(&self, key: &str, value: impl AsValue) {
         // SAFETY: The settings map handle is valid. We provide a valid pointer
         // and length to the key which is guaranteed to be valid UTF-8. The
         // setting value handle is also valid.
-        unsafe { sys::settings_map_insert(self.0, key.as_ptr(), key.len(), value.0) }
+        unsafe {
+            sys::settings_map_insert(self.0, key.as_ptr(), key.len(), value.as_value().borrow().0)
+        }
     }
 
     /// Gets a copy of the setting value from the settings map based on the key.

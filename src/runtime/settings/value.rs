@@ -1,4 +1,4 @@
-use core::{fmt, mem::MaybeUninit};
+use core::{borrow::Borrow, fmt, mem::MaybeUninit};
 
 use arrayvec::ArrayString;
 
@@ -259,6 +259,34 @@ impl Drop for Value {
     }
 }
 
+/// A trait for types that can be converted into a [`Value`] or allow accessing
+/// it as a reference.
+pub trait AsValue {
+    /// The type of the value. It needs to be able to be borrowed as a
+    /// [`Value`].
+    type Output: Borrow<Value>;
+    /// Converts the value into a type that can be borrowed as a [`Value`].
+    #[allow(clippy::wrong_self_convention)]
+    fn as_value(self) -> Self::Output;
+}
+
+impl<'a> AsValue for &'a Value {
+    type Output = Self;
+    fn as_value(self) -> Self::Output {
+        self
+    }
+}
+
+impl<T> AsValue for T
+where
+    Value: From<T>,
+{
+    type Output = Value;
+    fn as_value(self) -> Self::Output {
+        self.into()
+    }
+}
+
 impl From<&Map> for Value {
     #[inline]
     fn from(value: &Map) -> Self {
@@ -274,6 +302,20 @@ impl From<&List> for Value {
         // SAFETY: The handle is valid. We retain ownership of the handle, so we
         // only take a reference to a List. We own the returned value now.
         Self(unsafe { sys::setting_value_new_list(value.0) })
+    }
+}
+
+impl From<Map> for Value {
+    #[inline]
+    fn from(value: Map) -> Self {
+        (&value).into()
+    }
+}
+
+impl From<List> for Value {
+    #[inline]
+    fn from(value: List) -> Self {
+        (&value).into()
     }
 }
 

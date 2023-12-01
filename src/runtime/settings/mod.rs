@@ -48,7 +48,7 @@
 //! ```no_run
 //! # use asr::settings;
 //! let mut map = settings::Map::load();
-//! map.insert("key", &true.into());
+//! map.insert("key", true);
 //! map.store();
 //! ```
 //!
