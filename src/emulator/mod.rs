@@ -10,5 +10,7 @@ pub mod genesis;
 pub mod ps1;
 #[cfg(feature = "ps2")]
 pub mod ps2;
+#[cfg(feature = "sms")]
+pub mod sms;
 #[cfg(feature = "wii")]
 pub mod wii;
