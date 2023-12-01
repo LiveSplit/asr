@@ -1,8 +1,8 @@
-use core::fmt;
+use core::{borrow::Borrow, fmt};
 
 use crate::{runtime::sys, Error};
 
-use super::Value;
+use super::{AsValue, Value};
 
 /// A list of [`Value`]s that can itself be a [`Value`] and thus be stored in a
 /// [`Map`](super::Map).
@@ -71,10 +71,10 @@ impl List {
 
     /// Pushes a copy of the value to the end of the list.
     #[inline]
-    pub fn push(&self, value: &Value) {
+    pub fn push(&self, value: impl AsValue) {
         // SAFETY: The settings list handle is valid and the value handle is
         // valid.
-        unsafe { sys::settings_list_push(self.0, value.0) }
+        unsafe { sys::settings_list_push(self.0, value.as_value().borrow().0) }
     }
 
     /// Inserts a copy of the value at the given index, pushing all values at
@@ -82,11 +82,11 @@ impl List {
     /// is out of bounds. You may specify an index that is equal to the length
     /// of the list to append the value to the end of the list.
     #[inline]
-    pub fn insert(&self, index: u64, value: &Value) -> Result<(), Error> {
+    pub fn insert(&self, index: u64, value: impl AsValue) -> Result<(), Error> {
         // SAFETY: The settings list handle is valid and the value handle is
         // valid.
         unsafe {
-            if sys::settings_list_insert(self.0, index, value.0) {
+            if sys::settings_list_insert(self.0, index, value.as_value().borrow().0) {
                 Ok(())
             } else {
                 Err(Error {})

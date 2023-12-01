@@ -65,6 +65,22 @@ use syn::{spanned::Spanned, Data, DeriveInput, Expr, ExprLit, Lit, Meta};
 /// _title: Title,
 /// # }
 /// ```
+///
+/// # Tracking changes
+///
+/// You can track changes to a setting by wrapping the widget type in a `Pair`.
+/// It acts like the widget by itself, but also keeps track of the previous
+/// value when you call `update` on the struct.
+///
+/// ```no_run
+/// use asr::watcher::Pair;
+///
+/// #[derive(Gui)]
+/// struct Settings {
+///     /// Use Game Time
+///     use_game_time: Pair<bool>,
+/// }
+/// ```
 #[proc_macro_derive(Gui, attributes(default, heading_level))]
 pub fn settings_macro(input: TokenStream) -> TokenStream {
     let ast: DeriveInput = syn::parse(input).unwrap();
