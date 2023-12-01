@@ -5,6 +5,7 @@ use bytemuck::CheckedBitPattern;
 
 mod duckstation;
 mod epsxe;
+mod mednafen;
 mod pcsx_redux;
 mod psxfin;
 mod retroarch;
@@ -63,6 +64,7 @@ impl Emulator {
                 State::Retroarch(x) => x.find_ram(&self.process),
                 State::PcsxRedux(x) => x.find_ram(&self.process),
                 State::Xebra(x) => x.find_ram(&self.process),
+                State::Mednafen(x) => x.find_ram(&self.process),
             } {
                 None => return false,
                 something => something,
@@ -76,6 +78,7 @@ impl Emulator {
             State::Retroarch(x) => x.keep_alive(&self.process),
             State::PcsxRedux(x) => x.keep_alive(&self.process),
             State::Xebra(x) => x.keep_alive(),
+            State::Mednafen(x) => x.keep_alive(),
         };
 
         if success {
@@ -122,9 +125,10 @@ enum State {
     Retroarch(retroarch::State),
     PcsxRedux(pcsx_redux::State),
     Xebra(xebra::State),
+    Mednafen(mednafen::State),
 }
 
-const PROCESS_NAMES: [(&str, State); 7] = [
+const PROCESS_NAMES: [(&str, State); 8] = [
     ("ePSXe.exe", State::Epsxe(epsxe::State)),
     ("psxfin.exe", State::PsxFin(psxfin::State)),
     (
@@ -141,4 +145,5 @@ const PROCESS_NAMES: [(&str, State); 7] = [
         State::PcsxRedux(pcsx_redux::State::new()),
     ),
     ("XEBRA.EXE", State::Xebra(xebra::State)),
+    ("mednafen.exe", State::Mednafen(mednafen::State)),
 ];
