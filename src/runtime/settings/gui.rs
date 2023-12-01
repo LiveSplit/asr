@@ -47,6 +47,48 @@ pub fn add_title(key: &str, description: &str, heading_level: u32) {
     }
 }
 
+/// Adds a new choice setting widget that the user can modify. This allows the
+/// user to choose between various options. The key is used to store the setting
+/// in the settings [`Map`](super::Map) and needs to be unique across all types
+/// of settings. The description is what's shown to the user. The key of the
+/// default option to show needs to be specified.
+#[inline]
+pub fn add_choice(key: &str, description: &str, default_item_key: &str) {
+    // SAFETY: We provide valid pointers and lengths to key, description and
+    // default_item_key. They are also guaranteed to be valid UTF-8 strings.
+    unsafe {
+        sys::user_settings_add_choice(
+            key.as_ptr(),
+            key.len(),
+            description.as_ptr(),
+            description.len(),
+            default_item_key.as_ptr(),
+            default_item_key.len(),
+        )
+    }
+}
+
+/// Adds a new option to a choice setting widget. The key needs to match the key
+/// of the choice setting widget that it's supposed to be added to. The option
+/// key is used as the value to store when the user chooses this option. The
+/// description is what's shown to the user. Returns [`true`] if the option is
+/// at this point in time chosen by the user.
+#[inline]
+pub fn add_choice_option(key: &str, option_key: &str, option_description: &str) -> bool {
+    // SAFETY: We provide valid pointers and lengths to key, option_key and
+    // option_description. They are also guaranteed to be valid UTF-8 strings.
+    unsafe {
+        sys::user_settings_add_choice_option(
+            key.as_ptr(),
+            key.len(),
+            option_key.as_ptr(),
+            option_key.len(),
+            option_description.as_ptr(),
+            option_description.len(),
+        )
+    }
+}
+
 /// Adds a tooltip to a setting widget based on its key. A tooltip is useful for
 /// explaining the purpose of a setting to the user.
 #[inline]

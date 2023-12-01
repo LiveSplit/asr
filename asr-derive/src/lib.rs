@@ -1,7 +1,9 @@
 use heck::ToTitleCase;
 use proc_macro::TokenStream;
 use quote::{quote, quote_spanned};
-use syn::{spanned::Spanned, Data, DeriveInput, Expr, ExprLit, Lit, Meta};
+use syn::{
+    spanned::Spanned, Data, DataEnum, DataStruct, DeriveInput, Expr, ExprLit, Ident, Lit, Meta,
+};
 
 // FIXME: https://github.com/rust-lang/rust/issues/117463
 #[allow(rustdoc::redundant_explicit_links)]
@@ -66,6 +68,34 @@ use syn::{spanned::Spanned, Data, DeriveInput, Expr, ExprLit, Lit, Meta};
 /// # }
 /// ```
 ///
+/// # Choices
+///
+/// You can derive `Gui` for an enum to create a choice widget. You can mark one
+/// of the variants as the default by adding the `#[default]` attribute to it.
+///
+/// ```no_run
+/// #[derive(Gui)]
+/// enum Category {
+///     /// Any%
+///     AnyPercent,
+///     /// Glitchless
+///     Glitchless,
+///     /// 100%
+///     #[default]
+///     HundredPercent,
+/// }
+/// ```
+///
+/// You can then use it as a widget like so:
+///
+/// ```no_run
+/// #[derive(Gui)]
+/// struct Settings {
+///     /// Category
+///     category: Category,
+/// }
+/// ```
+///
 /// # Tracking changes
 ///
 /// You can track changes to a setting by wrapping the widget type in a `Pair`.
@@ -85,13 +115,14 @@ use syn::{spanned::Spanned, Data, DeriveInput, Expr, ExprLit, Lit, Meta};
 pub fn settings_macro(input: TokenStream) -> TokenStream {
     let ast: DeriveInput = syn::parse(input).unwrap();
 
-    let struct_data = match ast.data {
-        Data::Struct(s) => s,
-        _ => panic!("Only structs are supported"),
-    };
+    match ast.data {
+        Data::Struct(s) => generate_struct_settings(ast.ident, s),
+        Data::Enum(e) => generate_enum_settings(ast.ident, e),
+        _ => panic!("Only structs and enums are supported"),
+    }
+}
 
-    let struct_name = ast.ident;
-
+fn generate_struct_settings(struct_name: Ident, struct_data: DataStruct) -> TokenStream {
     let mut field_names = Vec::new();
     let mut field_name_strings = Vec::new();
     let mut field_descs = Vec::new();
@@ -200,6 +231,117 @@ pub fn settings_macro(input: TokenStream) -> TokenStream {
 
             fn update(&mut self) {
                 self.update_from(&asr::settings::Map::load());
+            }
+        }
+    }
+    .into()
+}
+
+fn generate_enum_settings(enum_name: Ident, enum_data: DataEnum) -> TokenStream {
+    let mut variant_names = Vec::new();
+    let mut variant_name_strings = Vec::new();
+    let mut variant_descs = Vec::new();
+    let mut default_index = None;
+    for (index, variant) in enum_data.variants.into_iter().enumerate() {
+        let ident = variant.ident.clone();
+        let ident_name = ident.to_string();
+        variant_names.push(ident);
+        let mut doc_string = String::new();
+        let mut tooltip_string = String::new();
+        let mut is_in_tooltip = false;
+        for attr in &variant.attrs {
+            let Meta::NameValue(nv) = &attr.meta else {
+                continue;
+            };
+            let Some(ident) = nv.path.get_ident() else {
+                continue;
+            };
+            if ident != "doc" {
+                continue;
+            }
+            let Expr::Lit(ExprLit {
+                lit: Lit::Str(s), ..
+            }) = &nv.value
+            else {
+                continue;
+            };
+            let value = s.value();
+            let value = value.trim();
+            let target_string = if is_in_tooltip {
+                &mut tooltip_string
+            } else {
+                &mut doc_string
+            };
+            if !target_string.is_empty() {
+                if value.is_empty() {
+                    if !is_in_tooltip {
+                        is_in_tooltip = true;
+                        continue;
+                    }
+                    target_string.push('\n');
+                } else if !target_string.ends_with(|c: char| c.is_whitespace()) {
+                    target_string.push(' ');
+                }
+            }
+            target_string.push_str(&value);
+        }
+        if doc_string.is_empty() {
+            doc_string = ident_name.to_title_case();
+        }
+
+        variant_descs.push(doc_string);
+        variant_name_strings.push(ident_name);
+
+        let is_default = variant.attrs.iter().any(|x| {
+            let Meta::Path(path) = &x.meta else {
+                return false;
+            };
+            path.is_ident("default")
+        });
+
+        if is_default {
+            if default_index.is_some() {
+                panic!("Only one variant can be marked as default");
+            }
+            default_index = Some(index);
+        }
+    }
+
+    let default_index = default_index.unwrap_or_default();
+
+    let default_option = &variant_names[default_index];
+    let default_option_key = &variant_name_strings[default_index];
+
+    let longest_string = variant_name_strings
+        .iter()
+        .map(|x| x.len())
+        .max()
+        .unwrap_or_default();
+
+    quote! {
+        impl asr::settings::gui::Widget for #enum_name {
+            type Args = ();
+
+            #[inline]
+            fn register(key: &str, description: &str, args: Self::Args) -> Self {
+                asr::settings::gui::add_choice(key, description, #default_option_key);
+                let mut v = Self::#default_option;
+                #(if asr::settings::gui::add_choice_option(key, #variant_name_strings, #variant_descs) {
+                    v = Self::#variant_names;
+                })*
+                v
+            }
+
+            #[inline]
+            fn update_from(&mut self, settings_map: &asr::settings::Map, key: &str, args: Self::Args) {
+                let Some(option_key) = settings_map.get(key).and_then(|v| v.get_array_string::<#longest_string>()?.ok()) else {
+                    *self = Self::#default_option;
+                    return;
+                };
+                *self = match &*option_key {
+                    #(#variant_name_strings => Self::#variant_names,)*
+                    _ => Self::#default_option,
+                };
             }
         }
     }
