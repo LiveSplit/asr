@@ -5,6 +5,8 @@ use syn::{Data, DeriveInput, Expr, ExprLit, Ident, Lit, Meta};
 pub fn process(input: TokenStream, mono_module: impl ToTokens) -> TokenStream {
     let ast: DeriveInput = syn::parse(input).unwrap();
 
+    let vis = ast.vis;
+
     let struct_data = match ast.data {
         Data::Struct(s) => s,
         _ => panic!("Only structs are supported"),
@@ -90,14 +92,14 @@ pub fn process(input: TokenStream, mono_module: impl ToTokens) -> TokenStream {
     };
 
     quote! {
-        struct #binding_name {
+        #vis struct #binding_name {
             class: #mono_module::Class,
             #static_table_field
             #(#field_names: u32,)*
         }
 
         impl #struct_name {
-            async fn bind(
+            #vis async fn bind(
                 process: &asr::Process,
                 module: &#mono_module::Module,
                 image: &#mono_module::Image,
@@ -117,11 +119,11 @@ pub fn process(input: TokenStream, mono_module: impl ToTokens) -> TokenStream {
         }
 
         impl #binding_name {
-            fn class(&self) -> &#mono_module::Class {
+            #vis fn class(&self) -> &#mono_module::Class {
                 &self.class
             }
 
-            fn read(&self, process: &asr::Process #maybe_instance_param) -> Result<#struct_name, ()> {
+            #vis fn read(&self, process: &asr::Process #maybe_instance_param) -> Result<#struct_name, ()> {
                 Ok(#struct_name {#(
                     #field_names: #field_reads,
                 )*})
