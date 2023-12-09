@@ -89,6 +89,22 @@ pub fn add_choice_option(key: &str, option_key: &str, option_description: &str) 
     }
 }
 
+/// Adds a new file selection setting that the user can modify.
+/// This allows the user to select a file path to be stored at the key.
+/// The filter can include `*` wildcards, for example `"*.txt"`.
+pub fn add_file_selection(key: &str, description: &str, filter: &str) {
+    unsafe {
+        sys::user_settings_add_file_selection(
+            key.as_ptr(),
+            key.len(),
+            description.as_ptr(),
+            description.len(),
+            filter.as_ptr(),
+            filter.len(),
+        )
+    }
+}
+
 /// Adds a tooltip to a setting widget based on its key. A tooltip is useful for
 /// explaining the purpose of a setting to the user.
 #[inline]
