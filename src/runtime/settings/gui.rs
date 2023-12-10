@@ -219,3 +219,45 @@ impl<T: Copy + Widget> Widget for Pair<T> {
         self.current.update_from(settings_map, key, args);
     }
 }
+
+/// A file selection widget.
+#[cfg(feature = "alloc")]
+pub struct FileSelection {
+    /// The file path.
+    pub path: alloc::string::String,
+    /// Whether the path just changed on this update.
+    pub new_data: bool,
+}
+
+/// The arguments that are needed to register a file selection widget.
+/// This is an internal type that you don't need to worry about.
+#[cfg(feature = "alloc")]
+#[doc(hidden)]
+#[derive(Default)]
+#[non_exhaustive]
+pub struct FileSelectionArgs {
+    pub filter: &'static str,
+}
+
+#[cfg(feature = "alloc")]
+impl Widget for FileSelection {
+    type Args = FileSelectionArgs;
+
+    fn register(key: &str, description: &str, args: Self::Args) -> Self {
+        add_file_selection(key, description, args.filter);
+        FileSelection {
+            path: alloc::string::ToString::to_string(""),
+            new_data: false,
+        }
+    }
+
+    fn update_from(&mut self, settings_map: &Map, key: &str, _args: Self::Args) {
+        let new_path = settings_map.get(key).and_then(|v| v.get_string()).unwrap_or_default();
+        if self.path != new_path {
+            self.path = new_path;
+            self.new_data = true;
+        } else {
+            self.new_data = false;
+        }
+    }
+}
