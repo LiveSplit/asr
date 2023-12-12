@@ -252,7 +252,10 @@ impl Widget for FileSelection {
     }
 
     fn update_from(&mut self, settings_map: &Map, key: &str, _args: Self::Args) {
-        let new_path = settings_map.get(key).and_then(|v| v.get_string()).unwrap_or_default();
+        let new_path = settings_map
+            .get(key)
+            .and_then(|v| v.get_string())
+            .unwrap_or_default();
         if self.path != new_path {
             self.path = new_path;
             self.new_data = true;

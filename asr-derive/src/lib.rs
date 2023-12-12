@@ -188,33 +188,31 @@ fn generate_struct_settings(struct_name: Ident, struct_data: DataStruct) -> Toke
         let args = field
             .attrs
             .iter()
-            .filter_map(|x| {
-                match &x.meta {
-                    Meta::NameValue(nv) => {
-                        let span = nv.span();
-                        if nv.path.is_ident("default") {
-                            let value = &nv.value;
-                            Some(quote_spanned! { span => args.default = #value; })
-                        } else if nv.path.is_ident("heading_level") {
-                            let value = &nv.value;
-                            Some(quote_spanned! { span => args.heading_level = #value; })
-                        } else {
-                            None
-                        }
-                    },
-                    Meta::List(nl) => {
-                        if nl.path.is_ident("args") {
-                            if let Ok(ParseArgs(args)) = syn::parse(nl.tokens.clone().into()) {
-                                Some(args.into())
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
+            .filter_map(|x| match &x.meta {
+                Meta::NameValue(nv) => {
+                    let span = nv.span();
+                    if nv.path.is_ident("default") {
+                        let value = &nv.value;
+                        Some(quote_spanned! { span => args.default = #value; })
+                    } else if nv.path.is_ident("heading_level") {
+                        let value = &nv.value;
+                        Some(quote_spanned! { span => args.heading_level = #value; })
+                    } else {
+                        None
                     }
-                    _ => None,
                 }
+                Meta::List(nl) => {
+                    if nl.path.is_ident("args") {
+                        if let Ok(ParseArgs(args)) = syn::parse(nl.tokens.clone().into()) {
+                            Some(args.into())
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
             })
             .collect::<Vec<_>>();
         args_init.push(quote! { #(#args)* });
@@ -548,7 +546,9 @@ impl syn::parse::Parse for ParseArgs {
             input.parse::<syn::token::Eq>()?;
             let value_expr: syn::Expr = input.parse()?;
             assignments.push(quote! { args.#field = #value_expr; });
-            if input.is_empty() { break; }
+            if input.is_empty() {
+                break;
+            }
             input.parse::<syn::token::Comma>()?;
         }
         Ok(ParseArgs(quote! { #(#assignments)* }.into()))
