@@ -111,7 +111,7 @@ use syn::{
 ///     use_game_time: Pair<bool>,
 /// }
 /// ```
-#[proc_macro_derive(Gui, attributes(default, heading_level, args))]
+#[proc_macro_derive(Gui, attributes(default, heading_level, filter))]
 pub fn settings_macro(input: TokenStream) -> TokenStream {
     let ast: DeriveInput = syn::parse(input).unwrap();
 
@@ -197,17 +197,9 @@ fn generate_struct_settings(struct_name: Ident, struct_data: DataStruct) -> Toke
                     } else if nv.path.is_ident("heading_level") {
                         let value = &nv.value;
                         Some(quote_spanned! { span => args.heading_level = #value; })
-                    } else {
-                        None
-                    }
-                }
-                Meta::List(nl) => {
-                    if nl.path.is_ident("args") {
-                        if let Ok(ParseArgs(args)) = syn::parse(nl.tokens.clone().into()) {
-                            Some(args.into())
-                        } else {
-                            None
-                        }
+                    } else if nv.path.is_ident("filter") {
+                        let value = &nv.value;
+                        Some(quote_spanned! { span => args.filter = #value; })
                     } else {
                         None
                     }
@@ -534,23 +526,4 @@ pub fn il2cpp_class_binding(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(MonoClass, attributes(static_field, rename))]
 pub fn mono_class_binding(input: TokenStream) -> TokenStream {
     unity::process(input, quote! { asr::game_engine::unity::mono })
-}
-
-struct ParseArgs(TokenStream);
-
-impl syn::parse::Parse for ParseArgs {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let mut assignments = Vec::new();
-        while !input.is_empty() {
-            let field: syn::Ident = input.parse()?;
-            input.parse::<syn::token::Eq>()?;
-            let value_expr: syn::Expr = input.parse()?;
-            assignments.push(quote! { args.#field = #value_expr; });
-            if input.is_empty() {
-                break;
-            }
-            input.parse::<syn::token::Comma>()?;
-        }
-        Ok(ParseArgs(quote! { #(#assignments)* }.into()))
-    }
 }
