@@ -188,23 +188,23 @@ fn generate_struct_settings(struct_name: Ident, struct_data: DataStruct) -> Toke
         let args = field
             .attrs
             .iter()
-            .filter_map(|x| match &x.meta {
-                Meta::NameValue(nv) => {
-                    let span = nv.span();
-                    if nv.path.is_ident("default") {
-                        let value = &nv.value;
-                        Some(quote_spanned! { span => args.default = #value; })
-                    } else if nv.path.is_ident("heading_level") {
-                        let value = &nv.value;
-                        Some(quote_spanned! { span => args.heading_level = #value; })
-                    } else if nv.path.is_ident("filter") {
-                        let value = &nv.value;
-                        Some(quote_spanned! { span => args.filter = #value; })
-                    } else {
-                        None
-                    }
+            .filter_map(|x| {
+                let Meta::NameValue(nv) = &x.meta else {
+                    return None;
+                };
+                let span = nv.span();
+                if nv.path.is_ident("default") {
+                    let value = &nv.value;
+                    Some(quote_spanned! { span => args.default = #value; })
+                } else if nv.path.is_ident("heading_level") {
+                    let value = &nv.value;
+                    Some(quote_spanned! { span => args.heading_level = #value; })
+                } else if nv.path.is_ident("filter") {
+                    let value = &nv.value;
+                    Some(quote_spanned! { span => args.filter = #value; })
+                } else {
+                    None
                 }
-                _ => None,
             })
             .collect::<Vec<_>>();
         args_init.push(quote! { #(#args)* });
