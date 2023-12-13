@@ -91,7 +91,8 @@ pub fn add_choice_option(key: &str, option_key: &str, option_description: &str) 
 
 /// Adds a new file selection setting that the user can modify.
 /// This allows the user to select a file path to be stored at the key.
-/// The filter can include `*` wildcards, for example `"*.txt"`.
+/// The filter can include `*` wildcards, for example `"*.txt"`,
+/// and multiple patterns separated by `;` semicolons, like `"*.txt;*.md"`.
 pub fn add_file_selection(key: &str, description: &str, filter: &str) {
     unsafe {
         sys::user_settings_add_file_selection(
@@ -236,6 +237,9 @@ pub struct FileSelection {
 #[derive(Default)]
 #[non_exhaustive]
 pub struct FileSelectionArgs {
+    /// A filter on which files are selectable.
+    /// Can include `*` wildcards, for example `"*.txt"`,
+    /// and multiple patterns separated by `;` semicolons, like `"*.txt;*.md"`.
     pub filter: &'static str,
 }
 
