@@ -224,7 +224,9 @@ impl<T: Copy + Widget> Widget for Pair<T> {
 /// A file selection widget.
 #[cfg(feature = "alloc")]
 pub struct FileSelection {
-    /// The file path.
+    /// The file path, as accessible through the WASI file system,
+    /// so a Windows path of `C:\foo\bar.exe` would be represented
+    /// as `/mnt/c/foo/bar.exe`.
     pub path: alloc::string::String,
     /// Whether the path just changed on this update.
     pub new_data: bool,
