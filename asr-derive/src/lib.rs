@@ -68,6 +68,16 @@ use syn::{
 /// # }
 /// ```
 ///
+/// A file selection filter can include `*` wildcards, for example `"*.txt"`,
+/// and multiple patterns separated by `;` semicolons, like `"*.txt;*.md"`:
+///
+/// ```no_run
+/// # struct Settings {
+/// #[filter = "*.txt;*.md"]
+/// text_file: FileSelection,
+/// # }
+/// ```
+///
 /// # Choices
 ///
 /// You can derive `Gui` for an enum to create a choice widget. You can mark one
