@@ -1,6 +1,8 @@
 //! This module allows you to add settings widgets to the settings GUI that the
 //! user can modify.
 
+use core::mem;
+
 #[cfg(feature = "derive")]
 pub use asr_derive::Gui;
 
@@ -89,19 +91,77 @@ pub fn add_choice_option(key: &str, option_key: &str, option_description: &str) 
     }
 }
 
-/// Adds a new file selection setting that the user can modify.
-/// This allows the user to select a file path to be stored at the key.
-/// The filter can include `*` wildcards, for example `"*.txt"`,
-/// and multiple patterns separated by `;` semicolons, like `"*.txt;*.md"`.
-pub fn add_file_selection(key: &str, description: &str, filter: &str) {
+/// Adds a new file select setting that the user can modify. This allows the
+/// user to choose a file from the file system. The key is used to store the
+/// path of the file in the settings map and needs to be unique across all types
+/// of settings. The description is what's shown to the user. The path is a path
+/// that is accessible through the WASI file system, so a Windows path of
+/// `C:\foo\bar.exe` would be stored as `/mnt/c/foo/bar.exe`.
+#[inline]
+pub fn add_file_select(key: &str, description: &str) {
+    // SAFETY: We provide valid pointers and lengths to key and description.
+    // They are also guaranteed to be valid UTF-8 strings.
     unsafe {
-        sys::user_settings_add_file_selection(
+        sys::user_settings_add_file_select(
             key.as_ptr(),
             key.len(),
             description.as_ptr(),
             description.len(),
-            filter.as_ptr(),
-            filter.len(),
+        )
+    }
+}
+
+/// Adds a filter to a file select setting. The key needs to match the key of
+/// the file select setting that it's supposed to be added to. The description
+/// is what's shown to the user for the specific filter. The pattern is a [glob
+/// pattern](https://en.wikipedia.org/wiki/Glob_(programming)) that is used to
+/// filter the files. The pattern generally only supports `*` wildcards, not `?`
+/// or brackets. This may however differ between frontends. Additionally `;`
+/// can't be used in Windows's native file dialog if it's part of the pattern.
+/// Multiple patterns may be specified by separating them with ASCII space
+/// characters. There are operating systems where glob patterns are not
+/// supported. A best effort lookup of the fitting MIME type may be used by a
+/// frontend on those operating systems instead.
+#[inline]
+pub fn add_file_select_name_filter(key: &str, description: Option<&str>, pattern: &str) {
+    // SAFETY: We provide valid pointers and lengths to key, description and
+    // pattern. They are also guaranteed to be valid UTF-8 strings. The
+    // description is provided as a null pointer in case it is `None` to
+    // indicate that no description is provided.
+    unsafe {
+        let (desc_ptr, desc_len) = match description {
+            Some(desc) => (desc.as_ptr(), desc.len()),
+            None => (core::ptr::null(), 0),
+        };
+        sys::user_settings_add_file_select_name_filter(
+            key.as_ptr(),
+            key.len(),
+            desc_ptr,
+            desc_len,
+            pattern.as_ptr(),
+            pattern.len(),
+        )
+    }
+}
+
+/// Adds a filter to a file select setting. The key needs to match the key
+/// of the file select setting that it's supposed to be added to. The MIME
+/// type is what's used to filter the files. Most operating systems do not
+/// support MIME types, but the frontends are encouraged to look up the file
+/// extensions that are associated with the MIME type and use those as a
+/// filter in those cases. You may also use wildcards as part of the MIME
+/// types such as `image/*`. The support likely also varies between
+/// frontends however.
+#[inline]
+pub fn add_file_select_mime_filter(key: &str, mime_type: &str) {
+    // SAFETY: We provide valid pointers and lengths to key and mime_type.
+    // They are also guaranteed to be valid UTF-8 strings.
+    unsafe {
+        sys::user_settings_add_file_select_mime_filter(
+            key.as_ptr(),
+            key.len(),
+            mime_type.as_ptr(),
+            mime_type.len(),
         )
     }
 }
@@ -204,32 +264,51 @@ impl Widget for Title {
     fn update_from(&mut self, _settings_map: &Map, _key: &str, _args: Self::Args) {}
 }
 
-impl<T: Copy + Widget> Widget for Pair<T> {
+impl<T: Clone + Widget> Widget for Pair<T> {
     type Args = T::Args;
 
     fn register(key: &str, description: &str, args: Self::Args) -> Self {
         let value = T::register(key, description, args);
         Pair {
-            old: value,
+            old: value.clone(),
             current: value,
         }
     }
 
     fn update_from(&mut self, settings_map: &Map, key: &str, args: Self::Args) {
-        self.old = self.current;
+        mem::swap(&mut self.old, &mut self.current);
         self.current.update_from(settings_map, key, args);
     }
 }
 
-/// A file selection widget.
+/// A file select widget.
+///
+/// # Example
+///
+/// ```ignore
+/// # struct Settings {
+/// #[filter(
+///     // File name patterns with names
+///     ("PNG images", "*.png"),
+///     // Multiple patterns separated by space
+///     ("Rust files", "*.rs Cargo.*"),
+///     // The name is optional
+///     (_, "*.md"),
+///     // MIME types
+///     "text/plain",
+///     // MIME types with wildcards
+///     "image/*",
+/// )]
+/// text_file: FileSelect,
+/// # }
+/// ```
+#[derive(Clone, PartialEq, Eq)]
 #[cfg(feature = "alloc")]
-pub struct FileSelection {
+pub struct FileSelect {
     /// The file path, as accessible through the WASI file system,
     /// so a Windows path of `C:\foo\bar.exe` would be represented
     /// as `/mnt/c/foo/bar.exe`.
     pub path: alloc::string::String,
-    /// Whether the path just changed on this update.
-    pub new_data: bool,
 }
 
 /// The arguments that are needed to register a file selection widget.
@@ -238,35 +317,43 @@ pub struct FileSelection {
 #[doc(hidden)]
 #[derive(Default)]
 #[non_exhaustive]
-pub struct FileSelectionArgs {
-    /// A filter on which files are selectable.
-    /// Can include `*` wildcards, for example `"*.txt"`,
-    /// and multiple patterns separated by `;` semicolons, like `"*.txt;*.md"`.
-    pub filter: &'static str,
+pub struct FileSelectArgs {
+    pub filter: &'static [FileSelectFilter],
 }
 
 #[cfg(feature = "alloc")]
-impl Widget for FileSelection {
-    type Args = FileSelectionArgs;
+#[doc(hidden)]
+pub enum FileSelectFilter {
+    NamePattern(Option<&'static str>, &'static str),
+    MimeType(&'static str),
+}
+
+#[cfg(feature = "alloc")]
+impl Widget for FileSelect {
+    type Args = FileSelectArgs;
 
     fn register(key: &str, description: &str, args: Self::Args) -> Self {
-        add_file_selection(key, description, args.filter);
-        FileSelection {
-            path: alloc::string::ToString::to_string(""),
-            new_data: false,
+        add_file_select(key, description);
+        for filter in args.filter {
+            match filter {
+                FileSelectFilter::NamePattern(desc, pattern) => {
+                    add_file_select_name_filter(key, *desc, pattern)
+                }
+                FileSelectFilter::MimeType(mime) => add_file_select_mime_filter(key, mime),
+            }
         }
+        let mut this = FileSelect {
+            path: alloc::string::String::new(),
+        };
+        this.update_from(&Map::load(), key, args);
+        this
     }
 
     fn update_from(&mut self, settings_map: &Map, key: &str, _args: Self::Args) {
-        let new_path = settings_map
-            .get(key)
-            .and_then(|v| v.get_string())
-            .unwrap_or_default();
-        if self.path != new_path {
-            self.path = new_path;
-            self.new_data = true;
+        if let Some(value) = settings_map.get(key) {
+            value.get_string_into(&mut self.path);
         } else {
-            self.new_data = false;
+            self.path.clear();
         }
     }
 }
