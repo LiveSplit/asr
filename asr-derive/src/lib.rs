@@ -2,7 +2,8 @@ use heck::ToTitleCase;
 use proc_macro::TokenStream;
 use quote::{quote, quote_spanned};
 use syn::{
-    spanned::Spanned, Data, DataEnum, DataStruct, DeriveInput, Expr, ExprLit, Ident, Lit, Meta,
+    parse::Parse, punctuated::Punctuated, spanned::Spanned, token::Comma, Data, DataEnum,
+    DataStruct, DeriveInput, Error, Expr, ExprLit, Ident, Lit, Meta, MetaList, Result,
 };
 
 // FIXME: https://github.com/rust-lang/rust/issues/117463
@@ -68,6 +69,26 @@ use syn::{
 /// # }
 /// ```
 ///
+/// A file select filter can be specified like so:
+///
+/// ```no_run
+/// # struct Settings {
+/// #[filter(
+///     // File name patterns with names
+///     ("PNG images", "*.png"),
+///     // Multiple patterns separated by space
+///     ("Rust files", "*.rs Cargo.*"),
+///     // The name is optional
+///     (_, "*.md"),
+///     // MIME types
+///     "text/plain",
+///     // Mime types with wildcards
+///     "image/*",
+/// )]
+/// text_file: FileSelect,
+/// # }
+/// ```
+///
 /// # Choices
 ///
 /// You can derive `Gui` for an enum to create a choice widget. You can mark one
@@ -111,18 +132,26 @@ use syn::{
 ///     use_game_time: Pair<bool>,
 /// }
 /// ```
-#[proc_macro_derive(Gui, attributes(default, heading_level))]
+#[proc_macro_derive(Gui, attributes(default, heading_level, filter))]
 pub fn settings_macro(input: TokenStream) -> TokenStream {
     let ast: DeriveInput = syn::parse(input).unwrap();
 
-    match ast.data {
+    let res = match ast.data {
         Data::Struct(s) => generate_struct_settings(ast.ident, s),
         Data::Enum(e) => generate_enum_settings(ast.ident, e),
-        _ => panic!("Only structs and enums are supported"),
+        _ => Err(Error::new(
+            ast.span(),
+            "Only structs and enums are supported.",
+        )),
+    };
+
+    match res {
+        Ok(v) => v,
+        Err(e) => e.into_compile_error().into(),
     }
 }
 
-fn generate_struct_settings(struct_name: Ident, struct_data: DataStruct) -> TokenStream {
+fn generate_struct_settings(struct_name: Ident, struct_data: DataStruct) -> Result<TokenStream> {
     let mut field_names = Vec::new();
     let mut field_name_strings = Vec::new();
     let mut field_descs = Vec::new();
@@ -188,26 +217,33 @@ fn generate_struct_settings(struct_name: Ident, struct_data: DataStruct) -> Toke
         let args = field
             .attrs
             .iter()
-            .filter_map(|x| {
-                let Meta::NameValue(nv) = &x.meta else {
-                    return None;
-                };
-                let span = nv.span();
-                if nv.path.is_ident("default") {
-                    let value = &nv.value;
-                    Some(quote_spanned! { span => args.default = #value; })
-                } else if nv.path.is_ident("heading_level") {
-                    let value = &nv.value;
-                    Some(quote_spanned! { span => args.heading_level = #value; })
-                } else {
-                    None
+            .filter_map(|x| match &x.meta {
+                Meta::NameValue(nv) => {
+                    let span = nv.span();
+                    if nv.path.is_ident("default") {
+                        let value = &nv.value;
+                        Some(Ok(quote_spanned! { span => args.default = #value; }))
+                    } else if nv.path.is_ident("heading_level") {
+                        let value = &nv.value;
+                        Some(Ok(quote_spanned! { span => args.heading_level = #value; }))
+                    } else {
+                        None
+                    }
                 }
+                Meta::List(list) => {
+                    if list.path.is_ident("filter") {
+                        Some(parse_filter(list))
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>>>()?;
         args_init.push(quote! { #(#args)* });
     }
 
-    quote! {
+    Ok(quote! {
         impl asr::settings::Gui for #struct_name {
             fn register() -> Self {
                 Self {
@@ -234,10 +270,10 @@ fn generate_struct_settings(struct_name: Ident, struct_data: DataStruct) -> Toke
             }
         }
     }
-    .into()
+    .into())
 }
 
-fn generate_enum_settings(enum_name: Ident, enum_data: DataEnum) -> TokenStream {
+fn generate_enum_settings(enum_name: Ident, enum_data: DataEnum) -> Result<TokenStream> {
     let mut variant_names = Vec::new();
     let mut variant_name_strings = Vec::new();
     let mut variant_descs = Vec::new();
@@ -318,7 +354,7 @@ fn generate_enum_settings(enum_name: Ident, enum_data: DataEnum) -> TokenStream 
         .max()
         .unwrap_or_default();
 
-    quote! {
+    Ok(quote! {
         impl asr::settings::gui::Widget for #enum_name {
             type Args = ();
 
@@ -345,7 +381,140 @@ fn generate_enum_settings(enum_name: Ident, enum_data: DataEnum) -> TokenStream 
             }
         }
     }
-    .into()
+    .into())
+}
+
+fn parse_filter(list: &MetaList) -> Result<proc_macro2::TokenStream> {
+    let span = list.span();
+    let mut filters = Vec::new();
+
+    struct FilterArgs {
+        exprs: Punctuated<Expr, Comma>,
+    }
+
+    impl Parse for FilterArgs {
+        fn parse(input: syn::parse::ParseStream) -> Result<Self> {
+            Ok(FilterArgs {
+                exprs: Punctuated::parse_terminated(input)?,
+            })
+        }
+    }
+
+    let args: FilterArgs = syn::parse(list.tokens.clone().into())?;
+
+    for expr in args.exprs {
+        match expr {
+            Expr::Tuple(tuple) => {
+                let mut iter = tuple.elems.iter();
+                let (Some(first), Some(second), None) = (iter.next(), iter.next(), iter.next())
+                else {
+                    return Err(Error::new(
+                        tuple.span(),
+                        "Expected a tuple of two elements.",
+                    ));
+                };
+
+                let has_description = match first {
+                    Expr::Lit(ExprLit {
+                        lit: Lit::Str(lit), ..
+                    }) => {
+                        let value = lit.value();
+                        if value.is_empty() {
+                            return Err(Error::new(
+                                lit.span(),
+                                "The description should not be empty.",
+                            ));
+                        }
+                        if value.trim().len() != value.len() {
+                            return Err(Error::new(
+                                lit.span(),
+                                "The description should not contain leading or trailing whitespace.",
+                            ));
+                        }
+                        true
+                    }
+                    Expr::Infer(_) => false,
+                    _ => {
+                        return Err(Error::new(
+                            first.span(),
+                            "Expected a string literal or an underscore.",
+                        ))
+                    }
+                };
+
+                match second {
+                    Expr::Lit(ExprLit {
+                        lit: Lit::Str(lit), ..
+                    }) => {
+                        let value = lit.value();
+                        if value.is_empty() {
+                            return Err(Error::new(lit.span(), "The pattern must not be empty."));
+                        }
+                        if value.trim().len() != value.len() {
+                            return Err(Error::new(
+                                lit.span(),
+                                "The pattern must not contain leading or trailing whitespace.",
+                            ));
+                        }
+                        if value.contains("  ") {
+                            return Err(Error::new(
+                                lit.span(),
+                                "The pattern must not contain double whitespace.",
+                            ));
+                        }
+                        if value.contains("*.*") {
+                            return Err(Error::new(
+                                lit.span(),
+                                "The pattern handling all files doesn't need to be specified.",
+                            ));
+                        }
+                    }
+                    _ => return Err(Error::new(second.span(), "Expected a string literal.")),
+                }
+
+                filters.push(if has_description {
+                    quote! { asr::settings::gui::FileSelectFilter::NamePattern(Some(#first), #second) }
+                } else {
+                    quote! { asr::settings::gui::FileSelectFilter::NamePattern(None, #second) }
+                });
+            }
+            Expr::Lit(lit) => match lit {
+                ExprLit {
+                    lit: Lit::Str(lit), ..
+                } => {
+                    let value = lit.value();
+                    if value.bytes().filter(|b| *b == b'/').count() != 1 {
+                        return Err(Error::new(
+                            lit.span(),
+                            "The MIME type has to contain a single `/`.",
+                        ));
+                    }
+                    if value.trim().len() != value.len() {
+                        return Err(Error::new(
+                            lit.span(),
+                            "The MIME type must not contain leading or trailing whitespace.",
+                        ));
+                    }
+                    if value == "*/*" {
+                        return Err(Error::new(
+                            lit.span(),
+                            "The MIME type handling all files doesn't need to be specified.",
+                        ));
+                    }
+                    filters.push(quote! { asr::settings::gui::FileSelectFilter::MimeType(#lit) })
+                }
+                _ => return Err(Error::new(lit.span(), "Expected a string literal.")),
+            },
+            _ => {
+                return Err(Error::new(
+                    expr.span(),
+                    "Expected a tuple or a string literal.",
+                ))
+            }
+        }
+    }
+
+    Ok(quote_spanned! { span => args.filter = &[#(#filters),*]; })
 }
 
 /// Generates an implementation of the `FromEndian` trait for a struct. This

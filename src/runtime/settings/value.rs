@@ -224,6 +224,36 @@ impl Value {
         }
     }
 
+    /// Writes the value as a [`String`](alloc::string::String) into the
+    /// provided buffer if it is a string. Returns [`true`] if the value is a
+    /// string. Returns [`false`] if the value is not a string. The buffer is
+    /// always cleared before writing into it.
+    #[cfg(feature = "alloc")]
+    #[inline]
+    pub fn get_string_into(&self, buf: &mut alloc::string::String) -> bool {
+        // SAFETY: The handle is valid. We provide a null pointer and 0 as the
+        // length to get the length of the string. If it failed and the length
+        // is 0, then that indicates that the value is not a string and we
+        // return false. Otherwise we allocate a buffer of the returned length
+        // and call the function again with the buffer. This should now always
+        // succeed and we can return the string. The function also guarantees
+        // that the buffer is valid UTF-8.
+        unsafe {
+            let buf = buf.as_mut_vec();
+            buf.clear();
+            let mut len = 0;
+            let success = sys::setting_value_get_string(self.0, core::ptr::null_mut(), &mut len);
+            if len == 0 && !success {
+                return false;
+            }
+            buf.reserve(len);
+            let success = sys::setting_value_get_string(self.0, buf.as_mut_ptr(), &mut len);
+            assert!(success);
+            buf.set_len(len);
+            true
+        }
+    }
+
     /// Returns the value as an [`ArrayString`] if it is a string. Returns an
     /// error if the string is too long. The constant `N` determines the maximum
     /// length of the string in bytes.
