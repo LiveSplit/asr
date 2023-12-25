@@ -1,5 +1,12 @@
 //! Support for attaching to Playstation 2 emulators.
 
+use core::{
+    cell::Cell,
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+};
+
 use crate::{Address, Error, Process};
 use bytemuck::CheckedBitPattern;
 
@@ -11,9 +18,9 @@ pub struct Emulator {
     /// The attached emulator process
     process: Process,
     /// An enum stating which emulator is currently attached
-    state: State,
+    state: Cell<State>,
     /// The memory address of the emulated RAM
-    ram_base: Option<Address>,
+    ram_base: Cell<Option<Address>>,
 }
 
 impl Emulator {
@@ -31,8 +38,8 @@ impl Emulator {
 
         Some(Self {
             process,
-            state,
-            ram_base: None,
+            state: Cell::new(state),
+            ram_base: Cell::new(None),
         })
     }
 
@@ -42,32 +49,46 @@ impl Emulator {
         self.process.is_open()
     }
 
+    /// Executes a future until the emulator process closes.
+    pub const fn until_closes<F>(&self, future: F) -> UntilEmulatorCloses<'_, F> {
+        UntilEmulatorCloses {
+            emulator: self,
+            future,
+        }
+    }
+
     /// Calls the internal routines needed in order to find (and update, if
     /// needed) the address of the emulated RAM.
     ///
     /// Returns true if successful, false otherwise.
-    pub fn update(&mut self) -> bool {
-        if self.ram_base.is_none() {
-            let ram_base = match &mut self.state {
+    pub fn update(&self) -> bool {
+        let mut ram_base = self.ram_base.get();
+        let mut state = self.state.get();
+
+        if ram_base.is_none() {
+            ram_base = match match &mut state {
                 State::Pcsx2(x) => x.find_ram(&self.process),
                 State::Retroarch(x) => x.find_ram(&self.process),
+            } {
+                None => return false,
+                something => something,
             };
-            if ram_base.is_none() {
-                return false;
-            }
-            self.ram_base = ram_base;
         }
 
-        let success = match &self.state {
-            State::Pcsx2(x) => x.keep_alive(&self.process, &mut self.ram_base),
+        let success = match &state {
+            State::Pcsx2(x) => x.keep_alive(&self.process, &mut ram_base),
             State::Retroarch(x) => x.keep_alive(&self.process),
         };
 
-        if !success {
-            self.ram_base = None;
-        }
+        self.state.set(state);
 
-        success
+        if success {
+            self.ram_base.set(ram_base);
+            true
+        } else {
+            self.ram_base.set(None);
+            false
+        }
     }
 
     /// Reads any value from the emulated RAM.
@@ -81,14 +102,11 @@ impl Emulator {
     /// Providing any offset outside the range of the PS2's RAM will return
     /// `Err()`.
     pub fn read<T: CheckedBitPattern>(&self, address: u32) -> Result<T, Error> {
-        if !(0x00100000..=0x01FFFFFF).contains(&address) {
+        if !(0x00100000..0x02000000).contains(&address) {
             return Err(Error {});
         }
 
-        let Some(ram_base) = self.ram_base else {
-            return Err(Error {});
-        };
-
+        let ram_base = self.ram_base.get().ok_or(Error {})?;
         self.process.read(ram_base + address)
     }
 
@@ -114,6 +132,25 @@ impl Emulator {
             address = self.read(address + offset)?;
         }
         self.read(address + last)
+    }
+}
+
+/// A future that executes a future until the emulator closes.
+pub struct UntilEmulatorCloses<'a, F> {
+    emulator: &'a Emulator,
+    future: F,
+}
+
+impl<F: Future<Output = ()>> Future for UntilEmulatorCloses<'_, F> {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if !self.emulator.is_open() {
+            return Poll::Ready(());
+        }
+        self.emulator.update();
+        // SAFETY: We are simply projecting the Pin.
+        unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().future).poll(cx) }
     }
 }
 

@@ -1,6 +1,12 @@
 //! Support for attaching to SEGA Genesis emulators.
 
-use core::mem;
+use core::{
+    cell::Cell,
+    future::Future,
+    mem,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 use crate::{Address, Endian, Error, FromEndian, Process};
 use bytemuck::CheckedBitPattern;
@@ -16,11 +22,11 @@ pub struct Emulator {
     /// The attached emulator process
     process: Process,
     /// An enum stating which emulator is currently attached
-    state: State,
+    state: Cell<State>,
     /// The memory address of the emulated RAM
-    wram_base: Option<Address>,
+    wram_base: Cell<Option<Address>>,
     /// The endianness used by the emulator process
-    endian: Endian,
+    endian: Cell<Endian>,
 }
 
 impl Emulator {
@@ -41,9 +47,9 @@ impl Emulator {
 
         Some(Self {
             process,
-            state,
-            wram_base: None,
-            endian: Endian::Little, // Endianness is supposed to be Little, until stated otherwise in the code
+            state: Cell::new(state),
+            wram_base: Cell::new(None),
+            endian: Cell::new(Endian::Little), // Endianness is supposed to be Little, until stated otherwise in the code
         })
     }
 
@@ -53,36 +59,52 @@ impl Emulator {
         self.process.is_open()
     }
 
+    /// Executes a future until the emulator process closes.
+    pub const fn until_closes<F>(&self, future: F) -> UntilEmulatorCloses<'_, F> {
+        UntilEmulatorCloses {
+            emulator: self,
+            future,
+        }
+    }
+
     /// Calls the internal routines needed in order to find (and update, if
     /// needed) the address of the emulated RAM.
     ///
     /// Returns true if successful, false otherwise.
-    pub fn update(&mut self) -> bool {
-        if self.wram_base.is_none() {
-            self.wram_base = match match &mut self.state {
-                State::Retroarch(x) => x.find_wram(&self.process, &mut self.endian),
-                State::SegaClassics(x) => x.find_wram(&self.process, &mut self.endian),
-                State::Fusion(x) => x.find_wram(&self.process, &mut self.endian),
-                State::Gens(x) => x.find_wram(&self.process, &mut self.endian),
-                State::BlastEm(x) => x.find_wram(&self.process, &mut self.endian),
+    pub fn update(&self) -> bool {
+        let mut wram_base = self.wram_base.get();
+        let mut endian = self.endian.get();
+        let mut state = self.state.get();
+
+        if wram_base.is_none() {
+            wram_base = match match &mut state {
+                State::Retroarch(x) => x.find_wram(&self.process, &mut endian),
+                State::SegaClassics(x) => x.find_wram(&self.process, &mut endian),
+                State::Fusion(x) => x.find_wram(&self.process, &mut endian),
+                State::Gens(x) => x.find_wram(&self.process, &mut endian),
+                State::BlastEm(x) => x.find_wram(&self.process, &mut endian),
             } {
                 None => return false,
                 something => something,
             };
         }
 
-        let success = match &self.state {
+        let success = match &state {
             State::Retroarch(x) => x.keep_alive(&self.process),
-            State::SegaClassics(x) => x.keep_alive(&self.process, &mut self.wram_base),
-            State::Fusion(x) => x.keep_alive(&self.process, &mut self.wram_base),
+            State::SegaClassics(x) => x.keep_alive(&self.process, &mut wram_base),
+            State::Fusion(x) => x.keep_alive(&self.process, &mut wram_base),
             State::Gens(x) => x.keep_alive(),
             State::BlastEm(x) => x.keep_alive(),
         };
 
+        self.endian.set(endian);
+        self.state.set(state);
+
         if success {
+            self.wram_base.set(wram_base);
             true
         } else {
-            self.wram_base = None;
+            self.wram_base.set(None);
             false
         }
     }
@@ -100,8 +122,7 @@ impl Emulator {
             return Err(Error {});
         }
 
-        let wram = self.wram_base.ok_or(Error {})?;
-
+        let wram = self.wram_base.get().ok_or(Error {})?;
         self.process.read(wram + offset)
     }
 
@@ -118,15 +139,35 @@ impl Emulator {
             return Err(Error {});
         }
 
-        let wram = self.wram_base.ok_or(Error {})?;
+        let wram = self.wram_base.get().ok_or(Error {})?;
 
         let mut end_offset = offset.checked_sub(0xFF0000).unwrap_or(offset);
+        let endian = self.endian.get();
 
-        let toggle = self.endian == Endian::Little && mem::size_of::<T>() == 1;
+        let toggle = endian == Endian::Little && mem::size_of::<T>() == 1;
         end_offset ^= toggle as u32;
 
         let value = self.process.read::<T>(wram + end_offset)?;
-        Ok(value.from_endian(self.endian))
+        Ok(value.from_endian(endian))
+    }
+}
+
+/// A future that executes a future until the emulator closes.
+pub struct UntilEmulatorCloses<'a, F> {
+    emulator: &'a Emulator,
+    future: F,
+}
+
+impl<F: Future<Output = ()>> Future for UntilEmulatorCloses<'_, F> {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if !self.emulator.process.is_open() {
+            return Poll::Ready(());
+        }
+        self.emulator.update();
+        // SAFETY: We are simply projecting the Pin.
+        unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().future).poll(cx) }
     }
 }
 
