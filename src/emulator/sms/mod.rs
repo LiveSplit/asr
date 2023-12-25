@@ -1,6 +1,11 @@
 //! Support for attaching to SEGA Master System / SEGA GameGear emulators.
 
-use core::{cell::Cell, pin::Pin, future::Future, task::{Context, Poll}};
+use core::{
+    cell::Cell,
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 use crate::{Address, Error, Process};
 use bytemuck::CheckedBitPattern;

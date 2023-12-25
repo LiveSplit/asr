@@ -113,9 +113,9 @@ impl Emulator {
     ///
     /// This call is meant to be used by experienced users.
     pub fn read_ignoring_endianness<T: CheckedBitPattern>(&self, address: u32) -> Result<T, Error> {
-        if address >= 0x80000000 && address <= 0x817FFFFF {
+        if (0x80000000..0x81800000).contains(&address) {
             self.read_ignoring_endianness_from_mem_1(address)
-        } else if address >= 0x90000000 && address <= 0x93FFFFFF {
+        } else if (0x90000000..0x94000000).contains(&address) {
             self.read_ignoring_endianness_from_mem_2(address)
         } else {
             Err(Error {})
@@ -186,7 +186,7 @@ impl Emulator {
         &self,
         address: u32,
     ) -> Result<T, Error> {
-        if address < 0x80000000 || address > 0x817FFFFF {
+        if !(0x80000000..0x81800000).contains(&address) {
             return Err(Error {});
         }
 
@@ -211,7 +211,7 @@ impl Emulator {
         &self,
         address: u32,
     ) -> Result<T, Error> {
-        if address < 0x90000000 || address > 0x93FFFFFF {
+        if !(0x90000000..0x94000000).contains(&address) {
             return Err(Error {});
         }
         let [_, mem2] = self.ram_base.get().ok_or(Error {})?;
