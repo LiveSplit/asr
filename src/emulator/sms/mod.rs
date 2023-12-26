@@ -7,7 +7,7 @@ use core::{
     task::{Context, Poll},
 };
 
-use crate::{Address, Error, Process};
+use crate::{future::retry, Address, Error, Process};
 use bytemuck::CheckedBitPattern;
 
 mod blastem;
@@ -45,6 +45,18 @@ impl Emulator {
             state: Cell::new(state),
             ram_base: Cell::new(None),
         })
+    }
+
+    /// Asynchronously awaits attaching to a target emulator,
+    /// yielding back to the runtime between each try.
+    ///
+    /// Supported emulators are:
+    /// - Retroarch, with one of the following cores: `genesis_plus_gx_libretro.dll`,
+    /// `genesis_plus_gx_wide_libretro.dll`, `picodrive_libretro.dll`, `smsplus_libretro.dll`, `gearsystem_libretro.dll`
+    /// - Fusion
+    /// - BlastEm
+    pub async fn wait_attach() -> Self {
+        retry(Self::attach).await
     }
 
     /// Checks whether the emulator is still open. If it is not open anymore,

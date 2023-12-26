@@ -7,7 +7,7 @@ use core::{
     task::{Context, Poll},
 };
 
-use crate::{Address, Endian, Error, FromEndian, Process};
+use crate::{future::retry, Address, Endian, Error, FromEndian, Process};
 use bytemuck::CheckedBitPattern;
 
 mod dolphin;
@@ -44,6 +44,16 @@ impl Emulator {
             mem1_base: Cell::new(None),
             endian: Cell::new(Endian::Big), // Endianness is usually Big across all GCN emulators
         })
+    }
+
+    /// Asynchronously awaits attaching to a target emulator,
+    /// yielding back to the runtime between each try.
+    ///
+    /// Supported emulators are:
+    /// - Dolphin
+    /// - Retroarch (using the `dolphin_libretro.dll` core)
+    pub async fn wait_attach() -> Self {
+        retry(Self::attach).await
     }
 
     /// Checks whether the emulator is still open. If it is not open anymore,

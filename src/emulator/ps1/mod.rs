@@ -7,7 +7,7 @@ use core::{
     task::{Context, Poll},
 };
 
-use crate::{Address, Error, Process};
+use crate::{future::retry, Address, Error, Process};
 use bytemuck::CheckedBitPattern;
 
 mod duckstation;
@@ -37,6 +37,7 @@ impl Emulator {
     /// - ePSXe
     /// - pSX
     /// - Duckstation
+    /// - Mednafen
     /// - Retroarch (supported cores: Beetle-PSX, Swanstation, PCSX ReARMed)
     /// - PCSX-redux
     /// - XEBRA
@@ -50,6 +51,21 @@ impl Emulator {
             state: Cell::new(state),
             ram_base: Cell::new(None),
         })
+    }
+
+    /// Asynchronously awaits attaching to a target emulator,
+    /// yielding back to the runtime between each try.
+    ///
+    /// Supported emulators are:
+    /// - ePSXe
+    /// - pSX
+    /// - Duckstation
+    /// - Mednafen
+    /// - Retroarch (supported cores: Beetle-PSX, Swanstation, PCSX ReARMed)
+    /// - PCSX-redux
+    /// - XEBRA
+    pub async fn wait_attach() -> Self {
+        retry(Self::attach).await
     }
 
     /// Checks whether the emulator is still open. If it is not open anymore,

@@ -7,7 +7,7 @@ use core::{
     task::{Context, Poll},
 };
 
-use crate::{Address, Error, Process};
+use crate::{future::retry, Address, Error, Process};
 use bytemuck::CheckedBitPattern;
 
 mod emuhawk;
@@ -50,6 +50,21 @@ impl Emulator {
             state: Cell::new(state),
             ram_base: Cell::new(None),
         })
+    }
+
+    /// Asynchronously awaits attaching to a target emulator,
+    /// yielding back to the runtime between each try.
+    ///
+    /// Supported emulators are:
+    /// - VisualBoyAdvance
+    /// - VisualBoyAdvance-M
+    /// - mGBA
+    /// - NO$GBA
+    /// - BizHawk
+    /// - Retroarch, with one of the following cores: `vbam_libretro.dll`, `vba_next_libretro.dll`,
+    /// `mednafen_gba_libretro.dll`, `mgba_libretro.dll`, `gpsp_libretro.dll`
+    pub async fn wait_attach() -> Self {
+        retry(Self::attach).await
     }
 
     /// Checks whether the emulator is still open. If it is not open anymore,
