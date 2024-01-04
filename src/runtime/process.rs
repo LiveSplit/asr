@@ -365,13 +365,48 @@ impl Process {
         }
     }
 
+    /// Reads a variable size data stream of a specified type `T` into the
+    /// buffer provided. This is a convenience method for reading into a slice
+    /// of a specific type. The `Vec::<T>` buffer can be filled up to its `capacity()`,
+    /// or to the number of elements provided in the method (whichever is lower).
+    /// If this function returns `Err()`, the `Vec` will be cleared.
+    #[cfg(feature = "alloc")]
+    #[inline]
+    pub fn read_into_vec<T: AnyBitPattern>(
+        &self,
+        address: impl Into<Address>,
+        vec: &mut alloc::vec::Vec<T>,
+        count: usize,
+    ) -> Result<(), Error> {
+        let len = vec.capacity().min(count);
+        vec.clear();
+
+        let uninit = unsafe {
+            // SAFETY: The ptr is guaranteed to be valid. The value provided by len
+            // is lower or equal to the capacity of the allocation and therefore is
+            // guaranteed to be valid.
+            slice::from_raw_parts_mut(vec.as_mut_ptr() as *mut MaybeUninit<T>, len)
+        };
+
+        self.read_into_uninit_slice(address, uninit)?;
+
+        // SAFETY: The length is being set to a value that is lower or equal to
+        // to the capacity of the vec's capacity and is therefore valid. The
+        // elements of the buffer are guaranteed to be initialized.
+        unsafe {
+            vec.set_len(len);
+        }
+
+        Ok(())
+    }
+
     /// Reads a variable size data stream of a specified type `T` into the heap,
     /// returning a `Vec::<T>` with a `len()` equal to the value provided in `capacity`.
     /// This function is similar to `read_into_slice()`, but allows to read a range
     /// of bytes for which the size is not known at compile time.
     #[cfg(feature = "alloc")]
     #[inline]
-    pub fn read_into_vec<T: AnyBitPattern>(
+    pub fn read_into_new_vec<T: AnyBitPattern>(
         &self,
         address: impl Into<Address>,
         capacity: usize,
