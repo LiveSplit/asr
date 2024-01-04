@@ -418,15 +418,7 @@ impl Process {
         }
 
         let mut buf = alloc::vec::Vec::with_capacity(capacity);
-        let uninit = buf.spare_capacity_mut();
-        self.read_into_uninit_slice(address, uninit)?;
-
-        // SAFETY: The length is equal to the capacity of the Vec and is guaranteed to be valid.
-        // Moreover, the elements of the buffer are guaranteed to be initialized.
-        unsafe {
-            buf.set_len(capacity);
-        }
-
+        self.read_into_vec(address, &mut buf, capacity)?;
         Ok(buf)
     }
 
