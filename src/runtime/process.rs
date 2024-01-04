@@ -365,6 +365,36 @@ impl Process {
         }
     }
 
+    /// Reads a variable size data stream of a specified type `T` into the heap,
+    /// returning a `Vec::<T>` with a `len()` equal to the value provided in `capacity`.
+    /// This function is similar to `read_into_slice()`, but allows to read a range
+    /// of bytes for which the size is not known at compile time.
+    #[cfg(feature = "alloc")]
+    #[inline]
+    pub fn read_into_vec<T: AnyBitPattern>(
+        &self,
+        address: impl Into<Address>,
+        capacity: usize,
+    ) -> Result<alloc::vec::Vec<T>, Error> {
+        // Vec cannot have a capacity higher than isize::MAX,
+        // and panics otherwise.
+        if capacity > isize::MAX as _ {
+            return Err(Error {});
+        }
+
+        let mut buf = alloc::vec::Vec::with_capacity(capacity);
+        let uninit = buf.spare_capacity_mut();
+        self.read_into_uninit_slice(address, uninit)?;
+
+        // SAFETY: The length is equal to the capacity of the Vec and is guaranteed to be valid.
+        // Moreover, the elements of the buffer are guaranteed to be initialized.
+        unsafe {
+            buf.set_len(capacity);
+        }
+
+        Ok(buf)
+    }
+
     /// Follows a path of pointers from the address given and reads a value of
     /// the type specified from the process at the end of the pointer path. This
     /// method is specifically for dealing with processes that use 64-bit
