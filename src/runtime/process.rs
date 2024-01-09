@@ -367,34 +367,37 @@ impl Process {
 
     /// Reads a variable size data stream of a specified type `T` into the
     /// buffer provided. This is a convenience method for reading into a slice
-    /// of a specific type. The `Vec::<T>` buffer can be filled up to its `capacity()`,
-    /// or to the number of elements provided in the method (whichever is lower).
-    /// If this function returns `Err()`, the `Vec` will be cleared.
+    /// of a specific type. The `Vec::<T>` buffer will be filled up to the
+    /// capacity provided the method (whichever is lower).
+    /// Clears the `Vec` if returning `Err()`.
     #[cfg(feature = "alloc")]
     #[inline]
     pub fn read_into_vec<T: AnyBitPattern>(
         &self,
         address: impl Into<Address>,
         vec: &mut alloc::vec::Vec<T>,
-        count: usize,
+        capacity: usize,
     ) -> Result<(), Error> {
-        let len = vec.capacity().min(count);
         vec.clear();
 
-        let uninit = unsafe {
-            // SAFETY: The ptr is guaranteed to be valid. The value provided by len
-            // is lower or equal to the capacity of the allocation and therefore is
-            // guaranteed to be valid.
-            slice::from_raw_parts_mut(vec.as_mut_ptr() as *mut MaybeUninit<T>, len)
-        };
+        // Vec cannot have a capacity higher than isize::MAX,
+        // and panics otherwise.
+        if capacity > isize::MAX as _ {
+            return Err(Error {});
+        }
 
-        self.read_into_uninit_slice(address, uninit)?;
+        // Vec::reserve() does nothing if the capacity of the Vec
+        // is already sufficient.
+        vec.reserve(capacity);
 
-        // SAFETY: The length is being set to a value that is lower or equal to
-        // to the capacity of the vec's capacity and is therefore valid. The
-        // elements of the buffer are guaranteed to be initialized.
+        // SAFETY: The ptr is guaranteed to be valid. Thanks to Vec::reserve()
+        // the capacity of the Vec is equal or higher than the capacity we need
+        // for storing the data we are reading from memory.
         unsafe {
-            vec.set_len(len);
+            let uninit =
+                slice::from_raw_parts_mut(vec.as_mut_ptr() as *mut MaybeUninit<T>, capacity);
+            self.read_into_uninit_slice(address, uninit)?;
+            vec.set_len(capacity);
         }
 
         Ok(())
@@ -411,13 +414,10 @@ impl Process {
         address: impl Into<Address>,
         capacity: usize,
     ) -> Result<alloc::vec::Vec<T>, Error> {
-        // Vec cannot have a capacity higher than isize::MAX,
-        // and panics otherwise.
-        if capacity > isize::MAX as _ {
-            return Err(Error {});
-        }
-
-        let mut buf = alloc::vec::Vec::with_capacity(capacity);
+        // We make a Vec with a capcity of 0 to avoid unnecessary allocations.
+        // If needed, allocation will be performed by read_into_vec() when it
+        // internally calls Vec::reserve()
+        let mut buf = alloc::vec::Vec::with_capacity(0);
         self.read_into_vec(address, &mut buf, capacity)?;
         Ok(buf)
     }
