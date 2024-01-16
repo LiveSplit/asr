@@ -36,7 +36,9 @@ impl State {
             }
             "duckstation-qt" => {
                 const SIG: Signature<15> =
-                    Signature::new("48 8B 05 ?? ?? ?? ?? 48 89 05 ?? ?? ?? ?? C3");
+                    // backup sig
+                    // Signature::new("48 8B 05 ?? ?? ?? ?? 48 89 05 ?? ?? ?? ?? C3");
+                    Signature::new("48 8B 05 ?? ?? ?? ?? 48 89 05 ?? ?? ?? ?? B0");
                 let main_module_range = game.get_module_range("duckstation-qt").ok()?;
                 let addr = SIG.scan_process_range(game, main_module_range)? + 10;
                 self.addr = addr + 0x4 + game.read::<i32>(addr).ok()?;
