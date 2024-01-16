@@ -128,7 +128,7 @@ enum State {
     Mednafen(mednafen::State),
 }
 
-const PROCESS_NAMES: [(&str, State); 8] = [
+const PROCESS_NAMES: &[(&str, State)] = &[
     ("ePSXe.exe", State::Epsxe(epsxe::State)),
     ("psxfin.exe", State::PsxFin(psxfin::State)),
     (
@@ -139,6 +139,10 @@ const PROCESS_NAMES: [(&str, State); 8] = [
         "duckstation-nogui-x64-ReleaseLTCG.exe",
         State::Duckstation(duckstation::State::new()),
     ),
+    (
+        "duckstation-qt",
+        State::Duckstation(duckstation::State::new()),
+    ),
     ("retroarch.exe", State::Retroarch(retroarch::State::new())),
     (
         "pcsx-redux.main",
@@ -146,4 +150,5 @@ const PROCESS_NAMES: [(&str, State); 8] = [
     ),
     ("XEBRA.EXE", State::Xebra(xebra::State)),
     ("mednafen.exe", State::Mednafen(mednafen::State)),
+    ("retroarch", State::Retroarch(retroarch::State::new())),
 ];
