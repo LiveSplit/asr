@@ -26,13 +26,18 @@ impl Emulator {
     ///
     /// Returns `Option<T>` if successful, `None` otherwise.
     ///
-    /// Supported emulators are:
+    /// Supported emulators on Windows are:
     /// - ePSXe
     /// - pSX
     /// - Duckstation
+    /// - Mednafen
     /// - Retroarch (supported cores: Beetle-PSX, Swanstation, PCSX ReARMed)
     /// - PCSX-redux
     /// - XEBRA
+    /// 
+    /// Linux support is provided for:
+    /// - Duckstation
+    /// - Retroarch
     pub fn attach() -> Option<Self> {
         let (&state, process) = PROCESS_NAMES
             .iter()

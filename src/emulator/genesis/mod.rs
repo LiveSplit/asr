@@ -28,12 +28,14 @@ impl Emulator {
     ///
     /// Returns `Option<Genesis>` if successful, `None` otherwise.
     ///
-    /// Supported emulators are:
+    /// Supported emulators on Windows are:
     /// - Retroarch
     /// - SEGA Classics / SEGA Game Room
     /// - Fusion
     /// - Gens
     /// - BlastEm
+    /// 
+    /// Linux support is provided for Retroarch only.
     pub fn attach() -> Option<Self> {
         let (&state, process) = PROCESS_NAMES
             .iter()
@@ -140,8 +142,9 @@ pub enum State {
     BlastEm(blastem::State),
 }
 
-static PROCESS_NAMES: [(&str, State); 6] = [
+static PROCESS_NAMES: &[(&str, State)] = &[
     ("retroarch.exe", State::Retroarch(retroarch::State::new())),
+    ("retroarch", State::Retroarch(retroarch::State::new())),
     (
         "SEGAGameRoom.exe",
         State::SegaClassics(segaclassics::State::new()),
