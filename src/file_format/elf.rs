@@ -1,10 +1,14 @@
 //! Support for parsing ELF files (Executable and Linking Format).
 
-use core::{fmt, mem};
+use core::{
+    fmt,
+    iter::{self, FusedIterator},
+    mem::{self, size_of},
+};
 
 use bytemuck::{Pod, Zeroable};
 
-use crate::{Endian, FromEndian};
+use crate::{string::ArrayCString, Address, Endian, Error, FromEndian, Process};
 
 // Based on:
 // https://refspecs.linuxfoundation.org/elf/elf.pdf
@@ -95,6 +99,116 @@ impl Bitness {
     pub fn is_64(self) -> bool {
         self == Self::BITNESS_64
     }
+}
+
+/// Segment type identifier for the ELF program header
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+pub struct SegmentType(u32);
+
+#[allow(unused)]
+impl SegmentType {
+    /// Unused header table entry
+    pub const PT_NULL: Self = Self(0);
+    /// Loadable segment
+    pub const PT_LOAD: Self = Self(1);
+    /// Dynamic linking information
+    pub const PT_DYNAMIC: Self = Self(2);
+    /// Interpreter information
+    pub const PT_INTERP: Self = Self(3);
+    /// Auxiliary information
+    pub const PT_NOTE: Self = Self(4);
+    /// Reserved
+    pub const PT_SHLIB: Self = Self(5);
+    /// Segment containing the program header table itself
+    pub const PT_PHDR: Self = Self(6);
+    /// Thread Local Storage
+    pub const PT_TLS: Self = Self(7);
+    /// Inclusive range together with PT_HIOS. OS specific
+    pub const PT_LOOS: Self = Self(0x60000000);
+    /// Inclusive range together with PT_LOOS. OS specific
+    pub const PT_HIOS: Self = Self(0x6FFFFFFF);
+    /// Inclusive range together with PT_HIPROC. Processor specific
+    pub const PT_LOPROC: Self = Self(0x70000000);
+    /// Inclusive range together with PT_LOPROC. Processor specific
+    pub const PT_HIPROC: Self = Self(0x7FFFFFFF);
+}
+
+/// Segment type identifier for the ELF program header
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+pub struct DynamicArrayTag(u32);
+
+#[allow(unused)]
+impl DynamicArrayTag {
+    /// Marks the end of the _DYNAMIC array
+    pub const DT_NULL: Self = Self(0);
+    /// Needed dependency
+    pub const DT_NEEDED: Self = Self(1);
+    /// Total size, in bytes, of relocation entries assiciated with the procedure linkage table
+    pub const DT_PLTRELSZ: Self = Self(2);
+    /// Address associated with the procedure linkage table or the global offset table
+    pub const DT_PLTGOT: Self = Self(3);
+    /// Address of the symbik hash table
+    pub const DT_HASH: Self = Self(4);
+    /// Address of the string table
+    pub const DT_STRTAB: Self = Self(5);
+    /// Address of the symbol table
+    pub const DT_SYMTAB: Self = Self(6);
+    /// Address of the relocation table
+    pub const DT_RELA: Self = Self(7);
+    /// Total size, in bytes, of the DT_RELA relocation table
+    pub const DT_RELASZ: Self = Self(8);
+    /// Size, in bytes, of the DT_RELA relocation entry
+    pub const DT_RELAENT: Self = Self(9);
+    /// Total size, in bytes, of the DT_STRTAB string table
+    pub const DT_STRSZ: Self = Self(10);
+    /// Size, in bytes, of the DT_SYMTAB symbol entry
+    pub const DT_SYMENT: Self = Self(11);
+    /// Address of the initialization function
+    pub const DT_INIT: Self = Self(12);
+    /// Address of the termination function
+    pub const DT_FINI: Self = Self(13);
+    /// The DT_STRTAB string table offset of a null-terminated string, identifying the name of the shared object
+    pub const DT_SONAME: Self = Self(14);
+    /// The DT_STRTAB string table offset of a null-terminated library search path string. Now superseded by DT_RUNPATH
+    pub const DT_RPATH: Self = Self(15);
+    /// Indicates the object contains symbolic bindings that were applied during its link-edit. Now superseded by the DF_SYMBOLIC flag
+    pub const DT_SYMBOLIC: Self = Self(16);
+    /// Similar to DT_RELA, except its table has implicit addends
+    pub const DT_REL: Self = Self(17);
+    /// Total size, in bytes, of the DT_REL relocation table
+    pub const DT_RELSZ: Self = Self(18);
+    /// Size, in bytes, of the DT_REL relocation entry
+    pub const DT_RELENT: Self = Self(19);
+    /// Indicates the type of relocation entry to which the procedure linkage table refers, either DT_REL or DT_RELA
+    pub const DT_PLTREL: Self = Self(20);
+    /// Used for debugging
+    pub const DT_DEBUG: Self = Self(21);
+    /// Indicates that one or more relocation entries might request modifications to a non-writable segment
+    pub const DT_TEXTREL: Self = Self(22);
+    /// The address of relocation entries that are associated solely with the procedure linkage table
+    pub const DT_JMPREL: Self = Self(23);
+    /// Indicates that all relocations for this object must be processed before returning control to the program
+    pub const DT_BIND_NOW: Self = Self(24);
+    /// The address of an array of pointers to initialization functions
+    pub const DT_INIT_ARRAY: Self = Self(25);
+    /// The address of an array of pointers to termination functions
+    pub const DT_FINI_ARRAY: Self = Self(26);
+    /// The total size, in bytes, of the DT_INIT_ARRAY array
+    pub const DT_INIT_ARRAYSZ: Self = Self(27);
+    /// The total size, in bytes, of the DT_FINI_ARRAY array
+    pub const DT_FINI_ARRAYSZ: Self = Self(28);
+    /// The DT_STRTAB string table offset of a null-terminated library search path string
+    pub const DT_RUNPATH: Self = Self(29);
+    /// Flags
+    pub const DT_FLAGS: Self = Self(30);
+    /// Encoding
+    pub const DT_ENCODING: Self = Self(31);
+    /// The address of an array of pointers to pre-initialization functions
+    pub const DT_PREINIT_ARRAY: Self = Self(32);
+    /// The total size, in bytes, of the DT_PREINIT_ARRAY array
+    pub const DT_PREINIT_ARRAYSZ: Self = Self(33);
+    /// The number of positive dynamic array tag values
+    pub const DT_MAXPOSTAGS: Self = Self(34);
 }
 
 /// The architecture of an ELF file.
@@ -832,4 +946,198 @@ impl Architecture {
     /// C-SKY historically used 39, the same value as MCORE, from which the
     /// architecture was derived.
     pub const EM_CSKY_OLD: Self = Self::EM_MCORE;
+}
+
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+#[repr(C)]
+struct Elf32 {
+    e_ident: Identification,
+    e_type: u16,
+    e_machine: u16,
+    e_version: u32,
+    e_entry: u32,
+    e_phoff: u32,
+    e_shoff: u32,
+    e_flags: u32,
+    e_ehsize: u16,
+    e_phentsize: u16,
+    e_phnum: u16,
+    e_shentsize: u16,
+    e_shnum: u16,
+    e_shstrndx: u16,
+}
+
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+#[repr(C)]
+struct Elf64 {
+    e_ident: Identification,
+    e_type: u16,
+    e_machine: u16,
+    e_version: u32,
+    e_entry: u64,
+    e_phoff: u64,
+    e_shoff: u64,
+    e_flags: u32,
+    e_ehsize: u16,
+    e_phentsize: u16,
+    e_phnum: u16,
+    e_shentsize: u16,
+    e_shnum: u16,
+    e_shstrndx: u16,
+}
+
+/// Checks if a given ELF module is 64-bit
+pub fn is_64_bit(process: &Process, module_address: Address) -> Option<bool> {
+    let header = process.read::<Header>(module_address).ok()?;
+    let info = Info::parse(bytemuck::bytes_of(&header))?;
+    match info.bitness {
+        Bitness::BITNESS_64 => Some(true),
+        _ => Some(false),
+    }
+}
+
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+#[repr(C)]
+struct ProgramHeader32 {
+    p_type: u32,
+    p_offset: u32,
+    p_vaddr: u32,
+    p_paddr: u32,
+    p_filesz: u32,
+    p_memsz: u32,
+    p_flags: u32,
+    p_align: u32,
+}
+
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+#[repr(C)]
+struct ProgramHeader64 {
+    p_type: u32,
+    p_flags: u32,
+    p_offset: u64,
+    p_vaddr: u64,
+    p_paddr: u64,
+    p_filesz: u64,
+    p_memsz: u64,
+    p_align: u64,
+}
+
+/// A symbol exported into the current module.
+pub struct Symbol {
+    /// The address associated with the current function
+    pub address: Address,
+    /// The size occupied in memory by the current function
+    pub size: u64,
+    /// The address storing the name of the current function
+    name_addr: Address,
+}
+
+impl Symbol {
+    /// Tries to retrieve the name of the current function
+    pub fn get_name<const CAP: usize>(
+        &self,
+        process: &Process,
+    ) -> Result<ArrayCString<CAP>, Error> {
+        process.read(self.name_addr)
+    }
+}
+
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+#[repr(C)]
+struct SymTab64 {
+    st_name: u32,
+    st_info: u8,
+    st_other: u8,
+    st_shndx: u16,
+    st_value: u64,
+    st_size: u64,
+}
+
+/// Recovers and iterates over the exported symbols for a given module.
+/// Returns an empty iterator if no symbols are exported into the current module.
+///
+/// By using this function, the user must be aware of the following limitations:
+/// - Only allocatable symbols and symbols used by the dynamic linker are exported
+/// (.symtab is not loaded in memory at runtime)
+/// - Only 64-bit ELFs are supported (an empty iterator will be returned for 32-bit ELFs)
+pub fn symbols(
+    process: &Process,
+    module_address: Address,
+) -> impl FusedIterator<Item = Symbol> + '_ {
+    let header = process.read::<Elf64>(module_address);
+
+    // Only 64 bit ELF is supported
+    let is_64_bit = match header {
+        Ok(x) => Info::parse(bytemuck::bytes_of(&x)).is_some_and(|info| info.bitness.is_64()),
+        _ => false,
+    };
+
+    let e_phnum = match (is_64_bit, &header) {
+        (true, Ok(x)) => x.e_phnum,
+        _ => 0,
+    };
+
+    let e_phoff = match (is_64_bit, &header) {
+        (true, Ok(x)) => Some(x.e_phoff),
+        _ => None,
+    };
+
+    let e_phentsize = match (is_64_bit, &header) {
+        (true, Ok(x)) => Some(x.e_phentsize),
+        _ => None,
+    };
+
+    let mut program_headers = (0..e_phnum).filter_map(|index| {
+        process
+            .read::<ProgramHeader64>(module_address + e_phoff? + e_phentsize?.wrapping_mul(index))
+            .ok()
+    });
+
+    let (segment_address, segment_size) = match program_headers
+        .find(|p_header| SegmentType(p_header.p_type) == SegmentType::PT_DYNAMIC)
+    {
+        Some(x) => (Some(x.p_vaddr), x.p_memsz),
+        _ => (None, 0),
+    };
+
+    let entries = || {
+        (0..segment_size)
+            .step_by(size_of::<[u64; 2]>())
+            .filter_map(|entry| {
+                process
+                    .read::<[u64; 2]>(module_address + segment_address? + entry)
+                    .ok()
+            })
+    };
+
+    let symtab = entries()
+        .find(|&[val, _]| DynamicArrayTag(val as u32) == DynamicArrayTag::DT_SYMTAB)
+        .map(|[_, val]| Address::new(val));
+    let strtab = entries()
+        .find(|&[val, _]| DynamicArrayTag(val as u32) == DynamicArrayTag::DT_STRTAB)
+        .map(|[_, val]| Address::new(val));
+    let strsz = entries()
+        .find(|&[val, _]| DynamicArrayTag(val as u32) == DynamicArrayTag::DT_STRSZ)
+        .map(|[_, val]| val);
+
+    let mut offset = 0;
+    iter::from_fn(move || {
+        let table = process.read::<SymTab64>(symtab? + offset).ok()?;
+        if table.st_name as u64 >= strsz? {
+            None
+        } else {
+            let f_address = module_address + table.st_value;
+            let f_size = table.st_size;
+            let f_name = strtab? + table.st_name;
+
+            offset += size_of::<SymTab64>() as u64;
+
+            Some(Symbol {
+                address: f_address,
+                size: f_size,
+                name_addr: f_name,
+            })
+        }
+    })
+    .fuse()
 }
