@@ -1,6 +1,13 @@
 //! Support for attaching to SEGA Master System / SEGA GameGear emulators.
 
-use crate::{Address, Error, Process};
+use core::{
+    cell::Cell,
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+};
+
+use crate::{future::retry, Address, Error, Process};
 use bytemuck::CheckedBitPattern;
 
 mod blastem;
@@ -13,9 +20,9 @@ pub struct Emulator {
     /// The attached emulator process
     process: Process,
     /// An enum stating which emulator is currently attached
-    state: State,
+    state: Cell<State>,
     /// The memory address of the emulated RAM
-    ram_base: Option<Address>,
+    ram_base: Cell<Option<Address>>,
 }
 
 impl Emulator {
@@ -35,9 +42,21 @@ impl Emulator {
 
         Some(Self {
             process,
-            state,
-            ram_base: None,
+            state: Cell::new(state),
+            ram_base: Cell::new(None),
         })
+    }
+
+    /// Asynchronously awaits attaching to a target emulator,
+    /// yielding back to the runtime between each try.
+    ///
+    /// Supported emulators are:
+    /// - Retroarch, with one of the following cores: `genesis_plus_gx_libretro.dll`,
+    /// `genesis_plus_gx_wide_libretro.dll`, `picodrive_libretro.dll`, `smsplus_libretro.dll`, `gearsystem_libretro.dll`
+    /// - Fusion
+    /// - BlastEm
+    pub async fn wait_attach() -> Self {
+        retry(Self::attach).await
     }
 
     /// Checks whether the emulator is still open. If it is not open anymore,
@@ -46,13 +65,24 @@ impl Emulator {
         self.process.is_open()
     }
 
+    /// Executes a future until the emulator process closes.
+    pub const fn until_closes<F>(&self, future: F) -> UntilEmulatorCloses<'_, F> {
+        UntilEmulatorCloses {
+            emulator: self,
+            future,
+        }
+    }
+
     /// Calls the internal routines needed in order to find (and update, if
     /// needed) the address of the emulated RAM.
     ///
     /// Returns true if successful, false otherwise.
-    pub fn update(&mut self) -> bool {
-        if self.ram_base.is_none() {
-            self.ram_base = match match &mut self.state {
+    pub fn update(&self) -> bool {
+        let mut ram_base = self.ram_base.get();
+        let mut state = self.state.get();
+
+        if ram_base.is_none() {
+            ram_base = match match &mut state {
                 State::Retroarch(x) => x.find_ram(&self.process),
                 State::Fusion(x) => x.find_ram(&self.process),
                 State::BlastEm(x) => x.find_ram(&self.process),
@@ -63,17 +93,18 @@ impl Emulator {
             };
         }
 
-        let success = match &self.state {
+        let success = match &state {
             State::Retroarch(x) => x.keep_alive(&self.process),
-            State::Fusion(x) => x.keep_alive(&self.process, &mut self.ram_base),
+            State::Fusion(x) => x.keep_alive(&self.process, &mut ram_base),
             State::BlastEm(x) => x.keep_alive(),
             State::Mednafen(x) => x.keep_alive(),
         };
 
         if success {
+            self.ram_base.set(ram_base);
             true
         } else {
-            self.ram_base = None;
+            self.ram_base.set(None);
             false
         }
     }
@@ -91,10 +122,29 @@ impl Emulator {
             return Err(Error {});
         }
 
-        let wram = self.ram_base.ok_or(Error {})?;
+        let wram = self.ram_base.get().ok_or(Error {})?;
         let end_offset = offset.checked_sub(0xC000).unwrap_or(offset);
 
         self.process.read(wram + end_offset)
+    }
+}
+
+/// A future that executes a future until the emulator closes.
+pub struct UntilEmulatorCloses<'a, F> {
+    emulator: &'a Emulator,
+    future: F,
+}
+
+impl<F: Future<Output = ()>> Future for UntilEmulatorCloses<'_, F> {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if !self.emulator.is_open() {
+            return Poll::Ready(());
+        }
+        self.emulator.update();
+        // SAFETY: We are simply projecting the Pin.
+        unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().future).poll(cx) }
     }
 }
 
