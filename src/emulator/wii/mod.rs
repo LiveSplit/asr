@@ -1,6 +1,13 @@
 //! Support for attaching to Nintendo Wii emulators.
 
-use crate::{Address, Endian, Error, FromEndian, Process};
+use core::{
+    cell::Cell,
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+};
+
+use crate::{future::retry, Address, Endian, Error, FromEndian, Process};
 use bytemuck::CheckedBitPattern;
 
 mod dolphin;
@@ -12,11 +19,11 @@ pub struct Emulator {
     /// The attached emulator process
     process: Process,
     /// An enum stating which emulator is currently attached
-    state: State,
+    state: Cell<State>,
     /// The memory address of the emulated RAM
-    ram_base: Option<[Address; 2]>, // [MEM1, MEM2]
+    ram_base: Cell<Option<[Address; 2]>>, // [MEM1, MEM2]
     /// The endianness used by the emulator process
-    endian: Endian,
+    endian: Cell<Endian>,
 }
 
 impl Emulator {
@@ -34,10 +41,20 @@ impl Emulator {
 
         Some(Self {
             process,
-            state,
-            ram_base: None,      // [MEM1, MEM2]
-            endian: Endian::Big, // Endianness is usually Big in Wii emulators
+            state: Cell::new(state),
+            ram_base: Cell::new(None),      // [MEM1, MEM2]
+            endian: Cell::new(Endian::Big), // Endianness is usually Big in Wii emulators
         })
+    }
+
+    /// Asynchronously awaits attaching to a target emulator,
+    /// yielding back to the runtime between each try.
+    ///
+    /// Supported emulators are:
+    /// - Dolphin
+    /// - Retroarch (using the `dolphin_libretro.dll` core)
+    pub async fn wait_attach() -> Self {
+        retry(Self::attach).await
     }
 
     /// Checks whether the emulator is still open. If it is not open anymore,
@@ -46,30 +63,46 @@ impl Emulator {
         self.process.is_open()
     }
 
+    /// Executes a future until the emulator process closes.
+    pub const fn until_closes<F>(&self, future: F) -> UntilEmulatorCloses<'_, F> {
+        UntilEmulatorCloses {
+            emulator: self,
+            future,
+        }
+    }
+
     /// Calls the internal routines needed in order to find (and update, if
     /// needed) the address of the emulated RAM.
     ///
     /// Returns true if successful, false otherwise.
-    pub fn update(&mut self) -> bool {
-        if self.ram_base.is_none() {
-            self.ram_base = match match &mut self.state {
-                State::Dolphin(x) => x.find_ram(&self.process, &mut self.endian),
-                State::Retroarch(x) => x.find_ram(&self.process, &mut self.endian),
+    pub fn update(&self) -> bool {
+        let mut ram_base = self.ram_base.get();
+        let mut state = self.state.get();
+        let mut endian = self.endian.get();
+
+        if ram_base.is_none() {
+            ram_base = match match &mut state {
+                State::Dolphin(x) => x.find_ram(&self.process, &mut endian),
+                State::Retroarch(x) => x.find_ram(&self.process, &mut endian),
             } {
                 None => return false,
                 something => something,
             };
         }
 
-        let success = match &self.state {
-            State::Dolphin(x) => x.keep_alive(&self.process, &self.ram_base),
-            State::Retroarch(x) => x.keep_alive(&self.process, &self.ram_base),
+        let success = match &state {
+            State::Dolphin(x) => x.keep_alive(&self.process, &ram_base),
+            State::Retroarch(x) => x.keep_alive(&self.process, &ram_base),
         };
 
+        self.state.set(state);
+        self.endian.set(endian);
+
         if success {
+            self.ram_base.set(ram_base);
             true
         } else {
-            self.ram_base = None;
+            self.ram_base.set(None);
             false
         }
     }
@@ -90,9 +123,9 @@ impl Emulator {
     ///
     /// This call is meant to be used by experienced users.
     pub fn read_ignoring_endianness<T: CheckedBitPattern>(&self, address: u32) -> Result<T, Error> {
-        if address >= 0x80000000 && address <= 0x817FFFFF {
+        if (0x80000000..0x81800000).contains(&address) {
             self.read_ignoring_endianness_from_mem_1(address)
-        } else if address >= 0x90000000 && address <= 0x93FFFFFF {
+        } else if (0x90000000..0x94000000).contains(&address) {
             self.read_ignoring_endianness_from_mem_2(address)
         } else {
             Err(Error {})
@@ -113,7 +146,7 @@ impl Emulator {
     pub fn read<T: CheckedBitPattern + FromEndian>(&self, address: u32) -> Result<T, Error> {
         Ok(self
             .read_ignoring_endianness::<T>(address)?
-            .from_endian(self.endian))
+            .from_endian(self.endian.get()))
     }
 
     /// Follows a path of pointers from the address given and reads a value of the type specified from
@@ -163,12 +196,11 @@ impl Emulator {
         &self,
         address: u32,
     ) -> Result<T, Error> {
-        if address < 0x80000000 || address > 0x817FFFFF {
+        if !(0x80000000..0x81800000).contains(&address) {
             return Err(Error {});
         }
-        let Some([mem1, _]) = self.ram_base else {
-            return Err(Error {});
-        };
+
+        let [mem1, _] = self.ram_base.get().ok_or(Error {})?;
         let end_offset = address.checked_sub(0x80000000).unwrap_or(address);
         self.process.read(mem1 + end_offset)
     }
@@ -189,14 +221,31 @@ impl Emulator {
         &self,
         address: u32,
     ) -> Result<T, Error> {
-        if address < 0x90000000 || address > 0x93FFFFFF {
+        if !(0x90000000..0x94000000).contains(&address) {
             return Err(Error {});
         }
-        let Some([_, mem2]) = self.ram_base else {
-            return Err(Error {});
-        };
+        let [_, mem2] = self.ram_base.get().ok_or(Error {})?;
         let end_offset = address.checked_sub(0x90000000).unwrap_or(address);
         self.process.read(mem2 + end_offset)
+    }
+}
+
+/// A future that executes a future until the emulator closes.
+pub struct UntilEmulatorCloses<'a, F> {
+    emulator: &'a Emulator,
+    future: F,
+}
+
+impl<F: Future<Output = ()>> Future for UntilEmulatorCloses<'_, F> {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if !self.emulator.is_open() {
+            return Poll::Ready(());
+        }
+        self.emulator.update();
+        // SAFETY: We are simply projecting the Pin.
+        unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().future).poll(cx) }
     }
 }
 

@@ -1,6 +1,13 @@
 //! Support for attaching to Nintendo Gameboy Advance emulators.
 
-use crate::{Address, Error, Process};
+use core::{
+    cell::Cell,
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+};
+
+use crate::{future::retry, Address, Error, Process};
 use bytemuck::CheckedBitPattern;
 
 mod emuhawk;
@@ -15,9 +22,9 @@ pub struct Emulator {
     /// The attached emulator process
     process: Process,
     /// An enum stating which emulator is currently attached
-    state: State,
+    state: Cell<State>,
     /// The memory address of the emulated RAM
-    ram_base: Option<[Address; 2]>, // [ewram, iwram]
+    ram_base: Cell<Option<[Address; 2]>>, // [ewram, iwram]
 }
 
 impl Emulator {
@@ -40,9 +47,24 @@ impl Emulator {
 
         Some(Self {
             process,
-            state,
-            ram_base: None,
+            state: Cell::new(state),
+            ram_base: Cell::new(None),
         })
+    }
+
+    /// Asynchronously awaits attaching to a target emulator,
+    /// yielding back to the runtime between each try.
+    ///
+    /// Supported emulators are:
+    /// - VisualBoyAdvance
+    /// - VisualBoyAdvance-M
+    /// - mGBA
+    /// - NO$GBA
+    /// - BizHawk
+    /// - Retroarch, with one of the following cores: `vbam_libretro.dll`, `vba_next_libretro.dll`,
+    /// `mednafen_gba_libretro.dll`, `mgba_libretro.dll`, `gpsp_libretro.dll`
+    pub async fn wait_attach() -> Self {
+        retry(Self::attach).await
     }
 
     /// Checks whether the emulator is still open. If it is not open anymore,
@@ -51,13 +73,24 @@ impl Emulator {
         self.process.is_open()
     }
 
+    /// Executes a future until the emulator process closes.
+    pub const fn until_closes<F>(&self, future: F) -> UntilEmulatorCloses<'_, F> {
+        UntilEmulatorCloses {
+            emulator: self,
+            future,
+        }
+    }
+
     /// Calls the internal routines needed in order to find (and update, if
     /// needed) the address of the emulated RAM.
     ///
     /// Returns true if successful, false otherwise.
-    pub fn update(&mut self) -> bool {
-        if self.ram_base.is_none() {
-            self.ram_base = match match &mut self.state {
+    pub fn update(&self) -> bool {
+        let mut ram_base = self.ram_base.get();
+        let mut state = self.state.get();
+
+        if ram_base.is_none() {
+            ram_base = match match &mut state {
                 State::VisualBoyAdvance(x) => x.find_ram(&self.process),
                 State::Mgba(x) => x.find_ram(&self.process),
                 State::NoCashGba(x) => x.find_ram(&self.process),
@@ -70,21 +103,23 @@ impl Emulator {
             };
         }
 
-        let success = match &self.state {
-            State::VisualBoyAdvance(x) => x.keep_alive(&self.process, &mut self.ram_base),
-            State::Mgba(x) => x.keep_alive(&self.process, &self.ram_base),
-            State::NoCashGba(x) => x.keep_alive(&self.process, &mut self.ram_base),
+        let success = match &state {
+            State::VisualBoyAdvance(x) => x.keep_alive(&self.process, &mut ram_base),
+            State::Mgba(x) => x.keep_alive(&self.process, &ram_base),
+            State::NoCashGba(x) => x.keep_alive(&self.process, &mut ram_base),
             State::Retroarch(x) => x.keep_alive(&self.process),
-            State::EmuHawk(x) => x.keep_alive(&self.process, &self.ram_base),
-            State::Mednafen(x) => x.keep_alive(&self.process, &mut self.ram_base),
+            State::EmuHawk(x) => x.keep_alive(&self.process, &ram_base),
+            State::Mednafen(x) => x.keep_alive(&self.process, &mut ram_base),
         };
 
-        match success {
-            true => true,
-            false => {
-                self.ram_base = None;
-                false
-            }
+        self.state.set(state);
+
+        if success {
+            self.ram_base.set(ram_base);
+            true
+        } else {
+            self.ram_base.set(None);
+            false
         }
     }
 
@@ -120,9 +155,7 @@ impl Emulator {
             return Err(Error {});
         }
 
-        let Some([ewram, _]) = self.ram_base else {
-            return Err(Error {});
-        };
+        let [ewram, _] = self.ram_base.get().ok_or(Error {})?;
         let end_offset = offset.checked_sub(0x02000000).unwrap_or(offset);
 
         self.process.read(ewram + end_offset)
@@ -144,12 +177,29 @@ impl Emulator {
             return Err(Error {});
         }
 
-        let Some([_, iwram]) = self.ram_base else {
-            return Err(Error {});
-        };
+        let [_, iwram] = self.ram_base.get().ok_or(Error {})?;
         let end_offset = offset.checked_sub(0x03000000).unwrap_or(offset);
 
         self.process.read(iwram + end_offset)
+    }
+}
+
+/// A future that executes a future until the emulator closes.
+pub struct UntilEmulatorCloses<'a, F> {
+    emulator: &'a Emulator,
+    future: F,
+}
+
+impl<F: Future<Output = ()>> Future for UntilEmulatorCloses<'_, F> {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if !self.emulator.is_open() {
+            return Poll::Ready(());
+        }
+        self.emulator.update();
+        // SAFETY: We are simply projecting the Pin.
+        unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().future).poll(cx) }
     }
 }
 

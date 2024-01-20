@@ -365,60 +365,52 @@ impl Process {
         }
     }
 
-    /// Reads a variable size data stream of a specified type `T` into the
-    /// buffer provided. This is a convenience method for reading into a slice
-    /// of a specific type. The `Vec::<T>` buffer will be filled up to the
-    /// capacity provided the method (whichever is lower).
-    /// Clears the `Vec` if returning `Err()`.
+    /// Reads an array from the process at the address with the length given
+    /// into the `Vec` provided. The `Vec` is not cleared, all elements are
+    /// appended to the end of the `Vec`. You may want to manually clear it
+    /// beforehand.
     #[cfg(feature = "alloc")]
-    #[inline]
-    pub fn read_into_vec<T: AnyBitPattern>(
+    pub fn append_to_vec<T: CheckedBitPattern>(
         &self,
         address: impl Into<Address>,
         vec: &mut alloc::vec::Vec<T>,
-        capacity: usize,
+        additional_elements: usize,
     ) -> Result<(), Error> {
-        vec.clear();
-
-        // Vec cannot have a capacity higher than isize::MAX,
-        // and panics otherwise.
-        if capacity > isize::MAX as _ {
+        let new_len = vec.len().saturating_add(additional_elements);
+        if new_len > isize::MAX as usize {
             return Err(Error {});
         }
 
-        // Vec::reserve() does nothing if the capacity of the Vec
-        // is already sufficient.
-        vec.reserve(capacity);
+        vec.reserve(additional_elements);
 
-        // SAFETY: The ptr is guaranteed to be valid. Thanks to Vec::reserve()
-        // the capacity of the Vec is equal or higher than the capacity we need
-        // for storing the data we are reading from memory.
+        // SAFETY: The length is only set after the elements are successfully
+        // read into the vector.
         unsafe {
-            let uninit =
-                slice::from_raw_parts_mut(vec.as_mut_ptr() as *mut MaybeUninit<T>, capacity);
-            self.read_into_uninit_slice(address, uninit)?;
-            vec.set_len(capacity);
+            self.read_into_uninit_slice(
+                address,
+                &mut vec.spare_capacity_mut()[..additional_elements],
+            )?;
+            vec.set_len(new_len);
         }
 
         Ok(())
     }
 
-    /// Reads a variable size data stream of a specified type `T` into the heap,
-    /// returning a `Vec::<T>` with a `len()` equal to the value provided in `capacity`.
-    /// This function is similar to `read_into_slice()`, but allows to read a range
-    /// of bytes for which the size is not known at compile time.
+    /// Reads an array from the process at the address with the length given into
+    /// a new `Vec`. This is a heap allocation. It's recommended to avoid this
+    /// method if possible and either use [`read`](Self::read) with a fixed size
+    /// array or [`read_into_slice`](Self::read_into_slice) if possible. If
+    /// neither of these are possible it is recommend to at least reuse the
+    /// `Vec` with [`append_to_vec`](Self::append_to_vec) if that's possible.
     #[cfg(feature = "alloc")]
     #[inline]
-    pub fn read_into_new_vec<T: AnyBitPattern>(
+    pub fn read_vec<T: CheckedBitPattern>(
         &self,
         address: impl Into<Address>,
-        capacity: usize,
+        len: usize,
     ) -> Result<alloc::vec::Vec<T>, Error> {
-        // We make a Vec with a capcity of 0 to avoid unnecessary allocations.
-        // If needed, allocation will be performed by read_into_vec() when it
-        // internally calls Vec::reserve()
-        let mut buf = alloc::vec::Vec::with_capacity(0);
-        self.read_into_vec(address, &mut buf, capacity)?;
+        let mut buf = alloc::vec::Vec::new();
+        self.append_to_vec(address, &mut buf, len)?;
         Ok(buf)
     }
 
