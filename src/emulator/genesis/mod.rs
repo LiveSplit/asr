@@ -205,27 +205,6 @@ impl Emulator {
             Ok(value.assume_init().from_be())
         }
     }
-
-    /// Follows a path of pointers from the address given and reads a value of the type specified from
-    /// the process at the end of the pointer path.
-    pub fn read_pointer_path<T: CheckedBitPattern + FromEndian>(
-        &self,
-        base_address: u32,
-        path: &[u32],
-    ) -> Result<T, Error> {
-        self.read(self.deref_offsets(base_address, path)?)
-    }
-
-    /// Follows a path of pointers from the address given and returns the address at the end
-    /// of the pointer path
-    fn deref_offsets(&self, base_address: u32, path: &[u32]) -> Result<u32, Error> {
-        let mut address = base_address;
-        let (&last, path) = path.split_last().ok_or(Error {})?;
-        for &offset in path {
-            address = self.read::<u32>(address + offset)?;
-        }
-        Ok(address + last)
-    }
 }
 
 /// A future that executes a future until the emulator closes.
