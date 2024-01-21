@@ -3,8 +3,10 @@
 use core::{
     cell::Cell,
     future::Future,
+    mem::size_of,
+    ops::Sub,
     pin::Pin,
-    task::{Context, Poll}, ops::Sub, mem::size_of,
+    task::{Context, Poll},
 };
 
 use crate::{future::retry, Address, Error, Process};
@@ -131,7 +133,9 @@ impl Emulator {
     /// Valid addresses for the PS1 range from `0x80000000` to `0x817FFFFF`.
     pub fn get_address(&self, offset: u32) -> Result<Address, Error> {
         match offset {
-            (0x80000000..=0x817FFFFF) => Ok(self.ram_base.get().ok_or(Error {})? + offset.sub(0x80000000)),
+            (0x80000000..=0x817FFFFF) => {
+                Ok(self.ram_base.get().ok_or(Error {})? + offset.sub(0x80000000))
+            }
             _ => Err(Error {}),
         }
     }
@@ -155,7 +159,7 @@ impl Emulator {
     /// The offset provided is meant to be the same memory address as usually
     /// mapped on the original hardware. Valid addresses range from `0x80000000`
     /// to `0x817FFFFF`.
-    /// 
+    ///
     /// Providing any offset outside the range of the PS1's RAM will return
     /// `Err()`.
     pub fn read<T: CheckedBitPattern>(&self, offset: u32) -> Result<T, Error> {

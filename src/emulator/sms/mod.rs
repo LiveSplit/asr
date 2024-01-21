@@ -3,8 +3,10 @@
 use core::{
     cell::Cell,
     future::Future,
+    mem::size_of,
+    ops::Sub,
     pin::Pin,
-    task::{Context, Poll}, mem::size_of, ops::Sub,
+    task::{Context, Poll},
 };
 
 use crate::{future::retry, Address, Error, Process};

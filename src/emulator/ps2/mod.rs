@@ -3,8 +3,10 @@
 use core::{
     cell::Cell,
     future::Future,
+    mem::size_of,
+    ops::Sub,
     pin::Pin,
-    task::{Context, Poll}, ops::Sub, mem::size_of,
+    task::{Context, Poll},
 };
 
 use crate::{future::retry, Address, Error, Process};
@@ -106,7 +108,9 @@ impl Emulator {
     /// Valid addresses for the PS2 range from `0x00100000` to `0x01FFFFFF`.
     pub fn get_address(&self, offset: u32) -> Result<Address, Error> {
         match offset {
-            (0x00100000..=0x01FFFFFF) => Ok(self.ram_base.get().ok_or(Error {})? + offset.sub(0x00100000)),
+            (0x00100000..=0x01FFFFFF) => {
+                Ok(self.ram_base.get().ok_or(Error {})? + offset.sub(0x00100000))
+            }
             _ => Err(Error {}),
         }
     }

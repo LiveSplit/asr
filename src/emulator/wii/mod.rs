@@ -3,6 +3,8 @@
 use core::{
     cell::Cell,
     future::Future,
+    mem::size_of,
+    ops::Sub,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -107,6 +109,35 @@ impl Emulator {
         }
     }
 
+    /// Converts a Wii memory address to a real memory address in the emulator process' virtual memory space
+    ///
+    /// - Valid addresses for `MEM1` range from `0x80000000` to `0x817FFFFF`
+    /// - Valid addresses for `MEM2` range from `0x90000000` to `0x93FFFFFF`
+    pub fn get_address(&self, offset: u32) -> Result<Address, Error> {
+        match offset {
+            (0x80000000..=0x817FFFFF) => {
+                let [mem1, _] = self.ram_base.get().ok_or(Error {})?;
+                Ok(mem1 + offset.sub(0x80000000))
+            }
+            (0x90000000..=0x93FFFFFF) => {
+                let [_, mem2] = self.ram_base.get().ok_or(Error {})?;
+                Ok(mem2 + offset.sub(0x90000000))
+            }
+            _ => Err(Error {}),
+        }
+    }
+
+    /// Checks if a memory reading operation would exceed the memory bounds of the emulated system.
+    ///
+    /// Returns `true` if the read operation can be performed safely, `false` otherwise.
+    fn check_bounds<T>(&self, offset: u32) -> bool {
+        match offset {
+            (0x80000000..=0x817FFFFF) => offset + size_of::<T>() as u32 <= 0x81800000,
+            (0x90000000..=0x93FFFFFF) => offset + size_of::<T>() as u32 <= 0x94000000,
+            _ => false,
+        }
+    }
+
     /// Reads raw data from the emulated RAM ignoring all endianness settings.
     /// The same call, performed on two different emulators, might return different
     /// results due to the endianness used by the emulator.
@@ -123,12 +154,9 @@ impl Emulator {
     ///
     /// This call is meant to be used by experienced users.
     pub fn read_ignoring_endianness<T: CheckedBitPattern>(&self, address: u32) -> Result<T, Error> {
-        if (0x80000000..0x81800000).contains(&address) {
-            self.read_ignoring_endianness_from_mem_1(address)
-        } else if (0x90000000..0x94000000).contains(&address) {
-            self.read_ignoring_endianness_from_mem_2(address)
-        } else {
-            Err(Error {})
+        match self.check_bounds::<T>(address) {
+            true => self.process.read(self.get_address(address)?),
+            false => Err(Error {}),
         }
     }
 
@@ -151,8 +179,6 @@ impl Emulator {
 
     /// Follows a path of pointers from the address given and reads a value of the type specified from
     /// the process at the end of the pointer path.
-    ///
-    /// The end value is automatically converted to little endian if needed.
     pub fn read_pointer_path<T: CheckedBitPattern + FromEndian>(
         &self,
         base_address: u32,
@@ -161,16 +187,8 @@ impl Emulator {
         self.read(self.deref_offsets(base_address, path)?)
     }
 
-    /// Follows a path of pointers from the address given and reads a value of the type specified from
-    /// the process at the end of the pointer path.
-    pub fn read_pointer_path_ignoring_endianness<T: CheckedBitPattern>(
-        &self,
-        base_address: u32,
-        path: &[u32],
-    ) -> Result<T, Error> {
-        self.read_ignoring_endianness(self.deref_offsets(base_address, path)?)
-    }
-
+    /// Follows a path of pointers from the address given and returns the address at the end
+    /// of the pointer path
     fn deref_offsets(&self, base_address: u32, path: &[u32]) -> Result<u32, Error> {
         let mut address = base_address;
         let (&last, path) = path.split_last().ok_or(Error {})?;
@@ -178,55 +196,6 @@ impl Emulator {
             address = self.read::<u32>(address + offset)?;
         }
         Ok(address + last)
-    }
-
-    /// Reads raw data from the emulated RAM ignoring all endianness settings.
-    /// The same call, performed on two different emulators, might return different
-    /// results due to the endianness used by the emulator.
-    ///
-    /// The address provided is meant to be the mapped address used on the original, big-endian system.
-    /// The call will automatically convert the address provided to its corresponding offset from
-    /// `MEM1` or and read the value.
-    ///
-    /// The provided memory address has to match a mapped memory address on the original Wii.
-    /// Valid addresses for `MEM1` range from `0x80000000` to `0x817FFFFF`
-    ///
-    /// Any other invalid value will make this method immediately return `Err()`.
-    pub fn read_ignoring_endianness_from_mem_1<T: CheckedBitPattern>(
-        &self,
-        address: u32,
-    ) -> Result<T, Error> {
-        if !(0x80000000..0x81800000).contains(&address) {
-            return Err(Error {});
-        }
-
-        let [mem1, _] = self.ram_base.get().ok_or(Error {})?;
-        let end_offset = address.checked_sub(0x80000000).unwrap_or(address);
-        self.process.read(mem1 + end_offset)
-    }
-
-    /// Reads raw data from the emulated RAM ignoring all endianness settings.
-    /// The same call, performed on two different emulators, might return different
-    /// results due to the endianness used by the emulator.
-    ///
-    /// The address provided is meant to be the mapped address used on the original, big-endian system.
-    /// The call will automatically convert the address provided to its corresponding offset from
-    /// `MEM2` or and read the value.
-    ///
-    /// The provided memory address has to match a mapped memory address on the original Wii.
-    /// Valid addresses for `MEM2` range from `0x90000000` to `0x93FFFFFF`
-    ///
-    /// Any other invalid value will make this method immediately return `Err()`.
-    pub fn read_ignoring_endianness_from_mem_2<T: CheckedBitPattern>(
-        &self,
-        address: u32,
-    ) -> Result<T, Error> {
-        if !(0x90000000..0x94000000).contains(&address) {
-            return Err(Error {});
-        }
-        let [_, mem2] = self.ram_base.get().ok_or(Error {})?;
-        let end_offset = address.checked_sub(0x90000000).unwrap_or(address);
-        self.process.read(mem2 + end_offset)
     }
 }
 
