@@ -3,7 +3,7 @@
 use core::{
     cell::Cell,
     future::Future,
-    mem::{self, size_of, MaybeUninit},
+    mem::{size_of, MaybeUninit},
     pin::Pin,
     slice,
     task::{Context, Poll},

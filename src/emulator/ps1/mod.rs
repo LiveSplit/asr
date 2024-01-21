@@ -4,7 +4,7 @@ use core::{
     cell::Cell,
     future::Future,
     pin::Pin,
-    task::{Context, Poll},
+    task::{Context, Poll}, ops::Sub, mem::size_of,
 };
 
 use crate::{future::retry, Address, Error, Process};
@@ -126,27 +126,64 @@ impl Emulator {
         }
     }
 
+    /// Converts a PS1 memory address to a real memory address in the emulator process' virtual memory space
+    ///
+    /// Valid addresses for the PS1 range from `0x80000000` to `0x817FFFFF`.
+    pub fn get_address(&self, offset: u32) -> Result<Address, Error> {
+        match offset {
+            (0x80000000..=0x817FFFFF) => Ok(self.ram_base.get().ok_or(Error {})? + offset.sub(0x80000000)),
+            _ => Err(Error {}),
+        }
+    }
+
+    /// Checks if a memory reading operation would exceed the memory bounds of the emulated system.
+    ///
+    /// Returns `true` if the read operation can be performed safely, `false` otherwise.
+    fn check_bounds<T>(&self, offset: u32) -> bool {
+        match offset {
+            (0x80000000..=0x817FFFFF) => offset + size_of::<T>() as u32 <= 0x81800000,
+            _ => false,
+        }
+    }
+
     /// Reads any value from the emulated RAM.
     ///
     /// In PS1, memory addresses are usually mapped at fixed locations starting
     /// from `0x80000000`, and is the way many emulators, as well as the
     /// GameShark on original hardware, access memory.
     ///
-    /// For this reason, this method will automatically convert offsets provided
-    /// in such format. For example, providing an offset of `0x1234` or
-    /// `0x80001234` will return the same value.
-    ///
+    /// The offset provided is meant to be the same memory address as usually
+    /// mapped on the original hardware. Valid addresses range from `0x80000000`
+    /// to `0x817FFFFF`.
+    /// 
     /// Providing any offset outside the range of the PS1's RAM will return
     /// `Err()`.
     pub fn read<T: CheckedBitPattern>(&self, offset: u32) -> Result<T, Error> {
-        if (offset > 0x1FFFFF && offset < 0x80000000) || offset > 0x801FFFFF {
-            return Err(Error {});
-        };
+        match self.check_bounds::<T>(offset) {
+            true => self.process.read(self.get_address(offset)?),
+            false => Err(Error {}),
+        }
+    }
 
-        let ram_base = self.ram_base.get().ok_or(Error {})?;
-        let end_offset = offset.checked_sub(0x80000000).unwrap_or(offset);
+    /// Follows a path of pointers from the address given and reads a value of the type specified from
+    /// the process at the end of the pointer path.
+    pub fn read_pointer_path<T: CheckedBitPattern>(
+        &self,
+        base_address: u32,
+        path: &[u32],
+    ) -> Result<T, Error> {
+        self.read(self.deref_offsets(base_address, path)?)
+    }
 
-        self.process.read(ram_base + end_offset)
+    /// Follows a path of pointers from the address given and returns the address at the end
+    /// of the pointer path
+    fn deref_offsets(&self, base_address: u32, path: &[u32]) -> Result<u32, Error> {
+        let mut address = base_address;
+        let (&last, path) = path.split_last().ok_or(Error {})?;
+        for &offset in path {
+            address = self.read::<u32>(address + offset)?;
+        }
+        Ok(address + last)
     }
 }
 
