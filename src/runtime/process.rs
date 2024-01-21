@@ -365,6 +365,55 @@ impl Process {
         }
     }
 
+    /// Reads an array from the process at the address with the length given
+    /// into the `Vec` provided. The `Vec` is not cleared, all elements are
+    /// appended to the end of the `Vec`. You may want to manually clear it
+    /// beforehand.
+    #[cfg(feature = "alloc")]
+    pub fn append_to_vec<T: CheckedBitPattern>(
+        &self,
+        address: impl Into<Address>,
+        vec: &mut alloc::vec::Vec<T>,
+        additional_elements: usize,
+    ) -> Result<(), Error> {
+        let new_len = vec.len().saturating_add(additional_elements);
+        if new_len > isize::MAX as usize {
+            return Err(Error {});
+        }
+
+        vec.reserve(additional_elements);
+
+        // SAFETY: The length is only set after the elements are successfully
+        // read into the vector.
+        unsafe {
+            self.read_into_uninit_slice(
+                address,
+                &mut vec.spare_capacity_mut()[..additional_elements],
+            )?;
+            vec.set_len(new_len);
+        }
+
+        Ok(())
+    }
+
+    /// Reads an array from the process at the address with the length given into
+    /// a new `Vec`. This is a heap allocation. It's recommended to avoid this
+    /// method if possible and either use [`read`](Self::read) with a fixed size
+    /// array or [`read_into_slice`](Self::read_into_slice) if possible. If
+    /// neither of these are possible it is recommend to at least reuse the
+    /// `Vec` with [`append_to_vec`](Self::append_to_vec) if that's possible.
+    #[cfg(feature = "alloc")]
+    #[inline]
+    pub fn read_vec<T: CheckedBitPattern>(
+        &self,
+        address: impl Into<Address>,
+        len: usize,
+    ) -> Result<alloc::vec::Vec<T>, Error> {
+        let mut buf = alloc::vec::Vec::new();
+        self.append_to_vec(address, &mut buf, len)?;
+        Ok(buf)
+    }
+
     /// Follows a path of pointers from the address given and reads a value of
     /// the type specified from the process at the end of the pointer path. This
     /// method is specifically for dealing with processes that use 64-bit
