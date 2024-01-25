@@ -5,13 +5,19 @@ use crate::{
     deep_pointer::DeepPointer, file_format::pe, future::retry, signature::Signature,
     string::ArrayCString, Address, Address32, Address64, Error, PointerSize, Process,
 };
+#[cfg(feature = "std")]
+use crate::file_format::macho;
 use core::{array, cell::RefCell, iter};
 
 #[cfg(all(debug_assertions, feature = "alloc"))]
 use alloc::collections::BTreeSet;
+#[cfg(feature = "std")]
+use alloc::vec::Vec;
 #[cfg(feature = "derive")]
 pub use asr_derive::MonoClass as Class;
 use bytemuck::CheckedBitPattern;
+#[cfg(feature = "std")]
+use std::{path::Path, fs::File, io, io::Read};
 
 const CSTR: usize = 128;
 
@@ -38,39 +44,78 @@ impl Module {
     /// correct for this function to work. If you don't know the version in
     /// advance, use [`attach_auto_detect`](Self::attach_auto_detect) instead.
     pub fn attach(process: &Process, version: Version) -> Option<Self> {
-        let module = ["mono.dll", "mono-2.0-bdwgc.dll"]
-            .iter()
-            .find_map(|&name| process.get_module_address(name).ok())?;
+        #[allow(unused)]
+        let (module_name, module_range, format) = [
+            ("mono.dll", BinaryFormat::PE),
+            ("mono-2.0-bdwgc.dll", BinaryFormat::PE),
+            #[cfg(feature = "std")]
+            ("libmono.0.dylib", BinaryFormat::MachO),
+            #[cfg(feature = "std")]
+            ("libmonobdwgc-2.0.dylib", BinaryFormat::MachO)
+        ].into_iter()
+            .find_map(|(name, format)| Some((name, process.get_module_range(name).ok()?, format)))?;
+        
+        let module = module_range.0;
 
-        let pointer_size = match pe::MachineType::read(process, module)? {
-            pe::MachineType::X86_64 => PointerSize::Bit64,
-            _ => PointerSize::Bit32,
+        let pointer_size = match format {
+            BinaryFormat::PE => {
+                match pe::MachineType::read(process, module)? {
+                    pe::MachineType::X86_64 => PointerSize::Bit64,
+                    _ => PointerSize::Bit32,
+                }
+            }
+            #[cfg(feature = "std")]
+            BinaryFormat::MachO => {
+                if macho::is_64_bit(process, macho::scan_macho_page(process, module_range)?)? {
+                    PointerSize::Bit64
+                } else {
+                    PointerSize::Bit32
+                }
+            }
+        };
+        let offsets = Offsets::new(version, pointer_size, format)?;
+
+        let mono_assembly_foreach_address = match format {
+            BinaryFormat::PE => {
+                pe::symbols(process, module)
+                    .find(|symbol| {
+                        symbol
+                            .get_name::<25>(process)
+                            .is_ok_and(|name| name.matches("mono_assembly_foreach"))
+                    })?
+                    .address
+            },
+            #[cfg(feature = "std")]
+            BinaryFormat::MachO => {
+                let mono_module_path = process.get_module_path(module_name).ok()?;
+                let mono_module_bytes = file_read_all_bytes(mono_module_path).ok()?;
+                macho::get_function_address(process, module_range, &mono_module_bytes, b"_mono_assembly_foreach")?
+            }
         };
 
-        let offsets = Offsets::new(version, pointer_size, BinaryFormat::PE)?;
-
-        let root_domain_function_address = pe::symbols(process, module)
-            .find(|symbol| {
-                symbol
-                    .get_name::<25>(process)
-                    .is_ok_and(|name| name.matches("mono_assembly_foreach"))
-            })?
-            .address;
-
-        let assemblies_pointer: Address = match pointer_size {
-            PointerSize::Bit64 => {
-                const SIG_MONO_64: Signature<3> = Signature::new("48 8B 0D");
-                let scan_address: Address = SIG_MONO_64
-                    .scan_process_range(process, (root_domain_function_address, 0x100))?
+        let assemblies_pointer: Address = match (pointer_size, format) {
+            (PointerSize::Bit64, BinaryFormat::PE) => {
+                const SIG_MONO_64_PE: Signature<3> = Signature::new("48 8B 0D");
+                let scan_address: Address = SIG_MONO_64_PE
+                    .scan_process_range(process, (mono_assembly_foreach_address, 0x100))?
                     + 3;
                 scan_address + 0x4 + process.read::<i32>(scan_address).ok()?
-            }
-            PointerSize::Bit32 => {
+            },
+            #[cfg(feature = "std")]
+            (PointerSize::Bit64, BinaryFormat::MachO) => {
+                const SIG_MONO_64_MACHO: Signature<3> = Signature::new("48 8B 3D");
+                // RIP-relative addressing
+                // 3 is the offset to the next thing after the signature
+                let scan_address = SIG_MONO_64_MACHO.scan_process_range(process, (mono_assembly_foreach_address, 0x100))? + 3;
+                // 4 is the offset to the next instruction after relative
+                scan_address + 0x4 + process.read::<i32>(scan_address).ok()?
+            },
+            (PointerSize::Bit32, BinaryFormat::PE) => {
                 const SIG_32_1: Signature<2> = Signature::new("FF 35");
                 const SIG_32_2: Signature<2> = Signature::new("8B 0D");
 
                 let ptr = [SIG_32_1, SIG_32_2].iter().find_map(|sig| {
-                    sig.scan_process_range(process, (root_domain_function_address, 0x100))
+                    sig.scan_process_range(process, (mono_assembly_foreach_address, 0x100))
                 })? + 2;
 
                 process.read::<Address32>(ptr).ok()?.into()
@@ -1029,45 +1074,68 @@ fn detect_version(process: &Process) -> Option<Version> {
     if process.get_module_address("mono.dll").is_ok() {
         return Some(Version::V1);
     }
+    if process.get_module_address("libmono.0.dylib").is_ok() {
+        return Some(Version::V1);
+    }
 
-    let unity_module = {
-        let address = process.get_module_address("UnityPlayer.dll").ok()?;
-        let range = pe::read_size_of_image(process, address)? as u64;
-        (address, range)
-    };
+    let unity_module = [
+        ("UnityPlayer.dll", BinaryFormat::PE),
+        #[cfg(feature = "std")]
+        ("UnityPlayer.dylib", BinaryFormat::MachO)
+    ].into_iter().find_map(|(name, format)| {
+        match format {
+            BinaryFormat::PE => {
+                let address = process.get_module_address(name).ok()?;
+                let range = pe::read_size_of_image(process, address)? as u64;
+                Some((address, range))
+            },
+            #[cfg(feature = "std")]
+            BinaryFormat::MachO => process.get_module_range(name).ok()
+        }
+    })?;
 
+    // null "202" wildcard "."
     const SIG_202X: Signature<6> = Signature::new("00 32 30 32 ?? 2E");
 
     let Some(addr) = SIG_202X.scan_process_range(process, unity_module) else {
         return Some(Version::V2);
     };
 
-    const ZERO: u8 = b'0';
-    const NINE: u8 = b'9';
-
     let version_string = process.read::<[u8; 6]>(addr + 1).ok()?;
 
     let (before, after) = version_string.split_at(version_string.iter().position(|&x| x == b'.')?);
 
-    let mut unity: u32 = 0;
-    for &val in before {
-        match val {
-            ZERO..=NINE => unity = unity * 10 + (val - ZERO) as u32,
-            _ => break,
-        }
-    }
+    let unity: u32 = ascii_read_u32(before);
 
-    let mut unity_minor: u32 = 0;
-    for &val in &after[1..] {
-        match val {
-            ZERO..=NINE => unity_minor = unity_minor * 10 + (val - ZERO) as u32,
-            _ => break,
-        }
-    }
+    let unity_minor: u32 = ascii_read_u32(&after[1..]);
 
     Some(if (unity == 2021 && unity_minor >= 2) || (unity > 2021) {
         Version::V3
     } else {
         Version::V2
     })
+}
+
+fn ascii_read_u32(slice: &[u8]) -> u32 {
+    const ZERO: u8 = b'0';
+    const NINE: u8 = b'9';
+
+    let mut result: u32 = 0;
+    for &val in slice {
+        match val {
+            ZERO..=NINE => result = result * 10 + (val - ZERO) as u32,
+            _ => break,
+        }
+    }
+    result
+}
+
+// --------------------------------------------------------
+
+#[cfg(feature = "std")]
+fn file_read_all_bytes<P: AsRef<Path>>(path: P) -> io::Result<Vec<u8>> {
+    let mut f = File::open(path)?;
+    let mut buffer: Vec<u8> = Vec::new();
+    f.read_to_end(&mut buffer)?;
+    Ok(buffer)
 }
