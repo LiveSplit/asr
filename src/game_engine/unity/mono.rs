@@ -65,13 +65,7 @@ impl Module {
                 }
             }
             #[cfg(feature = "std")]
-            BinaryFormat::MachO => {
-                if macho::is_64_bit(process, macho::scan_macho_page(process, module_range)?)? {
-                    PointerSize::Bit64
-                } else {
-                    PointerSize::Bit32
-                }
-            }
+            BinaryFormat::MachO => macho::pointer_size(process, macho::scan_macho_page(process, module_range)?)?,
         };
         let offsets = Offsets::new(version, pointer_size, format)?;
 

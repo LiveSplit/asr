@@ -48,13 +48,7 @@ impl SceneManager {
                     _ => PointerSize::Bit32,
                 }
             }
-            BinaryFormat::MachO => {
-                if macho::is_64_bit(process, macho::scan_macho_page(process, unity_player)?)? {
-                    PointerSize::Bit64
-                } else {
-                    PointerSize::Bit32
-                }
-            }
+            BinaryFormat::MachO => macho::pointer_size(process, macho::scan_macho_page(process, unity_player)?)?,
         };
         let is_il2cpp = process.get_module_address("GameAssembly.dll").is_ok();
 

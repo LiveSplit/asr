@@ -1,6 +1,6 @@
 //! Support for parsing MachO files
 
-use crate::{Process, Address};
+use crate::{Address, PointerSize, Process};
 
 use core::mem;
 
@@ -61,11 +61,11 @@ pub fn scan_macho_page(process: &Process, range: (Address, u64)) -> Option<Addre
 }
 
 /// Determines whether a MachO header at the address is 64-bit or 32-bit
-pub fn is_64_bit(process: &Process, address: Address) -> Option<bool> {
+pub fn pointer_size(process: &Process, address: Address) -> Option<PointerSize> {
     let magic: u32 = process.read(address).ok()?;
     match magic {
-        MH_MAGIC_64 | MH_CIGAM_64 => Some(true),
-        MH_MAGIC_32 | MH_CIGAM_32 => Some(false),
+        MH_MAGIC_64 | MH_CIGAM_64 => Some(PointerSize::Bit64),
+        MH_MAGIC_32 | MH_CIGAM_32 => Some(PointerSize::Bit32),
         _ => None
     }
 }
