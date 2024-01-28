@@ -17,7 +17,7 @@ time = { version = "0.3.5", default-features = false }
 
 [target.'cfg(target_os = "wasi")'.dependencies]
 libm = { version = "0.2.7", optional = true }
-wasi = { version = "0.11.0", default-features = false }
+wasi = { version = "0.11.0+wasi-snapshot-preview1", default-features = false }
 
 [features]
 alloc = []
