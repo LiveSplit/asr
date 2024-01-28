@@ -72,7 +72,7 @@ impl Module {
                     sig.scan_process_range(process, (root_domain_function_address, 0x100))
                 })? + 2;
 
-                process.read::<Address32>(ptr + 2).ok()?.into()
+                process.read::<Address32>(ptr).ok()?.into()
             }
         };
 
