@@ -227,12 +227,18 @@ impl Assembly {
             )
             .ok()
             .filter(|val| !val.is_null())?;
-        let offsets = MonoClassOffsets::new(module.version, module.pointer_size)?;
+        // try no cattrs first
+        let offsets = MonoClassOffsets::new(module.version, module.pointer_size, false)?;
         let table_addr = process.read_pointer(image + module.offsets.monoimage_class_cache + module.offsets.monointernalhashtable_table, module.pointer_size).ok()?;
         let table = process.read_pointer(table_addr, module.pointer_size).ok()?;
         let class = process.read_pointer(table, module.pointer_size).ok()?;
         if process.read_pointer(class + offsets.monoclassdef_klass + offsets.monoclass_image, module.pointer_size).is_ok_and(|a| a == image) {
             return Some(Image { image, offsets });
+        }
+        // then try cattrs
+        let offsets_cattrs = MonoClassOffsets::new(module.version, module.pointer_size, true)?;
+        if process.read_pointer(class + offsets_cattrs.monoclassdef_klass + offsets_cattrs.monoclass_image, module.pointer_size).is_ok_and(|a| a == image) {
+            return Some(Image { image, offsets: offsets_cattrs });
         }
         Some(Image {
             image,
@@ -914,7 +920,7 @@ impl MonoAssemblyOffsets {
 
 
 impl MonoClassOffsets {
-    const fn new(version: Version, pointer_size: PointerSize) -> Option<&'static Self> {
+    const fn new(version: Version, pointer_size: PointerSize, cattrs: bool) -> Option<&'static Self> {
         match pointer_size {
             PointerSize::Bit64 => match version {
                 Version::V1 => Some(&Self {
@@ -955,6 +961,18 @@ impl MonoClassOffsets {
                 }),
             },
             PointerSize::Bit32 => match version {
+                Version::V1 if cattrs => Some(&Self {
+                    monoclassdef_next_class_cache: 0xAC,
+                    monoclassdef_klass: 0x0,
+                    monoclass_image: 0x30,
+                    monoclass_name: 0x34,
+                    monoclass_name_space: 0x38,
+                    monoclass_fields: 0x78,
+                    monoclassdef_field_count: 0x68,
+                    monoclass_runtime_info: 0xA8,
+                    monoclass_vtable_size: 0xC, // MonoVtable.data
+                    monoclass_parent: 0x24,
+                }),
                 Version::V1 => Some(&Self {
                     monoclassdef_next_class_cache: 0xA8,
                     monoclassdef_klass: 0x0,
