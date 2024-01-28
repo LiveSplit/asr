@@ -229,21 +229,40 @@ impl Assembly {
             .filter(|val| !val.is_null())?;
         // try no cattrs first
         let offsets = MonoClassOffsets::new(module.version, module.pointer_size, false)?;
-        let table_addr = process.read_pointer(image + module.offsets.monoimage_class_cache + module.offsets.monointernalhashtable_table, module.pointer_size).ok()?;
+        let table_addr = process
+            .read_pointer(
+                image
+                    + module.offsets.monoimage_class_cache
+                    + module.offsets.monointernalhashtable_table,
+                module.pointer_size,
+            )
+            .ok()?;
         let table = process.read_pointer(table_addr, module.pointer_size).ok()?;
         let class = process.read_pointer(table, module.pointer_size).ok()?;
-        if process.read_pointer(class + offsets.monoclassdef_klass + offsets.monoclass_image, module.pointer_size).is_ok_and(|a| a == image) {
+        if process
+            .read_pointer(
+                class + offsets.monoclassdef_klass + offsets.monoclass_image,
+                module.pointer_size,
+            )
+            .is_ok_and(|a| a == image)
+        {
             return Some(Image { image, offsets });
         }
         // then try cattrs
         let offsets_cattrs = MonoClassOffsets::new(module.version, module.pointer_size, true)?;
-        if process.read_pointer(class + offsets_cattrs.monoclassdef_klass + offsets_cattrs.monoclass_image, module.pointer_size).is_ok_and(|a| a == image) {
-            return Some(Image { image, offsets: offsets_cattrs });
+        if process
+            .read_pointer(
+                class + offsets_cattrs.monoclassdef_klass + offsets_cattrs.monoclass_image,
+                module.pointer_size,
+            )
+            .is_ok_and(|a| a == image)
+        {
+            return Some(Image {
+                image,
+                offsets: offsets_cattrs,
+            });
         }
-        Some(Image {
-            image,
-            offsets,
-        })
+        Some(Image { image, offsets })
     }
 }
 
@@ -364,8 +383,7 @@ impl Class {
             self.class,
             module.pointer_size,
             &[
-                self.offsets.monoclassdef_klass as u64
-                    + self.offsets.monoclass_name_space as u64,
+                self.offsets.monoclassdef_klass as u64 + self.offsets.monoclass_name_space as u64,
                 0x0,
             ],
         )
@@ -376,7 +394,10 @@ impl Class {
         process: &'a Process,
         module: &'a Module,
     ) -> impl Iterator<Item = Field> + 'a {
-        let mut this_class = Class { class: self.class, offsets: self.offsets };
+        let mut this_class = Class {
+            class: self.class,
+            offsets: self.offsets,
+        };
         let mut iter_break = this_class.class.is_null();
 
         iter::from_fn(move || {
@@ -479,9 +500,7 @@ impl Class {
     fn get_static_table_pointer(&self, process: &Process, module: &Module) -> Option<Address> {
         let runtime_info = process
             .read_pointer(
-                self.class
-                    + self.offsets.monoclassdef_klass
-                    + self.offsets.monoclass_runtime_info,
+                self.class + self.offsets.monoclassdef_klass + self.offsets.monoclass_runtime_info,
                 module.pointer_size,
             )
             .ok()?;
@@ -726,7 +745,10 @@ impl<const CAP: usize> UnityPointer<CAP> {
                                 .filter(|val| !val.is_null())
                                 .ok_or(Error {})?;
 
-                            Class { class, offsets: image.offsets }
+                            Class {
+                                class,
+                                offsets: image.offsets,
+                            }
                         }
                     };
 
@@ -918,9 +940,12 @@ impl MonoAssemblyOffsets {
     }
 }
 
-
 impl MonoClassOffsets {
-    const fn new(version: Version, pointer_size: PointerSize, cattrs: bool) -> Option<&'static Self> {
+    const fn new(
+        version: Version,
+        pointer_size: PointerSize,
+        cattrs: bool,
+    ) -> Option<&'static Self> {
         match pointer_size {
             PointerSize::Bit64 => match version {
                 Version::V1 if cattrs => Some(&Self {
