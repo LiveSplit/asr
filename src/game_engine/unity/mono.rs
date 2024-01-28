@@ -812,6 +812,7 @@ struct MonoAssemblyOffsets {
 struct MonoClassOffsets {
     monoclassdef_next_class_cache: u16,
     monoclassdef_klass: u8,
+    monoclass_image: u8,
     monoclass_name: u8,
     monoclass_name_space: u8,
     monoclass_fields: u8,
@@ -913,6 +914,7 @@ impl MonoClassOffsets {
                 Version::V1 => Some(&Self {
                     monoclassdef_next_class_cache: 0x100,
                     monoclassdef_klass: 0x0,
+                    monoclass_image: 0x40,
                     monoclass_name: 0x48,
                     monoclass_name_space: 0x50,
                     monoclass_fields: 0xA8,
@@ -924,6 +926,7 @@ impl MonoClassOffsets {
                 Version::V2 => Some(&Self {
                     monoclassdef_next_class_cache: 0x108,
                     monoclassdef_klass: 0x0,
+                    monoclass_image: 0x40,
                     monoclass_name: 0x48,
                     monoclass_name_space: 0x50,
                     monoclass_fields: 0x98,
@@ -935,6 +938,7 @@ impl MonoClassOffsets {
                 Version::V3 => Some(&Self {
                     monoclassdef_next_class_cache: 0x108,
                     monoclassdef_klass: 0x0,
+                    monoclass_image: 0x40,
                     monoclass_name: 0x48,
                     monoclass_name_space: 0x50,
                     monoclass_fields: 0x98,
@@ -948,6 +952,7 @@ impl MonoClassOffsets {
                 Version::V1 => Some(&Self {
                     monoclassdef_next_class_cache: 0xA8,
                     monoclassdef_klass: 0x0,
+                    monoclass_image: 0x2C,
                     monoclass_name: 0x30,
                     monoclass_name_space: 0x34,
                     monoclass_fields: 0x74,
@@ -959,6 +964,7 @@ impl MonoClassOffsets {
                 Version::V2 => Some(&Self {
                     monoclassdef_next_class_cache: 0xA8,
                     monoclassdef_klass: 0x0,
+                    monoclass_image: 0x28,
                     monoclass_name: 0x2C,
                     monoclass_name_space: 0x30,
                     monoclass_fields: 0x60,
@@ -970,6 +976,7 @@ impl MonoClassOffsets {
                 Version::V3 => Some(&Self {
                     monoclassdef_next_class_cache: 0xA0,
                     monoclassdef_klass: 0x0,
+                    monoclass_image: 0x28,
                     monoclass_name: 0x2C,
                     monoclass_name_space: 0x30,
                     monoclass_fields: 0x60,
