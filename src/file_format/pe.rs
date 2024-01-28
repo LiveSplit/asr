@@ -4,7 +4,7 @@ use core::{fmt, mem};
 
 use bytemuck::{Pod, Zeroable};
 
-use crate::{string::ArrayCString, Address, Error, FromEndian, Process};
+use crate::{string::ArrayCString, Address, Error, FromEndian, PointerSize, Process};
 
 // Reference:
 // https://learn.microsoft.com/en-us/windows/win32/debug/pe-format
@@ -236,6 +236,16 @@ impl MachineType {
     pub const THUMB: Self = Self(0x1c2);
     /// MIPS little-endian WCE v2
     pub const WCEMIPSV2: Self = Self(0x169);
+
+    /// Returns the pointer size for the given machine type. Only the most
+    /// common machine types are supported.
+    pub const fn pointer_size(self) -> Option<PointerSize> {
+        Some(match self {
+            Self::AMD64 | Self::ARM64 | Self::IA64 => PointerSize::Bit64,
+            Self::I386 | Self::ARM => PointerSize::Bit32,
+            _ => return None,
+        })
+    }
 }
 
 /// Reads the size of the image of a module (`exe` or `dll`) from the given

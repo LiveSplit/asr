@@ -4,7 +4,7 @@ use core::{
     slice,
 };
 
-use crate::{Address, Address32, Address64};
+use crate::{Address, Address16, Address32, Address64, PointerSize};
 
 use super::{sys, Error, MemoryRange};
 
@@ -414,36 +414,31 @@ impl Process {
         Ok(buf)
     }
 
-    /// Follows a path of pointers from the address given and reads a value of
-    /// the type specified from the process at the end of the pointer path. This
-    /// method is specifically for dealing with processes that use 64-bit
-    /// pointers.
-    pub fn read_pointer_path64<T: CheckedBitPattern>(
+    /// Reads a pointer address from the process at the address given.
+    pub fn read_pointer(
         &self,
         address: impl Into<Address>,
+        pointer_size: PointerSize,
+    ) -> Result<Address, Error> {
+        Ok(match pointer_size {
+            PointerSize::Bit16 => self.read::<Address16>(address)?.into(),
+            PointerSize::Bit32 => self.read::<Address32>(address)?.into(),
+            PointerSize::Bit64 => self.read::<Address64>(address)?.into(),
+        })
+    }
+
+    /// Follows a path of pointers from the address given and reads a value of
+    /// the type specified from the process at the end of the pointer path.
+    pub fn read_pointer_path<T: CheckedBitPattern>(
+        &self,
+        address: impl Into<Address>,
+        pointer_size: PointerSize,
         path: &[u64],
     ) -> Result<T, Error> {
         let mut address = address.into();
         let (&last, path) = path.split_last().ok_or(Error {})?;
         for &offset in path {
-            address = self.read::<Address64>(address + offset)?.into();
-        }
-        self.read(address + last)
-    }
-
-    /// Follows a path of pointers from the address given and reads a value of
-    /// the type specified from the process at the end of the pointer path. This
-    /// method is specifically for dealing with processes that use 32-bit
-    /// pointers.
-    pub fn read_pointer_path32<T: CheckedBitPattern>(
-        &self,
-        address: impl Into<Address>,
-        path: &[u32],
-    ) -> Result<T, Error> {
-        let mut address = address.into();
-        let (&last, path) = path.split_last().ok_or(Error {})?;
-        for &offset in path {
-            address = self.read::<Address32>(address + offset)?.into();
+            address = self.read_pointer(address + offset, pointer_size)?;
         }
         self.read(address + last)
     }

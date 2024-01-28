@@ -55,17 +55,17 @@ pub fn add_title(key: &str, description: &str, heading_level: u32) {
 /// of settings. The description is what's shown to the user. The key of the
 /// default option to show needs to be specified.
 #[inline]
-pub fn add_choice(key: &str, description: &str, default_item_key: &str) {
+pub fn add_choice(key: &str, description: &str, default_option_key: &str) {
     // SAFETY: We provide valid pointers and lengths to key, description and
-    // default_item_key. They are also guaranteed to be valid UTF-8 strings.
+    // default_option_key. They are also guaranteed to be valid UTF-8 strings.
     unsafe {
         sys::user_settings_add_choice(
             key.as_ptr(),
             key.len(),
             description.as_ptr(),
             description.len(),
-            default_item_key.as_ptr(),
-            default_item_key.len(),
+            default_option_key.as_ptr(),
+            default_option_key.len(),
         )
     }
 }

@@ -8,7 +8,7 @@ use core::{
 
 use bytemuck::{Pod, Zeroable};
 
-use crate::{string::ArrayCString, Address, Endian, Error, FromEndian, Process};
+use crate::{string::ArrayCString, Address, Endian, Error, FromEndian, PointerSize, Process};
 
 // Based on:
 // https://refspecs.linuxfoundation.org/elf/elf.pdf
@@ -98,6 +98,15 @@ impl Bitness {
     /// Checks whether the bitness is 64-bit.
     pub fn is_64(self) -> bool {
         self == Self::BITNESS_64
+    }
+
+    /// Returns the pointer size for the given bitness.
+    pub const fn pointer_size(self) -> Option<PointerSize> {
+        Some(match self {
+            Self::BITNESS_64 => PointerSize::Bit64,
+            Self::BITNESS_32 => PointerSize::Bit32,
+            _ => return None,
+        })
     }
 }
 
