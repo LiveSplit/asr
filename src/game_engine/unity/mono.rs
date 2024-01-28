@@ -228,6 +228,12 @@ impl Assembly {
             .ok()
             .filter(|val| !val.is_null())?;
         let offsets = MonoClassOffsets::new(module.version, module.pointer_size)?;
+        let table_addr = process.read_pointer(image + module.offsets.monoimage_class_cache + module.offsets.monointernalhashtable_table, module.pointer_size).ok()?;
+        let table = process.read_pointer(table_addr, module.pointer_size).ok()?;
+        let class = process.read_pointer(table, module.pointer_size).ok()?;
+        if process.read_pointer(class + offsets.monoclassdef_klass + offsets.monoclass_image, module.pointer_size).is_ok_and(|a| a == image) {
+            return Some(Image { image, offsets });
+        }
         Some(Image {
             image,
             offsets,
