@@ -829,7 +829,7 @@ struct MonoClassOffsets {
     monoclass_name_space: u8,
     monoclass_fields: u8,
     monoclassdef_field_count: u16,
-    monoclass_runtime_info: u8,
+    monoclass_runtime_info: u16,
     monoclass_vtable_size: u8,
     monoclass_parent: u8,
 }
@@ -923,6 +923,18 @@ impl MonoClassOffsets {
     const fn new(version: Version, pointer_size: PointerSize, cattrs: bool) -> Option<&'static Self> {
         match pointer_size {
             PointerSize::Bit64 => match version {
+                Version::V1 if cattrs => Some(&Self {
+                    monoclassdef_next_class_cache: 0x108,
+                    monoclassdef_klass: 0x0,
+                    monoclass_image: 0x48,
+                    monoclass_name: 0x50,
+                    monoclass_name_space: 0x58,
+                    monoclass_fields: 0xB0,
+                    monoclassdef_field_count: 0x9C,
+                    monoclass_runtime_info: 0x100,
+                    monoclass_vtable_size: 0x18, // MonoVtable.data
+                    monoclass_parent: 0x30,
+                }),
                 Version::V1 => Some(&Self {
                     monoclassdef_next_class_cache: 0x100,
                     monoclassdef_klass: 0x0,
