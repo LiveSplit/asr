@@ -949,7 +949,27 @@ pub enum Version {
 
 fn detect_version(process: &Process) -> Option<Version> {
     if process.get_module_address("mono.dll").is_ok() {
-        return Some(Version::V1);
+        // If the module mono.dll is present, then it's either V1 or V1Cattrs.
+        // In order to distinguish between them, we check the first class listed in the
+        // default Assembly-CSharp image and check for the pointer to its name, assuming it's using V1.
+        // If such pointer matches the address to the assembly image instead, then it's V1Cattrs.
+        // The idea is taken from https://github.com/Voxelse/Voxif/blob/main/Voxif.Helpers/Voxif.Helpers.UnityHelper/UnityHelper.cs#L343-L344
+        let module = Module::attach(process, Version::V1)?;
+        let image = module.get_default_image(process)?;
+        let class = image.classes(process, &module).next()?;
+
+        let pointer_to_image = process
+            .read_pointer(
+                class.class + module.offsets.monoclass_name,
+                module.pointer_size,
+            )
+            .ok()?;
+
+        return Some(if pointer_to_image.eq(&image.image) {
+            Version::V1Cattrs
+        } else {
+            Version::V1
+        });
     }
 
     let unity_module = {
