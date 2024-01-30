@@ -228,7 +228,7 @@ impl Assembly {
             .ok()
             .filter(|val| !val.is_null())?;
         // try no cattrs first
-        let offsets = MonoClassOffsets::new(module.version, module.pointer_size, false)?;
+        let offsets = MonoClassOffsets::new(module.version, module.pointer_size)?;
         let table_addr = process
             .read_pointer(
                 image
@@ -249,18 +249,20 @@ impl Assembly {
             return Some(Image { image, offsets });
         }
         // then try cattrs
-        let offsets_cattrs = MonoClassOffsets::new(module.version, module.pointer_size, true)?;
-        if process
-            .read_pointer(
-                class + offsets_cattrs.monoclassdef_klass + offsets_cattrs.monoclass_image,
-                module.pointer_size,
-            )
-            .is_ok_and(|a| a == image)
-        {
-            return Some(Image {
-                image,
-                offsets: offsets_cattrs,
-            });
+        if module.version == Version::V1 {
+            let offsets_cattrs = MonoClassOffsets::new(Version::V1Cattrs, module.pointer_size)?;
+            if process
+                .read_pointer(
+                    class + offsets_cattrs.monoclassdef_klass + offsets_cattrs.monoclass_image,
+                    module.pointer_size,
+                )
+                .is_ok_and(|a| a == image)
+            {
+                return Some(Image {
+                    image,
+                    offsets: offsets_cattrs,
+                });
+            }
         }
         Some(Image { image, offsets })
     }
@@ -514,7 +516,7 @@ impl Class {
 
         // Mono V1 behaves differently when it comes to recover the static table
         match module.version {
-            Version::V1 => Some(vtables + self.offsets.monoclass_vtable_size),
+            Version::V1 | Version::V1Cattrs => Some(vtables + self.offsets.monoclass_vtable_size),
             _ => {
                 vtables = vtables + module.offsets.monovtable_vtable;
 
@@ -860,7 +862,7 @@ impl MonoAssemblyOffsets {
     const fn new(version: Version, pointer_size: PointerSize) -> Option<&'static Self> {
         match pointer_size {
             PointerSize::Bit64 => match version {
-                Version::V1 => Some(&Self {
+                Version::V1 | Version::V1Cattrs => Some(&Self {
                     monoassembly_aname: 0x10,
                     monoassembly_image: 0x58,
                     monoimage_class_cache: 0x3D0,
@@ -898,7 +900,7 @@ impl MonoAssemblyOffsets {
                 }),
             },
             PointerSize::Bit32 => match version {
-                Version::V1 => Some(&Self {
+                Version::V1 | Version::V1Cattrs => Some(&Self {
                     monoassembly_aname: 0x8,
                     monoassembly_image: 0x40,
                     monoimage_class_cache: 0x2A0,
@@ -944,11 +946,10 @@ impl MonoClassOffsets {
     const fn new(
         version: Version,
         pointer_size: PointerSize,
-        cattrs: bool,
     ) -> Option<&'static Self> {
         match pointer_size {
             PointerSize::Bit64 => match version {
-                Version::V1 if cattrs => Some(&Self {
+                Version::V1Cattrs => Some(&Self {
                     monoclassdef_next_class_cache: 0x108,
                     monoclassdef_klass: 0x0,
                     monoclass_image: 0x48,
@@ -998,7 +999,7 @@ impl MonoClassOffsets {
                 }),
             },
             PointerSize::Bit32 => match version {
-                Version::V1 if cattrs => Some(&Self {
+                Version::V1Cattrs => Some(&Self {
                     monoclassdef_next_class_cache: 0xAC,
                     monoclassdef_klass: 0x0,
                     monoclass_image: 0x30,
@@ -1058,6 +1059,8 @@ impl MonoClassOffsets {
 pub enum Version {
     /// Version 1
     V1,
+    /// Version 1 with cattrs
+    V1Cattrs,
     /// Version 2
     V2,
     /// Version 3
