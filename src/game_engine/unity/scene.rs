@@ -9,8 +9,11 @@
 use core::{array, iter, mem::MaybeUninit};
 
 use crate::{
-    file_format::pe, future::retry, signature::Signature, string::ArrayCString, Address, Address32,
-    Address64, Error, PointerSize, Process,
+    file_format::{macho, pe},
+    future::retry,
+    signature::Signature,
+    string::ArrayCString,
+    Address, Address32, Address64, Error, PointerSize, Process,
 };
 
 const CSTR: usize = 128;
@@ -30,33 +33,52 @@ pub struct SceneManager {
 impl SceneManager {
     /// Attaches to the scene manager in the given process.
     pub fn attach(process: &Process) -> Option<Self> {
-        const SIG_64_BIT: Signature<13> = Signature::new("48 83 EC 20 4C 8B ?5 ???????? 33 F6");
+        const SIG_64_BIT_PE: Signature<13> = Signature::new("48 83 EC 20 4C 8B ?5 ???????? 33 F6");
+        const SIG_64_BIT_MACHO: Signature<13> =
+            Signature::new("41 54 53 50 4C 8B ?5 ???????? 41 83");
         const SIG_32_1: Signature<12> = Signature::new("55 8B EC 51 A1 ???????? 53 33 DB");
         const SIG_32_2: Signature<6> = Signature::new("53 8D 41 ?? 33 DB");
         const SIG_32_3: Signature<14> = Signature::new("55 8B EC 83 EC 18 A1 ???????? 33 C9 53");
 
-        let unity_player = process.get_module_range("UnityPlayer.dll").ok()?;
+        let (unity_player, format) = [
+            ("UnityPlayer.dll", BinaryFormat::PE),
+            ("UnityPlayer.dylib", BinaryFormat::MachO),
+        ]
+        .into_iter()
+        .find_map(|(name, format)| Some((process.get_module_range(name).ok()?, format)))?;
 
-        let pointer_size = match pe::MachineType::read(process, unity_player.0)? {
-            pe::MachineType::X86_64 => PointerSize::Bit64,
-            _ => PointerSize::Bit32,
+        let pointer_size = match format {
+            BinaryFormat::PE => pe::MachineType::read(process, unity_player.0)?.pointer_size()?,
+            BinaryFormat::MachO => macho::pointer_size(process, unity_player)?,
         };
 
         let is_il2cpp = process.get_module_address("GameAssembly.dll").is_ok();
 
         // There are multiple signatures that can be used, depending on the version of Unity
         // used in the target game.
-        let base_address: Address = if pointer_size == PointerSize::Bit64 {
-            let addr = SIG_64_BIT.scan_process_range(process, unity_player)? + 7;
-            addr + 0x4 + process.read::<i32>(addr).ok()?
-        } else if let Some(addr) = SIG_32_1.scan_process_range(process, unity_player) {
-            process.read::<Address32>(addr + 5).ok()?.into()
-        } else if let Some(addr) = SIG_32_2.scan_process_range(process, unity_player) {
-            process.read::<Address32>(addr.add_signed(-4)).ok()?.into()
-        } else if let Some(addr) = SIG_32_3.scan_process_range(process, unity_player) {
-            process.read::<Address32>(addr + 7).ok()?.into()
-        } else {
-            return None;
+        let base_address: Address = match (pointer_size, format) {
+            (PointerSize::Bit64, BinaryFormat::PE) => {
+                let addr = SIG_64_BIT_PE.scan_process_range(process, unity_player)? + 7;
+                addr + 0x4 + process.read::<i32>(addr).ok()?
+            }
+            (PointerSize::Bit64, BinaryFormat::MachO) => {
+                let addr = SIG_64_BIT_MACHO.scan_process_range(process, unity_player)? + 7;
+                addr + 0x4 + process.read::<i32>(addr).ok()?
+            }
+            (PointerSize::Bit32, BinaryFormat::PE) => {
+                if let Some(addr) = SIG_32_1.scan_process_range(process, unity_player) {
+                    process.read::<Address32>(addr + 5).ok()?.into()
+                } else if let Some(addr) = SIG_32_2.scan_process_range(process, unity_player) {
+                    process.read::<Address32>(addr.add_signed(-4)).ok()?.into()
+                } else if let Some(addr) = SIG_32_3.scan_process_range(process, unity_player) {
+                    process.read::<Address32>(addr + 7).ok()?.into()
+                } else {
+                    return None;
+                }
+            }
+            _ => {
+                return None;
+            }
         };
 
         let offsets = Offsets::new(pointer_size);
@@ -427,6 +449,12 @@ impl Transform {
             })
             .ok_or(Error {})
     }
+}
+
+#[derive(Copy, Clone, PartialEq, Hash, Debug)]
+enum BinaryFormat {
+    PE,
+    MachO,
 }
 
 struct Offsets {
