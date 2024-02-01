@@ -1,6 +1,8 @@
 //! Support for attaching to Unity games that are using the standard Mono
 //! backend.
 
+#[cfg(feature = "alloc")]
+use crate::file_format::macho;
 use crate::{
     file_format::{elf, pe},
     future::retry,
@@ -47,8 +49,12 @@ impl Module {
         let (module_range, format) = [
             ("mono.dll", BinaryFormat::PE),
             ("libmono.so", BinaryFormat::ELF),
+            #[cfg(feature = "alloc")]
+            ("libmono.0.dylib", BinaryFormat::MachO),
             ("mono-2.0-bdwgc.dll", BinaryFormat::PE),
             ("libmonobdwgc-2.0.so", BinaryFormat::ELF),
+            #[cfg(feature = "alloc")]
+            ("libmonobdwgc-2.0.dylib", BinaryFormat::MachO),
         ]
         .into_iter()
         .find_map(|(name, format)| Some((process.get_module_range(name).ok()?, format)))?;
@@ -57,6 +63,8 @@ impl Module {
         let pointer_size = match format {
             BinaryFormat::PE => pe::MachineType::read(process, module)?.pointer_size()?,
             BinaryFormat::ELF => elf::pointer_size(process, module)?,
+            #[cfg(feature = "alloc")]
+            BinaryFormat::MachO => macho::pointer_size(process, module_range)?,
         };
 
         let offsets = Offsets::new(version, pointer_size, format)?;
@@ -80,6 +88,16 @@ impl Module {
                     })?
                     .address
             }
+            #[cfg(feature = "alloc")]
+            BinaryFormat::MachO => {
+                macho::symbols(process, module_range)?
+                    .find(|symbol| {
+                        symbol
+                            .get_name::<26>(process)
+                            .is_ok_and(|name| name.matches("_mono_assembly_foreach"))
+                    })?
+                    .address
+            }
         };
 
         let assemblies: Address = match (pointer_size, format) {
@@ -93,6 +111,14 @@ impl Module {
             (PointerSize::Bit64, BinaryFormat::ELF) => {
                 const SIG_MONO_64_ELF: Signature<3> = Signature::new("48 8B 3D");
                 let scan_address: Address = SIG_MONO_64_ELF
+                    .scan_process_range(process, (root_domain_function_address, 0x100))?
+                    + 3;
+                scan_address + 0x4 + process.read::<i32>(scan_address).ok()?
+            }
+            #[cfg(feature = "alloc")]
+            (PointerSize::Bit64, BinaryFormat::MachO) => {
+                const SIG_MONO_64_MACHO: Signature<3> = Signature::new("48 8B 3D");
+                let scan_address: Address = SIG_MONO_64_MACHO
                     .scan_process_range(process, (root_domain_function_address, 0x100))?
                     + 3;
                 scan_address + 0x4 + process.read::<i32>(scan_address).ok()?
@@ -1064,6 +1090,8 @@ impl Offsets {
 enum BinaryFormat {
     PE,
     ELF,
+    #[cfg(feature = "alloc")]
+    MachO,
 }
 
 /// The version of Mono that was used for the game. These don't correlate to the
@@ -1083,6 +1111,7 @@ pub enum Version {
 fn detect_version(process: &Process) -> Option<Version> {
     if process.get_module_address("mono.dll").is_ok()
         || process.get_module_address("libmono.so").is_ok()
+        || process.get_module_address("libmono.0.dylib").is_ok()
     {
         // If the module mono.dll is present, then it's either V1 or V1Cattrs.
         // In order to distinguish between them, we check the first class listed in the
@@ -1110,6 +1139,8 @@ fn detect_version(process: &Process) -> Option<Version> {
     let unity_module = [
         ("UnityPlayer.dll", BinaryFormat::PE),
         ("UnityPlayer.so", BinaryFormat::ELF),
+        #[cfg(feature = "alloc")]
+        ("UnityPlayer.dylib", BinaryFormat::MachO),
     ]
     .into_iter()
     .find_map(|(name, format)| match format {
@@ -1119,6 +1150,8 @@ fn detect_version(process: &Process) -> Option<Version> {
             Some((address, range))
         }
         BinaryFormat::ELF => process.get_module_range(name).ok(),
+        #[cfg(feature = "alloc")]
+        BinaryFormat::MachO => process.get_module_range(name).ok(),
     })?;
 
     const SIG_202X: Signature<6> = Signature::new("00 32 30 32 ?? 2E");
