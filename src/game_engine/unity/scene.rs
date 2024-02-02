@@ -9,7 +9,7 @@
 use core::{array, iter, mem::MaybeUninit};
 
 use crate::{
-    file_format::{macho, pe},
+    file_format::{elf, macho, pe},
     future::retry,
     signature::Signature,
     string::ArrayCString,
@@ -34,6 +34,7 @@ impl SceneManager {
     /// Attaches to the scene manager in the given process.
     pub fn attach(process: &Process) -> Option<Self> {
         const SIG_64_BIT_PE: Signature<13> = Signature::new("48 83 EC 20 4C 8B ?5 ???????? 33 F6");
+        const SIG_64_BIT_ELF: Signature<13> = Signature::new("41 54 53 50 4C 8B ?5 ???????? 41 83");
         const SIG_64_BIT_MACHO: Signature<13> =
             Signature::new("41 54 53 50 4C 8B ?5 ???????? 41 83");
         const SIG_32_1: Signature<12> = Signature::new("55 8B EC 51 A1 ???????? 53 33 DB");
@@ -42,6 +43,7 @@ impl SceneManager {
 
         let (unity_player, format) = [
             ("UnityPlayer.dll", BinaryFormat::PE),
+            ("UnityPlayer.so", BinaryFormat::ELF),
             ("UnityPlayer.dylib", BinaryFormat::MachO),
         ]
         .into_iter()
@@ -49,6 +51,7 @@ impl SceneManager {
 
         let pointer_size = match format {
             BinaryFormat::PE => pe::MachineType::read(process, unity_player.0)?.pointer_size()?,
+            BinaryFormat::ELF => elf::pointer_size(process, unity_player.0)?,
             BinaryFormat::MachO => macho::pointer_size(process, unity_player)?,
         };
 
@@ -59,6 +62,10 @@ impl SceneManager {
         let base_address: Address = match (pointer_size, format) {
             (PointerSize::Bit64, BinaryFormat::PE) => {
                 let addr = SIG_64_BIT_PE.scan_process_range(process, unity_player)? + 7;
+                addr + 0x4 + process.read::<i32>(addr).ok()?
+            }
+            (PointerSize::Bit64, BinaryFormat::ELF) => {
+                let addr = SIG_64_BIT_ELF.scan_process_range(process, unity_player)? + 7;
                 addr + 0x4 + process.read::<i32>(addr).ok()?
             }
             (PointerSize::Bit64, BinaryFormat::MachO) => {
@@ -454,6 +461,7 @@ impl Transform {
 #[derive(Copy, Clone, PartialEq, Hash, Debug)]
 enum BinaryFormat {
     PE,
+    ELF,
     MachO,
 }
 
