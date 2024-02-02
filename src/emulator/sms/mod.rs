@@ -154,16 +154,20 @@ pub struct UntilEmulatorCloses<'a, F> {
     future: F,
 }
 
-impl<F: Future<Output = ()>> Future for UntilEmulatorCloses<'_, F> {
-    type Output = ();
+impl<T, F: Future<Output = T>> Future for UntilEmulatorCloses<'_, F> {
+    type Output = Option<T>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         if !self.emulator.is_open() {
-            return Poll::Ready(());
+            return Poll::Ready(None);
         }
         self.emulator.update();
         // SAFETY: We are simply projecting the Pin.
-        unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().future).poll(cx) }
+        unsafe {
+            Pin::new_unchecked(&mut self.get_unchecked_mut().future)
+                .poll(cx)
+                .map(Some)
+        }
     }
 }
 
