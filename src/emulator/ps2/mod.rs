@@ -118,7 +118,7 @@ impl Emulator {
     /// Checks if a memory reading operation would exceed the memory bounds of the emulated system.
     ///
     /// Returns `true` if the read operation can be performed safely, `false` otherwise.
-    fn check_bounds<T>(&self, offset: u32) -> bool {
+    const fn check_bounds<T>(&self, offset: u32) -> bool {
         match offset {
             (0x00100000..=0x01FFFFFF) => offset + size_of::<T>() as u32 <= 0x02000000,
             _ => false,
