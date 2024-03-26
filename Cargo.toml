@@ -31,6 +31,7 @@ wasi-no-std = ["libm"]
 
 # Game Engines
 unity = ["signature", "asr-derive?/unity"]
+unreal = ["signature"]
 
 # Emulators
 gba = ["flags", "signature"]

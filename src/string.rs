@@ -1,6 +1,6 @@
 //! Support for string types that can be read from a process's memory.
 
-use core::{ops, str};
+use core::{ops, slice, str};
 
 use bytemuck::{Pod, Zeroable};
 
@@ -39,6 +39,20 @@ impl<const N: usize> ArrayCString<N> {
         let bytes = text.as_ref();
         !self.0.get(bytes.len()).is_some_and(|&b| b != 0)
             && self.0.get(..bytes.len()).is_some_and(|s| s == bytes)
+    }
+
+    /// Reduces the size of the string contained inside the ArrayString
+    /// to the value provided by `len`. If a value higher than the size of the ArrayString
+    /// is provided, no action is performed.
+    /// This function might be useful for dealing with strings devoid of the null terminator byte.
+    pub fn set_len(&mut self, len: usize) {
+        if self.len() > len {
+            // SAFETY: We checked the length of the u8 array beforehand
+            unsafe {
+                let ptr = slice::from_raw_parts_mut(self.as_ptr() as *mut u8, self.len());
+                ptr[len] = 0;
+            }
+        }
     }
 }
 
