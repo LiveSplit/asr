@@ -36,21 +36,21 @@ impl Module {
     ) -> Option<Self> {
         let pointer_size = pe::MachineType::read(process, main_module_address)?.pointer_size()?;
         let offsets = Offsets::new(version, pointer_size)?;
-
         let module_size = pe::read_size_of_image(process, main_module_address)? as u64;
+        let module_range = (main_module_address, module_size);
 
         let g_engine = {
             const GENGINE_1: Signature<7> = Signature::new("A8 01 75 ?? 48 C7 05");
             const GENGINE_2: Signature<6> = Signature::new("A8 01 75 ?? C7 05");
 
             if let Some(val) =
-                GENGINE_1.scan_process_range(process, (main_module_address, module_size))
+                GENGINE_1.scan_process_range(process, module_range)
             {
                 let val = val + 0x7;
                 val + 0x8 + process.read::<i32>(val).ok()?
             } else {
                 let val =
-                    GENGINE_2.scan_process_range(process, (main_module_address, module_size))?;
+                    GENGINE_2.scan_process_range(process, module_range)?;
                 let val = val + 0x6;
                 val + 0x8 + process.read::<i32>(val).ok()?
             }
@@ -59,7 +59,7 @@ impl Module {
         let g_world = {
             const GWORLD: Signature<22> =
                 Signature::new("48 8B 05 ?? ?? ?? ?? 48 3B ?? 48 0F 44 ?? 48 89 05 ?? ?? ?? ?? E8");
-            let val = GWORLD.scan_process_range(process, (main_module_address, module_size))? + 3;
+            let val = GWORLD.scan_process_range(process, module_range)? + 3;
             val + 0x4 + process.read::<i32>(val).ok()?
         };
 
@@ -71,17 +71,17 @@ impl Module {
                 Signature::new("57 0F B7 F8 74 ?? B8 ?? ?? ?? ?? 8B 44");
 
             if let Some(scan) =
-                FNAME_POOL_0.scan_process_range(process, (main_module_address, module_size))
+                FNAME_POOL_0.scan_process_range(process, module_range)
             {
                 let val = scan + 5;
                 val + 0x4 + process.read::<i32>(val).ok()?
             } else if let Some(scan) =
-                FNAME_POOL_1.scan_process_range(process, (main_module_address, module_size))
+                FNAME_POOL_1.scan_process_range(process, module_range)
             {
                 let val = scan + 13;
                 val + 0x4 + process.read::<i32>(val).ok()?
             } else if let Some(scan) =
-                FNAME_POOL_2.scan_process_range(process, (main_module_address, module_size))
+                FNAME_POOL_2.scan_process_range(process, module_range)
             {
                 let val = scan + 7;
                 val + 0x4 + process.read::<i32>(val).ok()?
@@ -440,7 +440,7 @@ impl Offsets {
                 Version::V4_23 | Version::V4_24 => &Self {
                     uobject_fname: 0x18,
                     uobject_class: 0x10,
-                    uclass_super_field: 0x28, // PLACEHOLDER
+                    uclass_super_field: 0x40,
                     uclass_property_link: 0x48,
                     uproperty_fname: 0x18,
                     uproperty_offset_internal: 0x44,
