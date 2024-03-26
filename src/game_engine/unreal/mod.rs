@@ -10,8 +10,8 @@ use core::{
 use bytemuck::CheckedBitPattern;
 
 use crate::{
-    file_format::pe, signature::Signature, string::ArrayCString, Address, Error, PointerSize,
-    Process,
+    file_format::pe, future::retry, signature::Signature, string::ArrayCString, Address, Error,
+    PointerSize, Process,
 };
 
 const CSTR: usize = 128;
@@ -27,7 +27,7 @@ pub struct Module {
 }
 
 impl Module {
-    /// Tries attaching to a UE4 game. The UE version needs to be correct for this
+    /// Tries attaching to a UE game. The UE version needs to be correct for this
     /// function to work.
     pub fn attach(
         process: &Process,
@@ -43,14 +43,11 @@ impl Module {
             const GENGINE_1: Signature<7> = Signature::new("A8 01 75 ?? 48 C7 05");
             const GENGINE_2: Signature<6> = Signature::new("A8 01 75 ?? C7 05");
 
-            if let Some(val) =
-                GENGINE_1.scan_process_range(process, module_range)
-            {
+            if let Some(val) = GENGINE_1.scan_process_range(process, module_range) {
                 let val = val + 0x7;
                 val + 0x8 + process.read::<i32>(val).ok()?
             } else {
-                let val =
-                    GENGINE_2.scan_process_range(process, module_range)?;
+                let val = GENGINE_2.scan_process_range(process, module_range)?;
                 let val = val + 0x6;
                 val + 0x8 + process.read::<i32>(val).ok()?
             }
@@ -70,19 +67,13 @@ impl Module {
             const FNAME_POOL_2: Signature<13> =
                 Signature::new("57 0F B7 F8 74 ?? B8 ?? ?? ?? ?? 8B 44");
 
-            if let Some(scan) =
-                FNAME_POOL_0.scan_process_range(process, module_range)
-            {
+            if let Some(scan) = FNAME_POOL_0.scan_process_range(process, module_range) {
                 let val = scan + 5;
                 val + 0x4 + process.read::<i32>(val).ok()?
-            } else if let Some(scan) =
-                FNAME_POOL_1.scan_process_range(process, module_range)
-            {
+            } else if let Some(scan) = FNAME_POOL_1.scan_process_range(process, module_range) {
                 let val = scan + 13;
                 val + 0x4 + process.read::<i32>(val).ok()?
-            } else if let Some(scan) =
-                FNAME_POOL_2.scan_process_range(process, module_range)
-            {
+            } else if let Some(scan) = FNAME_POOL_2.scan_process_range(process, module_range) {
                 let val = scan + 7;
                 val + 0x4 + process.read::<i32>(val).ok()?
             } else {
@@ -98,6 +89,16 @@ impl Module {
             g_world,
             fname_base,
         })
+    }
+
+    /// Tries attaching to a UE game. The UE version needs to be correct for this
+    /// function to work.
+    pub async fn wait_attach(
+        process: &Process,
+        version: Version,
+        main_module_address: Address,
+    ) -> Self {
+        retry(|| Self::attach(process, version, main_module_address)).await
     }
 
     /// Returns the memory pointer to GWorld
