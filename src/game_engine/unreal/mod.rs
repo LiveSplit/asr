@@ -1,7 +1,10 @@
+//! Support for games using the Unreal Engine
+
 use core::{
     array,
     cell::RefCell,
     iter::{self, FusedIterator},
+    mem::size_of,
 };
 
 use bytemuck::CheckedBitPattern;
@@ -16,7 +19,7 @@ const CSTR: usize = 128;
 /// Represents access to a Unreal Engine game
 pub struct Module {
     pointer_size: PointerSize,
-    version: Version,
+    //version: Version,
     offsets: &'static Offsets,
     g_engine: Address,
     g_world: Address,
@@ -25,8 +28,7 @@ pub struct Module {
 
 impl Module {
     /// Tries attaching to a UE4 game. The UE version needs to be correct for this
-    /// function to work. If you don't know the version in advance, use
-    /// [`attach_auto_detect`](Self::attach_auto_detect) instead
+    /// function to work.
     pub fn attach(
         process: &Process,
         version: Version,
@@ -62,15 +64,35 @@ impl Module {
         };
 
         let fname_base = {
-            const FNAME_POOL: Signature<11> = Signature::new("74 09 48 8D 15 ?? ?? ?? ?? EB 16");
-            let val =
-                FNAME_POOL.scan_process_range(process, (main_module_address, module_size))? + 5;
-            val + 0x4 + process.read::<i32>(val).ok()?
+            const FNAME_POOL_0: Signature<11> = Signature::new("74 09 48 8D 15 ?? ?? ?? ?? EB 16");
+            const FNAME_POOL_1: Signature<13> =
+                Signature::new("89 5C 24 ?? 89 44 24 ?? 74 ?? 48 8D 15");
+            const FNAME_POOL_2: Signature<13> =
+                Signature::new("57 0F B7 F8 74 ?? B8 ?? ?? ?? ?? 8B 44");
+
+            if let Some(scan) =
+                FNAME_POOL_0.scan_process_range(process, (main_module_address, module_size))
+            {
+                let val = scan + 5;
+                val + 0x4 + process.read::<i32>(val).ok()?
+            } else if let Some(scan) =
+                FNAME_POOL_1.scan_process_range(process, (main_module_address, module_size))
+            {
+                let val = scan + 13;
+                val + 0x4 + process.read::<i32>(val).ok()?
+            } else if let Some(scan) =
+                FNAME_POOL_2.scan_process_range(process, (main_module_address, module_size))
+            {
+                let val = scan + 7;
+                val + 0x4 + process.read::<i32>(val).ok()?
+            } else {
+                None?
+            }
         };
 
         Some(Self {
             pointer_size,
-            version,
+            //version,
             offsets,
             g_engine,
             g_world,
@@ -90,18 +112,18 @@ impl Module {
 
     /// Returns the current instance of GWorld
     pub fn get_gworld_uobject(&self, process: &Process) -> Option<UObject> {
-        Some(UObject {
-            object: process.read_pointer(self.g_world, self.pointer_size).ok()?,
-        })
+        match process.read_pointer(self.g_world, self.pointer_size) {
+            Ok(Address::NULL) | Err(_) => None,
+            Ok(val) => Some(UObject { object: val }),
+        }
     }
 
     /// Returns the current instance of GEngine
     pub fn get_gengine_uobject(&self, process: &Process) -> Option<UObject> {
-        Some(UObject {
-            object: process
-                .read_pointer(self.g_engine, self.pointer_size)
-                .ok()?,
-        })
+        match process.read_pointer(self.g_engine, self.pointer_size) {
+            Ok(Address::NULL) | Err(_) => None,
+            Ok(val) => Some(UObject { object: val }),
+        }
     }
 
     #[inline]
@@ -110,6 +132,7 @@ impl Module {
     }
 }
 
+#[allow(missing_docs)]
 #[derive(Copy, Clone)]
 pub struct UObject {
     object: Address,
@@ -128,23 +151,27 @@ impl UObject {
         let addr = process.read_pointer(
             module.fname_base + module.size_of_ptr().wrapping_mul(chunk_offset as u64 + 2),
             module.pointer_size,
-        )? + (name_offset as u64).wrapping_mul(2);
+        )? + (name_offset as u64).wrapping_mul(size_of::<u16>() as u64);
+
         let string_size = process
             .read::<u16>(addr)?
             .checked_shr(6)
             .unwrap_or_default() as usize;
-        let mut string = process.read::<ArrayCString<N>>(addr + 2)?;
+
+        let mut string = process.read::<ArrayCString<N>>(addr + size_of::<u16>() as u64)?;
         string.set_len(string_size);
+
         Ok(string)
     }
 
     fn get_uclass(&self, process: &Process, module: &Module) -> Result<UClass, Error> {
-        Ok(UClass {
-            class: process.read_pointer(
-                self.object + module.offsets.uobject_class,
-                module.pointer_size,
-            )?,
-        })
+        match process.read_pointer(
+            self.object + module.offsets.uobject_class,
+            module.pointer_size,
+        ) {
+            Ok(Address::NULL) | Err(_) => Err(Error {}),
+            Ok(val) => Ok(UClass { class: val }),
+        }
     }
 
     /// Tries to find a field with the specified name in the current UObject and returns
@@ -168,60 +195,63 @@ struct UClass {
 }
 
 impl UClass {
-    fn get_parent(&self, process: &Process, module: &Module) -> Result<Self, Error> {
-        Ok(UClass {
-            class: process.read_pointer(
-                self.class + module.offsets.uclass_super_field,
-                module.pointer_size,
-            )?,
-        })
-    }
-
     fn properties<'a>(
         &'a self,
         process: &'a Process,
         module: &'a Module,
     ) -> impl FusedIterator<Item = UProperty> + '_ {
-        let mut this_class = *self;
+        let mut current_property = {
+            let mut val = None;
+            let mut current_class = *self;
 
-        let mut current_property = UProperty {
-            property: process
-                .read_pointer(
-                    self.class + module.offsets.uclass_property_link,
+            while val.is_none() {
+                if let Ok(current_property_address) = process.read_pointer(
+                    current_class.class + module.offsets.uclass_property_link,
                     module.pointer_size,
-                )
-                .unwrap(),
+                ) {
+                    if current_property_address.is_null() {
+                        if let Ok(super_field) = process.read_pointer(
+                            current_class.class + module.offsets.uclass_super_field,
+                            module.pointer_size,
+                        ) {
+                            if super_field.is_null() {
+                                break;
+                            } else {
+                                current_class = UClass { class: super_field };
+                            }
+                        }
+                    } else {
+                        val = Some(UProperty {
+                            property: current_property_address,
+                        });
+                    }
+                } else {
+                    break;
+                }
+            }
+
+            val
         };
 
         iter::from_fn(move || {
-            if this_class.class.is_null() {
-                None
+            if let Some(prop) = current_property {
+                current_property = {
+                    if let Ok(val) = process.read_pointer(
+                        prop.property + module.offsets.uproperty_property_link_next,
+                        module.pointer_size,
+                    ) {
+                        Some(UProperty { property: val })
+                    } else {
+                        None
+                    }
+                };
+
+                Some(prop)
             } else {
-                Some(
-                    iter::from_fn(move || {
-                        let prop = current_property;
-                        if prop.property.is_null() {
-                            this_class = this_class.get_parent(process, module).ok()?;
-                            None
-                        } else {
-                            current_property = UProperty {
-                                property: process
-                                    .read_pointer(
-                                        current_property.property
-                                            + module.offsets.uproperty_property_link_next,
-                                        module.pointer_size,
-                                    )
-                                    .unwrap_or_default(),
-                            };
-                            Some(prop)
-                        }
-                    })
-                    .fuse(),
-                )
+                None
             }
         })
         .fuse()
-        .flatten()
     }
 
     fn get_field_offset(
@@ -251,10 +281,23 @@ impl UProperty {
         process: &Process,
         module: &Module,
     ) -> Result<ArrayCString<N>, Error> {
-        UObject {
-            object: self.property,
-        }
-        .get_fname(process, module)
+        let [name_offset, chunk_offset] =
+            process.read::<[u16; 2]>(self.property + module.offsets.uproperty_fname)?;
+
+        let addr = process.read_pointer(
+            module.fname_base + module.size_of_ptr().wrapping_mul(chunk_offset as u64 + 2),
+            module.pointer_size,
+        )? + (name_offset as u64).wrapping_mul(size_of::<u16>() as u64);
+
+        let string_size = process
+            .read::<u16>(addr)?
+            .checked_shr(6)
+            .unwrap_or_default() as usize;
+
+        let mut string = process.read::<ArrayCString<N>>(addr + size_of::<u16>() as u64)?;
+        string.set_len(string_size);
+
+        Ok(string)
     }
 
     fn get_offset(&self, process: &Process, module: &Module) -> Option<u32> {
@@ -277,7 +320,6 @@ pub struct UnrealPointer<const CAP: usize> {
 struct UnrealPointerCache<const CAP: usize> {
     offsets: [u64; CAP],
     resolved_offsets: usize,
-    current_pointer: Address,
 }
 
 impl<const CAP: usize> UnrealPointer<CAP> {
@@ -296,7 +338,6 @@ impl<const CAP: usize> UnrealPointer<CAP> {
         let cache = RefCell::new(UnrealPointerCache {
             offsets: [u64::default(); CAP],
             resolved_offsets: usize::default(),
-            current_pointer: Address::NULL,
         });
 
         Self {
@@ -316,16 +357,20 @@ impl<const CAP: usize> UnrealPointer<CAP> {
             return Ok(());
         }
 
-        let mut current_pointer = match cache.current_pointer {
-            Address::NULL => self.base_address,
-            val => val,
+        let mut current_uobject = UObject {
+            object: match cache.resolved_offsets {
+                0 => process.read_pointer(self.base_address, module.pointer_size)?,
+                x => {
+                    let mut addr = process.read_pointer(self.base_address, module.pointer_size)?;
+                    for &i in &cache.offsets[..x] {
+                        addr = process.read_pointer(addr + i, module.pointer_size)?;
+                    }
+                    addr
+                }
+            },
         };
 
         for i in cache.resolved_offsets..self.depth {
-            let uobject = UObject {
-                object: process.read_pointer(current_pointer, module.pointer_size)?,
-            };
-
             let offset_from_string = match self.fields[i].strip_prefix("0x") {
                 Some(rem) => u32::from_str_radix(rem, 16).ok(),
                 _ => self.fields[i].parse().ok(),
@@ -333,15 +378,18 @@ impl<const CAP: usize> UnrealPointer<CAP> {
 
             let current_offset = match offset_from_string {
                 Some(offset) => offset as u64,
-                _ => uobject
+                _ => current_uobject
                     .get_field_offset(process, module, self.fields[i])
                     .ok_or(Error {})? as u64,
             };
 
             cache.offsets[i] = current_offset;
-            current_pointer = uobject.object + current_offset;
-            cache.current_pointer = current_pointer;
             cache.resolved_offsets += 1;
+
+            current_uobject = UObject {
+                object: process
+                    .read_pointer(current_uobject.object + current_offset, module.pointer_size)?,
+            };
         }
         Ok(())
     }
@@ -379,6 +427,7 @@ struct Offsets {
     uobject_class: u8,
     uclass_super_field: u8,
     uclass_property_link: u8,
+    uproperty_fname: u8,
     uproperty_offset_internal: u8,
     uproperty_property_link_next: u8,
 }
@@ -387,13 +436,40 @@ impl Offsets {
     const fn new(version: Version, pointer_size: PointerSize) -> Option<&'static Self> {
         match pointer_size {
             PointerSize::Bit64 => Some(match version {
-                _ => &Self {
+                // Tested on: Sonic Omens
+                Version::V4_23 | Version::V4_24 => &Self {
                     uobject_fname: 0x18,
                     uobject_class: 0x10,
-                    uclass_super_field: 0x28,
+                    uclass_super_field: 0x28, // PLACEHOLDER
                     uclass_property_link: 0x48,
+                    uproperty_fname: 0x18,
                     uproperty_offset_internal: 0x44,
                     uproperty_property_link_next: 0x50,
+                },
+                // Tested on: Tetris Effect / Kao the Kangaroo
+                Version::V4_25
+                | Version::V4_26
+                | Version::V4_27
+                | Version::V5_0
+                | Version::V5_1
+                | Version::V5_2 => &Self {
+                    uobject_fname: 0x18,
+                    uobject_class: 0x10,
+                    uclass_super_field: 0x40,
+                    uclass_property_link: 0x50,
+                    uproperty_fname: 0x28,
+                    uproperty_offset_internal: 0x4C,
+                    uproperty_property_link_next: 0x58,
+                },
+                // Tested on Unreal Physics
+                Version::V5_3 => &Self {
+                    uobject_fname: 0x18,
+                    uobject_class: 0x10,
+                    uclass_super_field: 0x40,
+                    uclass_property_link: 0x50,
+                    uproperty_fname: 0x20,
+                    uproperty_offset_internal: 0x44,
+                    uproperty_property_link_next: 0x48,
                 },
             }),
             _ => None,
@@ -402,10 +478,17 @@ impl Offsets {
 }
 
 #[non_exhaustive]
-#[derive(Copy, Clone, PartialEq, Hash, Debug)]
+#[derive(Copy, Clone, PartialEq, Hash, Debug, PartialOrd)]
+#[allow(missing_docs)]
+/// The version of Unreal Engine used by the game
 pub enum Version {
+    V4_23,
     V4_24,
     V4_25,
     V4_26,
     V4_27,
+    V5_0,
+    V5_1,
+    V5_2,
+    V5_3,
 }
