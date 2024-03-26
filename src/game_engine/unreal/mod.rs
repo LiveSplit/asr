@@ -394,18 +394,6 @@ impl<const CAP: usize> UnrealPointer<CAP> {
         Ok(())
     }
 
-    /// Dereferences the pointer path, returning the memory address of the value of interest
-    pub fn deref_offsets(&self, process: &Process, module: &Module) -> Result<Address, Error> {
-        self.find_offsets(process, module)?;
-        let cache = self.cache.borrow();
-        let mut address = process.read_pointer(self.base_address, module.pointer_size)?;
-        let (&last, path) = cache.offsets[..self.depth].split_last().ok_or(Error {})?;
-        for &offset in path {
-            address = process.read_pointer(address + offset, module.pointer_size)?;
-        }
-        Ok(address + last)
-    }
-
     /// Dereferences the pointer path, returning the value stored at the final memory address
     pub fn deref<T: CheckedBitPattern>(
         &self,
