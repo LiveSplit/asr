@@ -1,4 +1,4 @@
-//! Support for games using the Unreal Engine
+//! Support for attaching to games using the Unreal Engine
 
 use core::{
     array,
@@ -16,7 +16,11 @@ use crate::{
 
 const CSTR: usize = 128;
 
-/// Represents access to a Unreal Engine game
+/// Represents access to a Unreal Engine game.
+///
+/// This struct gives immediate access to 2 important structs present in every UE game:
+/// - GEngine: a static object that persists throughout the process' lifetime
+/// - GWorld: a pointer to the currently loaded UWorld object
 pub struct Module {
     pointer_size: PointerSize,
     //version: Version,
@@ -40,45 +44,40 @@ impl Module {
         let module_range = (main_module_address, module_size);
 
         let g_engine = {
-            const GENGINE_1: Signature<7> = Signature::new("A8 01 75 ?? 48 C7 05");
-            const GENGINE_2: Signature<6> = Signature::new("A8 01 75 ?? C7 05");
+            const GENGINE: &[(Signature<7>, u8)] = &[
+                (Signature::new("A8 01 75 ?? 48 C7 05"), 7),
+                (Signature::new("A8 01 75 ?? C7 05 ??"), 6),
+            ];
 
-            if let Some(val) = GENGINE_1.scan_process_range(process, module_range) {
-                let val = val + 0x7;
-                val + 0x8 + process.read::<i32>(val).ok()?
-            } else {
-                let val = GENGINE_2.scan_process_range(process, module_range)?;
-                let val = val + 0x6;
-                val + 0x8 + process.read::<i32>(val).ok()?
-            }
+            let addr = GENGINE.iter().find_map(|(sig, offset)| {
+                Some(sig.scan_process_range(process, module_range)? + *offset)
+            })?;
+            addr + 0x8 + process.read::<i32>(addr).ok()?
         };
 
         let g_world = {
-            const GWORLD: Signature<22> =
-                Signature::new("48 8B 05 ?? ?? ?? ?? 48 3B ?? 48 0F 44 ?? 48 89 05 ?? ?? ?? ?? E8");
-            let val = GWORLD.scan_process_range(process, module_range)? + 3;
-            val + 0x4 + process.read::<i32>(val).ok()?
+            const GWORLD: &[(Signature<22>, u8)] = &[(
+                Signature::new("48 8B 05 ?? ?? ?? ?? 48 3B ?? 48 0F 44 ?? 48 89 05 ?? ?? ?? ?? E8"),
+                3,
+            )];
+
+            let addr = GWORLD.iter().find_map(|(sig, offset)| {
+                Some(sig.scan_process_range(process, module_range)? + *offset)
+            })?;
+            addr + 0x4 + process.read::<i32>(addr).ok()?
         };
 
         let fname_base = {
-            const FNAME_POOL_0: Signature<11> = Signature::new("74 09 48 8D 15 ?? ?? ?? ?? EB 16");
-            const FNAME_POOL_1: Signature<13> =
-                Signature::new("89 5C 24 ?? 89 44 24 ?? 74 ?? 48 8D 15");
-            const FNAME_POOL_2: Signature<13> =
-                Signature::new("57 0F B7 F8 74 ?? B8 ?? ?? ?? ?? 8B 44");
+            const FNAME_POOL: &[(Signature<13>, u8)] = &[
+                (Signature::new("74 09 48 8D 15 ?? ?? ?? ?? EB 16 ?? ??"), 5),
+                (Signature::new("89 5C 24 ?? 89 44 24 ?? 74 ?? 48 8D 15"), 13),
+                (Signature::new("57 0F B7 F8 74 ?? B8 ?? ?? ?? ?? 8B 44"), 7),
+            ];
 
-            if let Some(scan) = FNAME_POOL_0.scan_process_range(process, module_range) {
-                let val = scan + 5;
-                val + 0x4 + process.read::<i32>(val).ok()?
-            } else if let Some(scan) = FNAME_POOL_1.scan_process_range(process, module_range) {
-                let val = scan + 13;
-                val + 0x4 + process.read::<i32>(val).ok()?
-            } else if let Some(scan) = FNAME_POOL_2.scan_process_range(process, module_range) {
-                let val = scan + 7;
-                val + 0x4 + process.read::<i32>(val).ok()?
-            } else {
-                None?
-            }
+            let addr = FNAME_POOL.iter().find_map(|(sig, offset)| {
+                Some(sig.scan_process_range(process, module_range)? + *offset)
+            })?;
+            addr + 0x4 + process.read::<i32>(addr).ok()?
         };
 
         Some(Self {
@@ -102,17 +101,17 @@ impl Module {
     }
 
     /// Returns the memory pointer to GWorld
-    pub fn gworld(&self) -> Address {
+    pub fn g_world(&self) -> Address {
         self.g_world
     }
 
     /// Returns the memory pointer to GEngine
-    pub fn gengine(&self) -> Address {
+    pub fn g_engine(&self) -> Address {
         self.g_engine
     }
 
     /// Returns the current instance of GWorld
-    pub fn get_gworld_uobject(&self, process: &Process) -> Option<UObject> {
+    pub fn get_g_world_uobject(&self, process: &Process) -> Option<UObject> {
         match process.read_pointer(self.g_world, self.pointer_size) {
             Ok(Address::NULL) | Err(_) => None,
             Ok(val) => Some(UObject { object: val }),
@@ -120,7 +119,7 @@ impl Module {
     }
 
     /// Returns the current instance of GEngine
-    pub fn get_gengine_uobject(&self, process: &Process) -> Option<UObject> {
+    pub fn get_g_engine_uobject(&self, process: &Process) -> Option<UObject> {
         match process.read_pointer(self.g_engine, self.pointer_size) {
             Ok(Address::NULL) | Err(_) => None,
             Ok(val) => Some(UObject { object: val }),
@@ -133,14 +132,23 @@ impl Module {
     }
 }
 
-#[allow(missing_docs)]
+/// An `UObject` is the base class of every Unreal Engine object,
+/// from which every other class in the UE engine inherits from.
+///
+/// This struct represents a currently running instance of any UE class,
+/// from which it's possible to perform introspection in order to return
+/// various information, such as the class' `FName`, property names, offsets, etc.
+///
+// Docs:
+// - https://docs.unrealengine.com/4.27/en-US/API/Runtime/CoreUObject/UObject/UObject/
+// - https://gist.github.com/apple1417/b23f91f7a9e3b834d6d052d35a0010ff#object-structure
 #[derive(Copy, Clone)]
 pub struct UObject {
     object: Address,
 }
 
 impl UObject {
-    /// Reads the FName of the current UObject
+    /// Reads the `FName` of the current `UObject`
     pub fn get_fname<const N: usize>(
         &self,
         process: &Process,
@@ -165,6 +173,7 @@ impl UObject {
         Ok(string)
     }
 
+    /// Returns the underlying class definition for the current `UObject`
     fn get_uclass(&self, process: &Process, module: &Module) -> Result<UClass, Error> {
         match process.read_pointer(
             self.object + module.offsets.uobject_class,
@@ -189,7 +198,15 @@ impl UObject {
     }
 }
 
-/// The UClass relative to a specific UObject
+/// An UClass / UStruct is the object class relative to a specific UObject.
+/// It essentially represents the class definition for any given UObject,
+/// containing information about its properties, parent and children classes,
+/// and much more.
+///
+/// It's always referred by an UObject and it's used for recover data about
+/// its properties and offsets.
+///
+// Source: https://github.com/bl-sdk/unrealsdk/blob/master/src/unrealsdk/unreal/classes/ustruct.h
 #[derive(Copy, Clone)]
 struct UClass {
     class: Address,
@@ -201,60 +218,64 @@ impl UClass {
         process: &'a Process,
         module: &'a Module,
     ) -> impl FusedIterator<Item = UProperty> + '_ {
+        // Logic: properties are contained in a linked list that can be accessed directly
+        // through the `property_link` field, from the most derived to the least derived class.
+        // Source: https://gist.github.com/apple1417/b23f91f7a9e3b834d6d052d35a0010ff#object-structure
+        //
+        // However, if you are in a class with no additional fields other than the ones it inherits from,
+        // `property_link` results in a null pointer. In this case, we access the parent class
+        // through the `super_field` offset.
         let mut current_property = {
             let mut val = None;
             let mut current_class = *self;
 
             while val.is_none() {
-                if let Ok(current_property_address) = process.read_pointer(
+                match process.read_pointer(
                     current_class.class + module.offsets.uclass_property_link,
                     module.pointer_size,
                 ) {
-                    if current_property_address.is_null() {
-                        if let Ok(super_field) = process.read_pointer(
-                            current_class.class + module.offsets.uclass_super_field,
-                            module.pointer_size,
-                        ) {
-                            if super_field.is_null() {
-                                break;
-                            } else {
-                                current_class = UClass { class: super_field };
-                            }
+                    Ok(Address::NULL) => match process.read_pointer(
+                        current_class.class + module.offsets.uclass_super_field,
+                        module.pointer_size,
+                    ) {
+                        Ok(Address::NULL) | Err(_) => break,
+                        Ok(super_field) => {
+                            current_class = UClass { class: super_field };
                         }
-                    } else {
+                    },
+                    Ok(current_property_address) => {
                         val = Some(UProperty {
                             property: current_property_address,
                         });
                     }
-                } else {
-                    break;
+                    _ => break,
                 }
             }
 
             val
         };
 
-        iter::from_fn(move || {
-            if let Some(prop) = current_property {
-                current_property = {
-                    if let Ok(val) = process.read_pointer(
-                        prop.property + module.offsets.uproperty_property_link_next,
-                        module.pointer_size,
-                    ) {
-                        Some(UProperty { property: val })
-                    } else {
-                        None
-                    }
-                };
-
-                Some(prop)
-            } else {
-                None
-            }
+        iter::from_fn(move || match current_property {
+            Some(prop) => match process.read_pointer(
+                prop.property + module.offsets.uproperty_property_link_next,
+                module.pointer_size,
+            ) {
+                Ok(val) => {
+                    current_property = match val {
+                        Address::NULL => None,
+                        _ => Some(UProperty { property: val }),
+                    };
+                    Some(prop)
+                }
+                _ => None,
+            },
+            _ => None,
         })
         .fuse()
     }
 
+    /// Returns the offset for the specified named property.
+    /// Returns `None` on case of failure.
     fn get_field_offset(
         &self,
         process: &Process,
@@ -271,6 +292,10 @@ impl UClass {
     }
 }
 
+/// Definition for a property used in a certain UClass.
+///
+/// Used mostly just to recover field names and offsets.
+// Source: https://github.com/bl-sdk/unrealsdk/blob/master/src/unrealsdk/unreal/classes/uproperty.h
 #[derive(Copy, Clone)]
 struct UProperty {
     property: Address,
@@ -358,6 +383,9 @@ impl<const CAP: usize> UnrealPointer<CAP> {
             return Ok(());
         }
 
+        // If we already resolved some offsets, we need to traverse them again starting from the base address
+        // (usually GWorld of GEngine) in order to recalculate the address of the farthest UObject we can reach.
+        // If no offsets have been resolved yet, we just need to read the base address instead.
         let mut current_uobject = UObject {
             object: match cache.resolved_offsets {
                 0 => process.read_pointer(self.base_address, module.pointer_size)?,
@@ -393,6 +421,18 @@ impl<const CAP: usize> UnrealPointer<CAP> {
             };
         }
         Ok(())
+    }
+
+    /// Dereferences the pointer path, returning the memory address at the end of the path
+    pub fn deref_offsets(&self, process: &Process, module: &Module) -> Result<Address, Error> {
+        self.find_offsets(process, module)?;
+        let cache = self.cache.borrow();
+        let (&last, path) = cache.offsets[..self.depth].split_last().ok_or(Error {})?;
+        let mut address = process.read_pointer(self.base_address, module.pointer_size)?;
+        for &offset in path {
+            address = process.read_pointer(address + offset, module.pointer_size)?;
+        }
+        Ok(address + last)
     }
 
     /// Dereferences the pointer path, returning the value stored at the final memory address
