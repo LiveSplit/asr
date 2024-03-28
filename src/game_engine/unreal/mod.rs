@@ -101,12 +101,12 @@ impl Module {
     }
 
     /// Returns the memory pointer to GWorld
-    pub fn g_world(&self) -> Address {
+    pub const fn g_world(&self) -> Address {
         self.g_world
     }
 
     /// Returns the memory pointer to GEngine
-    pub fn g_engine(&self) -> Address {
+    pub const fn g_engine(&self) -> Address {
         self.g_engine
     }
 
