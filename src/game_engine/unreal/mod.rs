@@ -56,10 +56,20 @@ impl Module {
         };
 
         let g_world = {
-            const GWORLD: &[(Signature<22>, u8)] = &[(
-                Signature::new("48 8B 05 ?? ?? ?? ?? 48 3B ?? 48 0F 44 ?? 48 89 05 ?? ?? ?? ?? E8"),
-                3,
-            )];
+            const GWORLD: &[(Signature<22>, u8)] = &[
+                (
+                    Signature::new(
+                        "80 7C 24 ?? 00 ?? ?? 48 8B 3D ?? ?? ?? ?? 48 ?? ?? ?? ?? ?? ?? ??",
+                    ),
+                    10,
+                ),
+                (
+                    Signature::new(
+                        "48 8B 05 ?? ?? ?? ?? 48 3B ?? 48 0F 44 ?? 48 89 05 ?? ?? ?? ?? E8",
+                    ),
+                    3,
+                ),
+            ];
 
             let addr = GWORLD.iter().find_map(|(sig, offset)| {
                 Some(sig.scan_process_range(process, module_range)? + *offset)
@@ -491,7 +501,7 @@ impl Offsets {
                     uproperty_property_link_next: 0x58,
                 },
                 // Tested on Unreal Physics
-                Version::V5_3 => &Self {
+                Version::V5_3 | Version::V5_4 => &Self {
                     uobject_fname: 0x18,
                     uobject_class: 0x10,
                     uclass_super_field: 0x40,
@@ -520,4 +530,5 @@ pub enum Version {
     V5_1,
     V5_2,
     V5_3,
+    V5_4,
 }
