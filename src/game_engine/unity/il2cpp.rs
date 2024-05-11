@@ -3,8 +3,8 @@
 use core::{array, cell::RefCell, iter};
 
 use crate::{
-    file_format::pe, future::retry, signature::Signature,
-    string::ArrayCString, Address, Address64, Error, PointerSize, Process,
+    file_format::pe, future::retry, signature::Signature, string::ArrayCString, Address, Address64,
+    Error, PointerSize, Process,
 };
 
 #[cfg(feature = "derive")]
@@ -595,13 +595,15 @@ impl<const CAP: usize> UnityPointer<CAP> {
         let starting_class = match cache.starting_class {
             Some(starting_class) => starting_class,
             _ => {
-                let mut current_class = image.get_class(process, module, self.class_name).ok_or(Error {})?;
+                let mut current_class = image
+                    .get_class(process, module, self.class_name)
+                    .ok_or(Error {})?;
                 for _ in 0..self.nr_of_parents {
                     current_class = current_class.get_parent(process, module).ok_or(Error {})?;
                 }
                 cache.starting_class = Some(current_class);
                 current_class
-            },
+            }
         };
 
         // Recovering the address of the static table is not very CPU intensive,
@@ -612,7 +614,7 @@ impl<const CAP: usize> UnityPointer<CAP> {
                 .ok_or(Error {})?;
 
             if cache.base_address.is_null() {
-                return Err(Error{});
+                return Err(Error {});
             }
         };
 
@@ -627,7 +629,7 @@ impl<const CAP: usize> UnityPointer<CAP> {
                     addr = process.read_pointer(addr + i, module.pointer_size)?;
                 }
                 addr
-            },
+            }
         };
 
         // We keep track of the already resolved offsets in order to skip resolving them again
@@ -636,7 +638,6 @@ impl<const CAP: usize> UnityPointer<CAP> {
                 Some(rem) => u32::from_str_radix(rem, 16).ok(),
                 _ => self.fields[i].parse().ok(),
             };
-
 
             let current_offset = match offset_from_string {
                 Some(offset) => offset as u64,
@@ -673,7 +674,8 @@ impl<const CAP: usize> UnityPointer<CAP> {
             cache.offsets[i] = current_offset;
             cache.resolved_offsets += 1;
 
-            current_object = process.read_pointer(current_object + current_offset, module.pointer_size)?;
+            current_object =
+                process.read_pointer(current_object + current_offset, module.pointer_size)?;
         }
 
         Ok(())

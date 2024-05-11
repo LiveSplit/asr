@@ -591,7 +591,6 @@ struct UnityPointerCache<const CAP: usize> {
     base_address: Address,
     offsets: [u64; CAP],
     resolved_offsets: usize,
-    current_instance_pointer: Option<Address>,
     starting_class: Option<Class>,
 }
 
@@ -611,9 +610,8 @@ impl<const CAP: usize> UnityPointer<CAP> {
         let cache = RefCell::new(UnityPointerCache {
             base_address: Address::default(),
             offsets: [u64::default(); CAP],
-            current_instance_pointer: None,
-            starting_class: None,
             resolved_offsets: usize::default(),
+            starting_class: None,
         });
 
         Self {
@@ -659,33 +657,35 @@ impl<const CAP: usize> UnityPointer<CAP> {
         // Recovering the address of the static table is not very CPU intensive,
         // but it might be worth caching it as well
         if cache.base_address.is_null() {
-            let s_table = starting_class
+            cache.base_address = starting_class
                 .get_static_table(process, module)
                 .ok_or(Error {})?;
-            cache.base_address = s_table;
+
+            if cache.base_address.is_null() {
+                return Err(Error {});
+            }
         };
 
-        // As we need to be able to find instances in a more reliable way,
-        // instead of the Class itself, we need the address pointing to an
-        // instance of that Class. If the cache is empty, we start from the
-        // pointer to the static table of the first class.
-        let mut current_instance_pointer = match cache.current_instance_pointer {
-            Some(val) => val,
-            _ => starting_class
-                .get_static_table_pointer(process, module)
-                .ok_or(Error {})?,
+        // If we already resolved some offsets, we need to traverse them again starting from the base address
+        // of the static table in order to recalculate the address of the farthest object we can reach.
+        // If no offsets have been resolved yet, we just need to read the base address instead.
+        let mut current_object = match cache.resolved_offsets {
+            0 => cache.base_address,
+            x => {
+                let mut addr = cache.base_address;
+                for &i in &cache.offsets[..x] {
+                    addr = process.read_pointer(addr + i, module.pointer_size)?;
+                }
+                addr
+            }
         };
 
         // We keep track of the already resolved offsets in order to skip resolving them again
         for i in cache.resolved_offsets..self.depth {
-            let class_instance = process
-                .read_pointer(current_instance_pointer, module.pointer_size)
-                .ok()
-                .filter(|val| !val.is_null())
-                .ok_or(Error {})?;
-
-            // Try to parse the offset, passed as a string, as an actual hex or decimal value
-            let offset_from_string = super::value_from_string(self.fields[i]);
+            let offset_from_string = match self.fields[i].strip_prefix("0x") {
+                Some(rem) => u32::from_str_radix(rem, 16).ok(),
+                _ => self.fields[i].parse().ok(),
+            };
 
             let current_offset = match offset_from_string {
                 Some(offset) => offset as u64,
@@ -696,7 +696,7 @@ impl<const CAP: usize> UnityPointer<CAP> {
                             let class = process
                                 .read_pointer(
                                     process
-                                        .read_pointer(class_instance, module.pointer_size)
+                                        .read_pointer(current_object, module.pointer_size)
                                         .ok()
                                         .filter(|val| !val.is_null())
                                         .ok_or(Error {})?,
@@ -728,10 +728,10 @@ impl<const CAP: usize> UnityPointer<CAP> {
             };
 
             cache.offsets[i] = current_offset;
-
-            current_instance_pointer = class_instance + current_offset;
-            cache.current_instance_pointer = Some(current_instance_pointer);
             cache.resolved_offsets += 1;
+
+            current_object =
+                process.read_pointer(current_object + current_offset, module.pointer_size)?;
         }
 
         Ok(())
