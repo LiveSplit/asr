@@ -2,8 +2,8 @@
 //! backend.
 
 use crate::{
-    deep_pointer::DeepPointer, file_format::pe, future::retry, signature::Signature,
-    string::ArrayCString, Address, Address32, Address64, Error, PointerSize, Process,
+    file_format::pe, future::retry, signature::Signature, string::ArrayCString, Address, Address32,
+    Address64, Error, PointerSize, Process,
 };
 use core::{array, cell::RefCell, iter};
 
@@ -737,23 +737,6 @@ impl<const CAP: usize> UnityPointer<CAP> {
         Ok(())
     }
 
-    /// Dereferences the pointer path, returning the memory address of the value of interest
-    pub fn deref_offsets(
-        &self,
-        process: &Process,
-        module: &Module,
-        image: &Image,
-    ) -> Result<Address, Error> {
-        self.find_offsets(process, module, image)?;
-        let cache = self.cache.borrow();
-        let mut address = cache.base_address;
-        let (&last, path) = cache.offsets[..self.depth].split_last().ok_or(Error {})?;
-        for &offset in path {
-            address = process.read_pointer(address + offset, module.pointer_size)?;
-        }
-        Ok(address + last)
-    }
-
     /// Dereferences the pointer path, returning the value stored at the final memory address
     pub fn deref<T: CheckedBitPattern>(
         &self,
@@ -768,23 +751,6 @@ impl<const CAP: usize> UnityPointer<CAP> {
             module.pointer_size,
             &cache.offsets[..self.depth],
         )
-    }
-
-    /// Generates a `DeepPointer` struct based on the offsets
-    /// recovered from this `UnityPointer`.
-    pub fn get_deep_pointer(
-        &self,
-        process: &Process,
-        module: &Module,
-        image: &Image,
-    ) -> Option<DeepPointer<CAP>> {
-        self.find_offsets(process, module, image).ok()?;
-        let cache = self.cache.borrow();
-        Some(DeepPointer::<CAP>::new(
-            cache.base_address,
-            module.pointer_size,
-            &cache.offsets[..self.depth],
-        ))
     }
 }
 
