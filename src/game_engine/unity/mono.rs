@@ -657,18 +657,6 @@ impl<const CAP: usize> UnityPointer<CAP> {
             }
             addr
         };
-        /*
-        let mut current_object = match cache.resolved_offsets {
-            0 => cache.base_address,
-            x => {
-                let mut addr = cache.base_address;
-                for &i in &cache.offsets[..x] {
-                    addr = process.read_pointer(addr + i, module.pointer_size)?;
-                }
-                addr
-            }
-        };
-        */
 
         // We keep track of the already resolved offsets in order to skip resolving them again
         for i in cache.resolved_offsets..self.depth {
