@@ -351,58 +351,48 @@ impl Class {
         &'a self,
         process: &'a Process,
         module: &'a Module,
-    ) -> impl Iterator<Item = Field> + 'a {
-        let mut this_class = Class { class: self.class };
-        let mut iter_break = this_class.class.is_null();
+    ) -> impl FusedIterator<Item = Field> + 'a {
+        let mut this_class = Some(*self);
 
         iter::from_fn(move || {
-            if iter_break {
-                None
-            } else if !this_class.class.is_null()
-                && this_class
-                    .get_name::<CSTR>(process, module)
-                    .is_ok_and(|name| !name.matches("Object"))
-                && this_class
+            if this_class?
+                .get_name::<CSTR>(process, module)
+                .ok()?
+                .matches("Object")
+                || this_class?
                     .get_name_space::<CSTR>(process, module)
-                    .is_ok_and(|name| !name.matches("UnityEngine"))
+                    .ok()?
+                    .matches("UnityEngine")
             {
+                None
+            } else {
                 let field_count = process
-                    .read::<u32>(this_class.class + module.offsets.monoclassdef_field_count)
-                    .ok()
-                    .filter(|&val| val != 0);
+                    .read::<u32>(this_class?.class + module.offsets.monoclassdef_field_count)
+                    .unwrap_or_default() as u64;
 
                 let fields = match field_count {
-                    Some(_) => process
+                    0 => None,
+                    _ => process
                         .read_pointer(
-                            this_class.class
+                            this_class?.class
                                 + module.offsets.monoclassdef_klass
                                 + module.offsets.monoclass_fields,
                             module.pointer_size,
                         )
                         .ok(),
-                    _ => None,
                 };
 
-                let monoclassfieldalignment = module.offsets.monoclassfieldalignment as u64;
+                this_class = this_class?.get_parent(process, module);
 
-                if let Some(x) = this_class.get_parent(process, module) {
-                    this_class = x;
-                } else {
-                    iter_break = true;
-                }
-
-                Some(
-                    (0..field_count.unwrap_or_default() as u64).filter_map(move |i| {
-                        Some(Field {
-                            field: fields? + i.wrapping_mul(monoclassfieldalignment),
-                        })
-                    }),
-                )
-            } else {
-                iter_break = true;
-                None
+                Some((0..field_count).filter_map(move |i| {
+                    Some(Field {
+                        field: fields?
+                            + i.wrapping_mul(module.offsets.monoclassfieldalignment as u64),
+                    })
+                }))
             }
         })
+        .fuse()
         .flatten()
     }
 
