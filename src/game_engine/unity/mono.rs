@@ -655,15 +655,19 @@ impl<const CAP: usize> UnityPointer<CAP> {
             cache.base_address = starting_class
                 .get_static_table(process, module)
                 .ok_or(Error {})?;
-
-            if cache.base_address.is_null() {
-                return Err(Error {});
-            }
         };
 
         // If we already resolved some offsets, we need to traverse them again starting from the base address
         // of the static table in order to recalculate the address of the farthest object we can reach.
         // If no offsets have been resolved yet, we just need to read the base address instead.
+        let mut current_object = {
+            let mut addr = cache.base_address;
+            for &i in &cache.offsets[..cache.resolved_offsets] {
+                addr = process.read_pointer(addr + i, module.pointer_size)?;
+            }
+            addr
+        };
+        /*
         let mut current_object = match cache.resolved_offsets {
             0 => cache.base_address,
             x => {
@@ -674,6 +678,7 @@ impl<const CAP: usize> UnityPointer<CAP> {
                 addr
             }
         };
+        */
 
         // We keep track of the already resolved offsets in order to skip resolving them again
         for i in cache.resolved_offsets..self.depth {
@@ -712,8 +717,7 @@ impl<const CAP: usize> UnityPointer<CAP> {
                                 .get_name::<CSTR>(process, module)
                                 .is_ok_and(|name| name.matches(self.fields[i]))
                         })
-                        .ok_or(Error {})?
-                        .get_offset(process, module)
+                        .and_then(|val| val.get_offset(process, module))
                         .ok_or(Error {})? as u64;
 
                     // Explicitly allowing this clippy because of borrowing rules shenanigans
