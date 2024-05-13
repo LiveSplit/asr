@@ -5,7 +5,11 @@ use crate::{
     file_format::pe, future::retry, signature::Signature, string::ArrayCString, Address, Address32,
     Address64, Error, PointerSize, Process,
 };
-use core::{array, cell::RefCell, iter};
+use core::{
+    array,
+    cell::RefCell,
+    iter::{self, FusedIterator},
+};
 
 #[cfg(feature = "derive")]
 pub use asr_derive::MonoClass as Class;
@@ -55,7 +59,7 @@ impl Module {
             })?
             .address;
 
-        let assemblies_pointer: Address = match pointer_size {
+        let assemblies: Address = match pointer_size {
             PointerSize::Bit64 => {
                 const SIG_MONO_64: Signature<3> = Signature::new("48 8B 0D");
                 let scan_address: Address = SIG_MONO_64
@@ -76,11 +80,6 @@ impl Module {
             _ => return None,
         };
 
-        let assemblies = process
-            .read_pointer(assemblies_pointer, pointer_size)
-            .ok()
-            .filter(|val| !val.is_null())?;
-
         Some(Self {
             pointer_size,
             version,
@@ -89,33 +88,29 @@ impl Module {
         })
     }
 
-    fn assemblies<'a>(&'a self, process: &'a Process) -> impl Iterator<Item = Assembly> + 'a {
-        let mut assembly = self.assemblies;
-        let mut iter_break = assembly.is_null();
+    fn assemblies<'a>(&'a self, process: &'a Process) -> impl FusedIterator<Item = Assembly> + 'a {
+        let mut assembly = process
+            .read_pointer(self.assemblies, self.pointer_size)
+            .ok()
+            .filter(|val| !val.is_null());
+
         iter::from_fn(move || {
-            if iter_break {
-                None
-            } else {
-                let [data, next_assembly]: [Address; 2] = match self.pointer_size {
-                    PointerSize::Bit64 => process
-                        .read::<[Address64; 2]>(assembly)
-                        .ok()?
-                        .map(|item| item.into()),
-                    _ => process
-                        .read::<[Address32; 2]>(assembly)
-                        .ok()?
-                        .map(|item| item.into()),
-                };
+            let [data, next_assembly]: [Address; 2] = match self.pointer_size {
+                PointerSize::Bit64 => process
+                    .read::<[Address64; 2]>(assembly?)
+                    .ok()?
+                    .map(|item| item.into()),
+                _ => process
+                    .read::<[Address32; 2]>(assembly?)
+                    .ok()?
+                    .map(|item| item.into()),
+            };
 
-                if next_assembly.is_null() {
-                    iter_break = true;
-                } else {
-                    assembly = next_assembly;
-                }
+            assembly = Some(next_assembly);
 
-                Some(Assembly { assembly: data })
-            }
+            Some(Assembly { assembly: data })
         })
+        .fuse()
     }
 
     /// Looks for the specified binary [image](Image) inside the target process.
