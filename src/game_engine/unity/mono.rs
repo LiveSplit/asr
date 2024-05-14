@@ -125,8 +125,8 @@ impl Module {
                 assembly
                     .get_name::<CSTR>(process, self)
                     .is_ok_and(|name| name.matches(assembly_name))
-            })?
-            .get_image(process, self)
+            })
+            .and_then(|assembly| assembly.get_image(process, self))
     }
 
     /// Looks for the `Assembly-CSharp` binary [image](Image) inside the target
@@ -207,23 +207,23 @@ impl Assembly {
         process: &Process,
         module: &Module,
     ) -> Result<ArrayCString<N>, Error> {
-        process.read_pointer_path(
-            self.assembly,
-            module.pointer_size,
-            &[module.offsets.monoassembly_aname.into(), 0x0],
-        )
+        process
+            .read_pointer(
+                self.assembly + module.offsets.monoassembly_aname,
+                module.pointer_size,
+            )
+            .and_then(|addr| process.read(addr))
     }
 
     fn get_image(&self, process: &Process, module: &Module) -> Option<Image> {
-        Some(Image {
-            image: process
-                .read_pointer(
-                    self.assembly + module.offsets.monoassembly_image,
-                    module.pointer_size,
-                )
-                .ok()
-                .filter(|val| !val.is_null())?,
-        })
+        process
+            .read_pointer(
+                self.assembly + module.offsets.monoassembly_image,
+                module.pointer_size,
+            )
+            .ok()
+            .filter(|val| !val.is_null())
+            .map(|image| Image { image })
     }
 }
 
@@ -240,7 +240,7 @@ impl Image {
         &self,
         process: &'a Process,
         module: &'a Module,
-    ) -> impl Iterator<Item = Class> + 'a {
+    ) -> impl FusedIterator<Item = Class> + 'a {
         let class_cache_size = process
             .read::<i32>(
                 self.image
@@ -250,26 +250,26 @@ impl Image {
             .ok()
             .filter(|&val| val != 0);
 
-        let table_addr = match class_cache_size {
-            Some(_) => process.read_pointer(
-                self.image
-                    + module.offsets.monoimage_class_cache
-                    + module.offsets.monointernalhashtable_table,
-                module.pointer_size,
-            ),
-            _ => Err(Error {}),
-        };
+        let table_addr = class_cache_size.and_then(|_| {
+            process
+                .read_pointer(
+                    self.image
+                        + module.offsets.monoimage_class_cache
+                        + module.offsets.monointernalhashtable_table,
+                    module.pointer_size,
+                )
+                .ok()
+        });
 
         (0..class_cache_size.unwrap_or_default()).flat_map(move |i| {
-            let mut table = match table_addr {
-                Ok(table_addr) => process
+            let mut table = table_addr.and_then(|addr| {
+                process
                     .read_pointer(
-                        table_addr + (i as u64).wrapping_mul(module.size_of_ptr()),
+                        addr + (i as u64).wrapping_mul(module.size_of_ptr()),
                         module.pointer_size,
                     )
-                    .ok(),
-                _ => None,
-            };
+                    .ok()
+            });
 
             iter::from_fn(move || {
                 let class = process.read_pointer(table?, module.pointer_size).ok()?;
@@ -284,6 +284,7 @@ impl Image {
 
                 Some(Class { class })
             })
+            .fuse()
         })
     }
 
@@ -321,14 +322,12 @@ impl Class {
         process: &Process,
         module: &Module,
     ) -> Result<ArrayCString<N>, Error> {
-        process.read_pointer_path(
-            self.class,
-            module.pointer_size,
-            &[
-                module.offsets.monoclassdef_klass as u64 + module.offsets.monoclass_name as u64,
-                0x0,
-            ],
-        )
+        process
+            .read_pointer(
+                self.class + module.offsets.monoclassdef_klass + module.offsets.monoclass_name,
+                module.pointer_size,
+            )
+            .and_then(|addr| process.read(addr))
     }
 
     fn get_name_space<const N: usize>(
@@ -336,15 +335,14 @@ impl Class {
         process: &Process,
         module: &Module,
     ) -> Result<ArrayCString<N>, Error> {
-        process.read_pointer_path(
-            self.class,
-            module.pointer_size,
-            &[
-                module.offsets.monoclassdef_klass as u64
-                    + module.offsets.monoclass_name_space as u64,
-                0x0,
-            ],
-        )
+        process
+            .read_pointer(
+                self.class
+                    + module.offsets.monoclassdef_klass
+                    + module.offsets.monoclass_name_space,
+                module.pointer_size,
+            )
+            .and_then(|addr| process.read(addr))
     }
 
     fn fields<'a>(
@@ -368,28 +366,30 @@ impl Class {
             } else {
                 let field_count = process
                     .read::<u32>(this_class?.class + module.offsets.monoclassdef_field_count)
-                    .unwrap_or_default() as u64;
+                    .ok()
+                    .filter(|val| !val.eq(&0));
 
-                let fields = match field_count {
-                    0 => None,
-                    _ => process
+                let fields = field_count.and_then(|_| {
+                    process
                         .read_pointer(
                             this_class?.class
                                 + module.offsets.monoclassdef_klass
                                 + module.offsets.monoclass_fields,
                             module.pointer_size,
                         )
-                        .ok(),
-                };
+                        .ok()
+                });
 
                 this_class = this_class?.get_parent(process, module);
 
-                Some((0..field_count).filter_map(move |i| {
-                    Some(Field {
-                        field: fields?
-                            + i.wrapping_mul(module.offsets.monoclassfieldalignment as u64),
-                    })
-                }))
+                Some(
+                    (0..field_count.unwrap_or_default() as u64).filter_map(move |i| {
+                        fields.map(|fields| Field {
+                            field: fields
+                                + i.wrapping_mul(module.offsets.monoclassfieldalignment as u64),
+                        })
+                    }),
+                )
             }
         })
         .fuse()
@@ -410,8 +410,8 @@ impl Class {
                 field
                     .get_name::<CSTR>(process, module)
                     .is_ok_and(|name| name.matches(field_name))
-            })?
-            .get_offset(process, module)
+            })
+            .and_then(|field| field.get_offset(process, module))
     }
 
     /// Tries to find the address of a static instance of the class based on its
@@ -492,20 +492,16 @@ impl Class {
 
     /// Tries to find the parent class.
     pub fn get_parent(&self, process: &Process, module: &Module) -> Option<Class> {
-        let parent_addr = process
+        process
             .read_pointer(
                 self.class + module.offsets.monoclassdef_klass + module.offsets.monoclass_parent,
                 module.pointer_size,
             )
             .ok()
-            .filter(|val| !val.is_null())?;
-
-        Some(Class {
-            class: process
-                .read_pointer(parent_addr, module.pointer_size)
-                .ok()
-                .filter(|val| !val.is_null())?,
-        })
+            .filter(|val| !val.is_null())
+            .and_then(|parent_addr| process.read_pointer(parent_addr, module.pointer_size).ok())
+            .filter(|val| !val.is_null())
+            .map(|class| Class { class })
     }
 
     /// Tries to find a field with the specified name in the class. This returns
@@ -670,22 +666,14 @@ impl<const CAP: usize> UnityPointer<CAP> {
                 _ => {
                     let current_class = match i {
                         0 => starting_class,
-                        _ => {
-                            let class = process
-                                .read_pointer(
-                                    process
-                                        .read_pointer(current_object, module.pointer_size)
-                                        .ok()
-                                        .filter(|val| !val.is_null())
-                                        .ok_or(Error {})?,
-                                    module.pointer_size,
-                                )
-                                .ok()
-                                .filter(|val| !val.is_null())
-                                .ok_or(Error {})?;
-
-                            Class { class }
-                        }
+                        _ => process
+                            .read_pointer(current_object, module.pointer_size)
+                            .ok()
+                            .filter(|val| !val.is_null())
+                            .and_then(|addr| process.read_pointer(addr, module.pointer_size).ok())
+                            .filter(|val| !val.is_null())
+                            .map(|class| Class { class })
+                            .ok_or(Error {})?,
                     };
 
                     let val = current_class
