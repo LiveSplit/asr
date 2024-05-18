@@ -91,13 +91,12 @@ impl SceneManager {
 
     /// Tries to retrieve the current active scene.
     fn get_current_scene(&self, process: &Process) -> Result<Scene, Error> {
-        Ok(Scene {
-            address: process
-                .read_pointer(self.address + self.offsets.active_scene, self.pointer_size)
-                .ok()
-                .filter(|val| !val.is_null())
-                .ok_or(Error {})?,
-        })
+        process
+            .read_pointer(self.address + self.offsets.active_scene, self.pointer_size)
+            .ok()
+            .filter(|val| !val.is_null())
+            .map(|address| Scene { address })
+            .ok_or(Error {})
     }
 
     /// `DontDestroyOnLoad` is a special Unity scene containing game objects
@@ -115,7 +114,8 @@ impl SceneManager {
     /// The value returned is a [`i32`] because some games will show `-1` as their
     /// current scene until fully initialized.
     pub fn get_current_scene_index(&self, process: &Process) -> Result<i32, Error> {
-        self.get_current_scene(process)?.index(process, self)
+        self.get_current_scene(process)
+            .and_then(|scene| scene.index(process, self))
     }
 
     /// Returns the full path to the current scene. Use [`get_scene_name`]
@@ -124,7 +124,8 @@ impl SceneManager {
         &self,
         process: &Process,
     ) -> Result<ArrayCString<N>, Error> {
-        self.get_current_scene(process)?.path(process, self)
+        self.get_current_scene(process)
+            .and_then(|scene| scene.path(process, self))
     }
 
     /// Returns the number of currently loaded scenes in the attached game.
@@ -505,11 +506,12 @@ impl Scene {
         process: &Process,
         scene_manager: &SceneManager,
     ) -> Result<ArrayCString<N>, Error> {
-        process.read_pointer_path(
-            self.address,
-            scene_manager.pointer_size,
-            &[scene_manager.offsets.asset_path as u64, 0x0],
-        )
+        process
+            .read_pointer(
+                self.address + scene_manager.offsets.asset_path,
+                scene_manager.pointer_size,
+            )
+            .and_then(|addr| process.read(addr))
     }
 }
 

@@ -543,11 +543,12 @@ impl Field {
         process: &Process,
         module: &Module,
     ) -> Result<ArrayCString<N>, Error> {
-        process.read_pointer_path(
-            self.field,
-            module.pointer_size,
-            &[module.offsets.monoclassfield_name.into(), 0x0],
-        )
+        process
+            .read_pointer(
+                self.field + module.offsets.monoclassfield_name,
+                module.pointer_size,
+            )
+            .and_then(|addr| process.read(addr))
     }
 
     fn get_offset(&self, process: &Process, module: &Module) -> Option<u32> {
