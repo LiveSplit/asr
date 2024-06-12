@@ -461,7 +461,7 @@ impl Class {
 
         // Mono V1 behaves differently when it comes to recover the static table
         match module.version {
-            Version::V1 => Some(vtables + module.offsets.monoclass_vtable_size),
+            Version::V1 | Version::V1Cattrs => Some(vtables + module.offsets.monoclass_vtable_size),
             _ => {
                 vtables = vtables + module.offsets.monovtable_vtable;
 
