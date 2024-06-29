@@ -369,10 +369,10 @@ impl Class {
         iter::from_fn(move || {
             if this_class?
                 .get_name::<CSTR>(process, module)
-                .is_ok_and(|name| !name.matches("Object"))
+                .is_ok_and(|name| name.matches("Object"))
                 || this_class?
                     .get_name_space::<CSTR>(process, module)
-                    .is_ok_and(|name| !name.matches("UnityEngine"))
+                    .is_ok_and(|name| name.matches("UnityEngine"))
             {
                 None
             } else {
