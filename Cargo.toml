@@ -30,6 +30,7 @@ signature = ["memchr"]
 wasi-no-std = ["libm"]
 
 # Game Engines
+godot = []
 unity = ["signature", "asr-derive?/unity"]
 unreal = ["signature"]
 
@@ -41,3 +42,6 @@ ps1 = ["flags", "signature"]
 ps2 = ["flags", "signature"]
 sms = ["flags", "signature"]
 wii = ["flags"]
+
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(doc_cfg)'] }
