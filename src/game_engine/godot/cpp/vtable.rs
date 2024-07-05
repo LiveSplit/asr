@@ -19,6 +19,6 @@ impl Ptr<VTable> {
     ///
     /// [`typeid`](https://en.cppreference.com/w/cpp/language/typeid)
     pub fn get_type_info(self, process: &Process) -> Result<Ptr<TypeInfo>, Error> {
-        self.read_at_offset(-8, process)
+        self.read_at_byte_offset(-8, process)
     }
 }
