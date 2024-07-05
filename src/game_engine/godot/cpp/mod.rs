@@ -9,3 +9,9 @@ mod vtable;
 pub use ptr::*;
 pub use type_info::*;
 pub use vtable::*;
+
+/// The size of a type in the target process.
+pub trait SizeInTargetProcess {
+    /// The size of the type in the target process.
+    const SIZE: u64;
+}

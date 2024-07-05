@@ -22,7 +22,7 @@ impl Ptr<CanvasItem> {
     /// or it has `top_level` enabled.
     ///
     /// [`CanvasItem.get_global_transform`](https://docs.godotengine.org/en/4.2/classes/class_canvasitem.html#class-canvasitem-method-get-global-transform)
-    pub fn get_global_transform(self, process: &Process) -> Result<[f32; 6], Error> {
-        self.read_at_offset(0x450, process)
+    pub fn get_global_transform(self, process: &Process) -> Result<[[f32; 2]; 3], Error> {
+        self.read_at_byte_offset(0x450, process)
     }
 }

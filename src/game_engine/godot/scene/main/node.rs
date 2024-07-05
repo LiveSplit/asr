@@ -25,7 +25,7 @@ impl Ptr<Node> {
     ///
     /// [`Node.get_parent`](https://docs.godotengine.org/en/4.2/classes/class_node.html#class-node-method-get-parent)
     pub fn get_parent(self, process: &Process) -> Result<Option<Ptr<Self>>, Error> {
-        self.read_at_offset(0x128, process).map(
+        self.read_at_byte_offset(0x128, process).map(
             |ptr: Ptr<Self>| {
                 if ptr.is_null() {
                     None
@@ -42,7 +42,7 @@ impl Ptr<Node> {
     ///
     /// [`Node.get_owner`](https://docs.godotengine.org/en/4.2/classes/class_node.html#class-node-property-owner)
     pub fn get_owner(self, process: &Process) -> Result<Option<Ptr<Self>>, Error> {
-        self.read_at_offset(0x130, process).map(
+        self.read_at_byte_offset(0x130, process).map(
             |ptr: Ptr<Self>| {
                 if ptr.is_null() {
                     None
@@ -51,6 +51,23 @@ impl Ptr<Node> {
                 }
             },
         )
+    }
+
+    /// Finds the first descendant of this node whose name matches the name
+    /// provided, returning [`None`] if no match is found. The matching is done
+    /// against node names, not their paths. As such, it is case-sensitive.
+    /// Unlike the Godot API, not wildcards are supported.
+    ///
+    /// [`Node.find_child`](https://docs.godotengine.org/en/4.2/classes/class_node.html#class-node-method-find-child)
+    pub fn find_child<const N: usize>(
+        self,
+        name: &[u8; N],
+        process: &Process,
+    ) -> Result<Option<Ptr<Node>>, Error> {
+        self.get_children()
+            .get(name, process)?
+            .map(|node| node.deref(process))
+            .transpose()
     }
 
     /// Fetches a child node by its index. Each child node has an index relative
@@ -94,7 +111,7 @@ impl Ptr<Node> {
     ///
     /// [`Node.get_index`](https://docs.godotengine.org/en/4.2/classes/class_node.html#class-node-method-get-index)
     pub fn get_index(self, process: &Process) -> Result<i32, Error> {
-        self.read_at_offset(0x1C4, process)
+        self.read_at_byte_offset(0x1C4, process)
     }
 
     /// The name of the node. This name must be unique among the siblings (other
@@ -103,7 +120,7 @@ impl Ptr<Node> {
     ///
     /// [`Node.get_name`](https://docs.godotengine.org/en/4.2/classes/class_node.html#class-node-property-name)
     pub fn get_name<const N: usize>(self, process: &Process) -> Result<String<N>, Error> {
-        let string_name: StringName = self.read_at_offset(0x1D0, process)?;
+        let string_name: StringName = self.read_at_byte_offset(0x1D0, process)?;
         string_name.read(process)
     }
 
@@ -130,7 +147,7 @@ impl Ptr<Node> {
     ///
     /// [`Node.get_tree`](https://docs.godotengine.org/en/4.2/classes/class_node.html#class-node-method-get-tree)
     pub fn get_tree(self, process: &Process) -> Result<Option<Ptr<SceneTree>>, Error> {
-        self.read_at_offset(0x1D8, process).map(
+        self.read_at_byte_offset(0x1D8, process).map(
             |ptr: Ptr<SceneTree>| {
                 if ptr.is_null() {
                     None

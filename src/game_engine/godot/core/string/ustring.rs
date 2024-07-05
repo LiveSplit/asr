@@ -2,11 +2,17 @@
 
 use arrayvec::{ArrayString, ArrayVec};
 
+use crate::game_engine::godot::SizeInTargetProcess;
+
 /// A built-in type for strings.
 ///
 /// [`String`](https://docs.godotengine.org/en/4.2/classes/class_string.html)
 #[derive(Clone)]
 pub struct String<const N: usize>(pub(super) ArrayVec<u32, N>);
+
+impl<const N: usize> SizeInTargetProcess for String<N> {
+    const SIZE: u64 = 0x8;
+}
 
 impl<const N: usize> String<N> {
     /// Returns an iterator over the characters in this string.

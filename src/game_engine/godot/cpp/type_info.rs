@@ -22,7 +22,7 @@ impl Ptr<TypeInfo> {
         self,
         process: &Process,
     ) -> Result<ArrayCString<N>, Error> {
-        let name_ptr: Address64 = self.read_at_offset(0x8, process)?;
+        let name_ptr: Address64 = self.read_at_byte_offset(0x8, process)?;
         process.read(name_ptr)
     }
 

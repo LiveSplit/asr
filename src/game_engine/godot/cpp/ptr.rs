@@ -23,6 +23,12 @@ impl<T> Clone for Ptr<T> {
     }
 }
 
+impl<T> Default for Ptr<T> {
+    fn default() -> Self {
+        Self(Address64::NULL, PhantomData)
+    }
+}
+
 // SAFETY: The type is transparent over an `Address64`, which is `Pod`.
 unsafe impl<T: 'static> Pod for Ptr<T> {}
 
@@ -50,7 +56,7 @@ impl<T> Ptr<T> {
 
     /// Reads the value that this pointer points to from the target process at
     /// the given offset.
-    pub fn read_at_offset<U, O>(self, offset: O, process: &Process) -> Result<U, Error>
+    pub fn read_at_byte_offset<U, O>(self, offset: O, process: &Process) -> Result<U, Error>
     where
         U: CheckedBitPattern,
         Address64: Add<O, Output = Address64>,
