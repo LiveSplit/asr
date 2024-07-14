@@ -6,11 +6,18 @@
 //
 // Offsets and logic for Transforms and GameObjects taken from https://github.com/Micrologist/UnityInstanceDumper
 
-use core::{array, iter, mem::MaybeUninit};
+use core::{
+    array,
+    iter::{self, FusedIterator},
+    mem::MaybeUninit,
+};
 
 use crate::{
-    file_format::pe, future::retry, signature::Signature, string::ArrayCString, Address, Address32,
-    Address64, Error, PointerSize, Process,
+    file_format::{elf, macho, pe},
+    future::retry,
+    signature::Signature,
+    string::ArrayCString,
+    Address, Address32, Address64, Error, PointerSize, Process,
 };
 
 const CSTR: usize = 128;
@@ -30,33 +37,67 @@ pub struct SceneManager {
 impl SceneManager {
     /// Attaches to the scene manager in the given process.
     pub fn attach(process: &Process) -> Option<Self> {
-        const SIG_64_BIT: Signature<13> = Signature::new("48 83 EC 20 4C 8B ?5 ???????? 33 F6");
+        const SIG_64_BIT_PE: Signature<13> = Signature::new("48 83 EC 20 4C 8B ?5 ???????? 33 F6");
+        const SIG_64_BIT_ELF: Signature<13> = Signature::new("41 54 53 50 4C 8B ?5 ???????? 41 83");
+        const SIG_64_BIT_MACHO: Signature<13> =
+            Signature::new("41 54 53 50 4C 8B ?5 ???????? 41 83");
         const SIG_32_1: Signature<12> = Signature::new("55 8B EC 51 A1 ???????? 53 33 DB");
         const SIG_32_2: Signature<6> = Signature::new("53 8D 41 ?? 33 DB");
         const SIG_32_3: Signature<14> = Signature::new("55 8B EC 83 EC 18 A1 ???????? 33 C9 53");
 
-        let unity_player = process.get_module_range("UnityPlayer.dll").ok()?;
+        let (unity_player, format) = [
+            ("UnityPlayer.dll", BinaryFormat::PE),
+            ("UnityPlayer.so", BinaryFormat::ELF),
+            ("UnityPlayer.dylib", BinaryFormat::MachO),
+        ]
+        .into_iter()
+        .find_map(|(name, format)| {
+            match format {
+                BinaryFormat::PE => {
+                    let address = process.get_module_address(name).ok()?;
+                    Some(((address, pe::read_size_of_image(process, address)? as u64), format))
+                }
+                _ => Some((process.get_module_range(name).ok()?, format)),
+            }
+        })?;
 
-        let pointer_size = match pe::MachineType::read(process, unity_player.0)? {
-            pe::MachineType::X86_64 => PointerSize::Bit64,
-            _ => PointerSize::Bit32,
+        let pointer_size = match format {
+            BinaryFormat::PE => pe::MachineType::read(process, unity_player.0)?.pointer_size()?,
+            BinaryFormat::ELF => elf::pointer_size(process, unity_player.0)?,
+            BinaryFormat::MachO => macho::pointer_size(process, unity_player)?,
         };
 
         let is_il2cpp = process.get_module_address("GameAssembly.dll").is_ok();
 
         // There are multiple signatures that can be used, depending on the version of Unity
         // used in the target game.
-        let base_address: Address = if pointer_size == PointerSize::Bit64 {
-            let addr = SIG_64_BIT.scan_process_range(process, unity_player)? + 7;
-            addr + 0x4 + process.read::<i32>(addr).ok()?
-        } else if let Some(addr) = SIG_32_1.scan_process_range(process, unity_player) {
-            process.read::<Address32>(addr + 5).ok()?.into()
-        } else if let Some(addr) = SIG_32_2.scan_process_range(process, unity_player) {
-            process.read::<Address32>(addr.add_signed(-4)).ok()?.into()
-        } else if let Some(addr) = SIG_32_3.scan_process_range(process, unity_player) {
-            process.read::<Address32>(addr + 7).ok()?.into()
-        } else {
-            return None;
+        let base_address: Address = match (pointer_size, format) {
+            (PointerSize::Bit64, BinaryFormat::PE) => {
+                let addr = SIG_64_BIT_PE.scan_process_range(process, unity_player)? + 7;
+                addr + 0x4 + process.read::<i32>(addr).ok()?
+            }
+            (PointerSize::Bit64, BinaryFormat::ELF) => {
+                let addr = SIG_64_BIT_ELF.scan_process_range(process, unity_player)? + 7;
+                addr + 0x4 + process.read::<i32>(addr).ok()?
+            }
+            (PointerSize::Bit64, BinaryFormat::MachO) => {
+                let addr = SIG_64_BIT_MACHO.scan_process_range(process, unity_player)? + 7;
+                addr + 0x4 + process.read::<i32>(addr).ok()?
+            }
+            (PointerSize::Bit32, BinaryFormat::PE) => {
+                if let Some(addr) = SIG_32_1.scan_process_range(process, unity_player) {
+                    process.read::<Address32>(addr + 5).ok()?.into()
+                } else if let Some(addr) = SIG_32_2.scan_process_range(process, unity_player) {
+                    process.read::<Address32>(addr.add_signed(-4)).ok()?.into()
+                } else if let Some(addr) = SIG_32_3.scan_process_range(process, unity_player) {
+                    process.read::<Address32>(addr + 7).ok()?.into()
+                } else {
+                    return None;
+                }
+            }
+            _ => {
+                return None;
+            }
         };
 
         let offsets = Offsets::new(pointer_size);
@@ -91,13 +132,12 @@ impl SceneManager {
 
     /// Tries to retrieve the current active scene.
     fn get_current_scene(&self, process: &Process) -> Result<Scene, Error> {
-        Ok(Scene {
-            address: process
-                .read_pointer(self.address + self.offsets.active_scene, self.pointer_size)
-                .ok()
-                .filter(|val| !val.is_null())
-                .ok_or(Error {})?,
-        })
+        process
+            .read_pointer(self.address + self.offsets.active_scene, self.pointer_size)
+            .ok()
+            .filter(|val| !val.is_null())
+            .map(|address| Scene { address })
+            .ok_or(Error {})
     }
 
     /// `DontDestroyOnLoad` is a special Unity scene containing game objects
@@ -115,7 +155,8 @@ impl SceneManager {
     /// The value returned is a [`i32`] because some games will show `-1` as their
     /// current scene until fully initialized.
     pub fn get_current_scene_index(&self, process: &Process) -> Result<i32, Error> {
-        self.get_current_scene(process)?.index(process, self)
+        self.get_current_scene(process)
+            .and_then(|scene| scene.index(process, self))
     }
 
     /// Returns the full path to the current scene. Use [`get_scene_name`]
@@ -124,7 +165,8 @@ impl SceneManager {
         &self,
         process: &Process,
     ) -> Result<ArrayCString<N>, Error> {
-        self.get_current_scene(process)?.path(process, self)
+        self.get_current_scene(process)
+            .and_then(|scene| scene.path(process, self))
     }
 
     /// Returns the number of currently loaded scenes in the attached game.
@@ -153,15 +195,14 @@ impl SceneManager {
         };
 
         (0..num_scenes).filter_map(move |index| {
-            Some(Scene {
-                address: process
-                    .read_pointer(
-                        addr + (index as u64).wrapping_mul(self.size_of_ptr()),
-                        self.pointer_size,
-                    )
-                    .ok()
-                    .filter(|val| !val.is_null())?,
-            })
+            process
+                .read_pointer(
+                    addr + (index as u64).wrapping_mul(self.size_of_ptr()),
+                    self.pointer_size,
+                )
+                .ok()
+                .filter(|val| !val.is_null())
+                .map(|address| Scene { address })
         })
     }
 
@@ -177,41 +218,40 @@ impl SceneManager {
         &'a self,
         process: &'a Process,
         scene: &Scene,
-    ) -> impl Iterator<Item = Transform> + 'a {
+    ) -> impl FusedIterator<Item = Transform> + 'a {
         let list_first = process
             .read_pointer(
                 scene.address + self.offsets.root_storage_container,
                 self.pointer_size,
             )
-            .unwrap_or_default();
+            .ok()
+            .filter(|val| !val.is_null());
 
         let mut current_list = list_first;
-        let mut iter_break = current_list.is_null();
 
         iter::from_fn(move || {
-            if iter_break {
-                None
+            let [first, _, third]: [Address; 3] = match self.pointer_size {
+                PointerSize::Bit64 => process
+                    .read::<[Address64; 3]>(current_list?)
+                    .ok()
+                    .filter(|[first, _, third]| !first.is_null() && !third.is_null())?
+                    .map(|a| a.into()),
+                _ => process
+                    .read::<[Address32; 3]>(current_list?)
+                    .ok()
+                    .filter(|[first, _, third]| !first.is_null() && !third.is_null())?
+                    .map(|a| a.into()),
+            };
+
+            if first == list_first? {
+                current_list = None;
             } else {
-                let [first, _, third]: [Address; 3] = match self.pointer_size {
-                    PointerSize::Bit64 => process
-                        .read::<[Address64; 3]>(current_list)
-                        .ok()?
-                        .map(|a| a.into()),
-                    _ => process
-                        .read::<[Address32; 3]>(current_list)
-                        .ok()?
-                        .map(|a| a.into()),
-                };
-
-                if first == list_first {
-                    iter_break = true;
-                } else {
-                    current_list = first;
-                }
-
-                Some(Transform { address: third })
+                current_list = Some(first);
             }
+
+            Some(Transform { address: third })
         })
+        .fuse()
     }
 
     /// Tries to find the specified root [`Transform`] from the currently
@@ -429,6 +469,13 @@ impl Transform {
     }
 }
 
+#[derive(Copy, Clone, PartialEq, Hash, Debug)]
+enum BinaryFormat {
+    PE,
+    ELF,
+    MachO,
+}
+
 struct Offsets {
     scene_count: u8,
     active_scene: u8,
@@ -505,11 +552,12 @@ impl Scene {
         process: &Process,
         scene_manager: &SceneManager,
     ) -> Result<ArrayCString<N>, Error> {
-        process.read_pointer_path(
-            self.address,
-            scene_manager.pointer_size,
-            &[scene_manager.offsets.asset_path as u64, 0x0],
-        )
+        process
+            .read_pointer(
+                self.address + scene_manager.offsets.asset_path,
+                scene_manager.pointer_size,
+            )
+            .and_then(|addr| process.read(addr))
     }
 }
 

@@ -1005,6 +1005,13 @@ pub fn is_64_bit(process: &Process, module_address: Address) -> Option<bool> {
     }
 }
 
+/// Checks if a given ELF module is 64-bit or 32-bit
+pub fn pointer_size(process: &Process, module_address: Address) -> Option<PointerSize> {
+    let header = process.read::<Header>(module_address).ok()?;
+    let info = Info::parse(bytemuck::bytes_of(&header))?;
+    info.bitness.pointer_size()
+}
+
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 #[repr(C)]
 struct ProgramHeader32 {
