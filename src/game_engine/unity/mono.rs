@@ -2,10 +2,14 @@
 //! backend.
 
 use crate::{
-    deep_pointer::DeepPointer, file_format::pe, future::retry, signature::Signature,
-    string::ArrayCString, Address, Address32, Address64, Error, PointerSize, Process,
+    file_format::pe, future::retry, signature::Signature, string::ArrayCString, Address, Address32,
+    Address64, Error, PointerSize, Process,
 };
-use core::{array, cell::RefCell, iter};
+use core::{
+    array,
+    cell::RefCell,
+    iter::{self, FusedIterator},
+};
 
 #[cfg(feature = "derive")]
 pub use asr_derive::MonoClass as Class;
@@ -55,7 +59,7 @@ impl Module {
             })?
             .address;
 
-        let assemblies_pointer: Address = match pointer_size {
+        let assemblies: Address = match pointer_size {
             PointerSize::Bit64 => {
                 const SIG_MONO_64: Signature<3> = Signature::new("48 8B 0D");
                 let scan_address: Address = SIG_MONO_64
@@ -76,11 +80,6 @@ impl Module {
             _ => return None,
         };
 
-        let assemblies = process
-            .read_pointer(assemblies_pointer, pointer_size)
-            .ok()
-            .filter(|val| !val.is_null())?;
-
         Some(Self {
             pointer_size,
             version,
@@ -89,33 +88,29 @@ impl Module {
         })
     }
 
-    fn assemblies<'a>(&'a self, process: &'a Process) -> impl Iterator<Item = Assembly> + 'a {
-        let mut assembly = self.assemblies;
-        let mut iter_break = assembly.is_null();
+    fn assemblies<'a>(&'a self, process: &'a Process) -> impl FusedIterator<Item = Assembly> + 'a {
+        let mut assembly = process
+            .read_pointer(self.assemblies, self.pointer_size)
+            .ok()
+            .filter(|val| !val.is_null());
+
         iter::from_fn(move || {
-            if iter_break {
-                None
-            } else {
-                let [data, next_assembly]: [Address; 2] = match self.pointer_size {
-                    PointerSize::Bit64 => process
-                        .read::<[Address64; 2]>(assembly)
-                        .ok()?
-                        .map(|item| item.into()),
-                    _ => process
-                        .read::<[Address32; 2]>(assembly)
-                        .ok()?
-                        .map(|item| item.into()),
-                };
+            let [data, next_assembly]: [Address; 2] = match self.pointer_size {
+                PointerSize::Bit64 => process
+                    .read::<[Address64; 2]>(assembly?)
+                    .ok()?
+                    .map(|item| item.into()),
+                _ => process
+                    .read::<[Address32; 2]>(assembly?)
+                    .ok()?
+                    .map(|item| item.into()),
+            };
 
-                if next_assembly.is_null() {
-                    iter_break = true;
-                } else {
-                    assembly = next_assembly;
-                }
+            assembly = Some(next_assembly);
 
-                Some(Assembly { assembly: data })
-            }
+            Some(Assembly { assembly: data })
         })
+        .fuse()
     }
 
     /// Looks for the specified binary [image](Image) inside the target process.
@@ -130,8 +125,8 @@ impl Module {
                 assembly
                     .get_name::<CSTR>(process, self)
                     .is_ok_and(|name| name.matches(assembly_name))
-            })?
-            .get_image(process, self)
+            })
+            .and_then(|assembly| assembly.get_image(process, self))
     }
 
     /// Looks for the `Assembly-CSharp` binary [image](Image) inside the target
@@ -212,23 +207,23 @@ impl Assembly {
         process: &Process,
         module: &Module,
     ) -> Result<ArrayCString<N>, Error> {
-        process.read_pointer_path(
-            self.assembly,
-            module.pointer_size,
-            &[module.offsets.monoassembly_aname.into(), 0x0],
-        )
+        process
+            .read_pointer(
+                self.assembly + module.offsets.monoassembly_aname,
+                module.pointer_size,
+            )
+            .and_then(|addr| process.read(addr))
     }
 
     fn get_image(&self, process: &Process, module: &Module) -> Option<Image> {
-        Some(Image {
-            image: process
-                .read_pointer(
-                    self.assembly + module.offsets.monoassembly_image,
-                    module.pointer_size,
-                )
-                .ok()
-                .filter(|val| !val.is_null())?,
-        })
+        process
+            .read_pointer(
+                self.assembly + module.offsets.monoassembly_image,
+                module.pointer_size,
+            )
+            .ok()
+            .filter(|val| !val.is_null())
+            .map(|image| Image { image })
     }
 }
 
@@ -245,7 +240,7 @@ impl Image {
         &self,
         process: &'a Process,
         module: &'a Module,
-    ) -> impl Iterator<Item = Class> + 'a {
+    ) -> impl FusedIterator<Item = Class> + 'a {
         let class_cache_size = process
             .read::<i32>(
                 self.image
@@ -255,26 +250,26 @@ impl Image {
             .ok()
             .filter(|&val| val != 0);
 
-        let table_addr = match class_cache_size {
-            Some(_) => process.read_pointer(
-                self.image
-                    + module.offsets.monoimage_class_cache
-                    + module.offsets.monointernalhashtable_table,
-                module.pointer_size,
-            ),
-            _ => Err(Error {}),
-        };
+        let table_addr = class_cache_size.and_then(|_| {
+            process
+                .read_pointer(
+                    self.image
+                        + module.offsets.monoimage_class_cache
+                        + module.offsets.monointernalhashtable_table,
+                    module.pointer_size,
+                )
+                .ok()
+        });
 
         (0..class_cache_size.unwrap_or_default()).flat_map(move |i| {
-            let mut table = match table_addr {
-                Ok(table_addr) => process
+            let mut table = table_addr.and_then(|addr| {
+                process
                     .read_pointer(
-                        table_addr + (i as u64).wrapping_mul(module.size_of_ptr()),
+                        addr + (i as u64).wrapping_mul(module.size_of_ptr()),
                         module.pointer_size,
                     )
-                    .ok(),
-                _ => None,
-            };
+                    .ok()
+            });
 
             iter::from_fn(move || {
                 let class = process.read_pointer(table?, module.pointer_size).ok()?;
@@ -289,6 +284,7 @@ impl Image {
 
                 Some(Class { class })
             })
+            .fuse()
         })
     }
 
@@ -326,14 +322,12 @@ impl Class {
         process: &Process,
         module: &Module,
     ) -> Result<ArrayCString<N>, Error> {
-        process.read_pointer_path(
-            self.class,
-            module.pointer_size,
-            &[
-                module.offsets.monoclassdef_klass as u64 + module.offsets.monoclass_name as u64,
-                0x0,
-            ],
-        )
+        process
+            .read_pointer(
+                self.class + module.offsets.monoclassdef_klass + module.offsets.monoclass_name,
+                module.pointer_size,
+            )
+            .and_then(|addr| process.read(addr))
     }
 
     fn get_name_space<const N: usize>(
@@ -341,73 +335,64 @@ impl Class {
         process: &Process,
         module: &Module,
     ) -> Result<ArrayCString<N>, Error> {
-        process.read_pointer_path(
-            self.class,
-            module.pointer_size,
-            &[
-                module.offsets.monoclassdef_klass as u64
-                    + module.offsets.monoclass_name_space as u64,
-                0x0,
-            ],
-        )
+        process
+            .read_pointer(
+                self.class
+                    + module.offsets.monoclassdef_klass
+                    + module.offsets.monoclass_name_space,
+                module.pointer_size,
+            )
+            .and_then(|addr| process.read(addr))
     }
 
     fn fields<'a>(
         &'a self,
         process: &'a Process,
         module: &'a Module,
-    ) -> impl Iterator<Item = Field> + 'a {
-        let mut this_class = Class { class: self.class };
-        let mut iter_break = this_class.class.is_null();
+    ) -> impl FusedIterator<Item = Field> + 'a {
+        let mut this_class = Some(*self);
 
         iter::from_fn(move || {
-            if iter_break {
-                None
-            } else if !this_class.class.is_null()
-                && this_class
-                    .get_name::<CSTR>(process, module)
-                    .is_ok_and(|name| !name.matches("Object"))
-                && this_class
+            if this_class?
+                .get_name::<CSTR>(process, module)
+                .ok()?
+                .matches("Object")
+                || this_class?
                     .get_name_space::<CSTR>(process, module)
-                    .is_ok_and(|name| !name.matches("UnityEngine"))
+                    .ok()?
+                    .matches("UnityEngine")
             {
+                None
+            } else {
                 let field_count = process
-                    .read::<u32>(this_class.class + module.offsets.monoclassdef_field_count)
+                    .read::<u32>(this_class?.class + module.offsets.monoclassdef_field_count)
                     .ok()
-                    .filter(|&val| val != 0);
+                    .filter(|val| !val.eq(&0));
 
-                let fields = match field_count {
-                    Some(_) => process
+                let fields = field_count.and_then(|_| {
+                    process
                         .read_pointer(
-                            this_class.class
+                            this_class?.class
                                 + module.offsets.monoclassdef_klass
                                 + module.offsets.monoclass_fields,
                             module.pointer_size,
                         )
-                        .ok(),
-                    _ => None,
-                };
+                        .ok()
+                });
 
-                let monoclassfieldalignment = module.offsets.monoclassfieldalignment as u64;
-
-                if let Some(x) = this_class.get_parent(process, module) {
-                    this_class = x;
-                } else {
-                    iter_break = true;
-                }
+                this_class = this_class?.get_parent(process, module);
 
                 Some(
                     (0..field_count.unwrap_or_default() as u64).filter_map(move |i| {
-                        Some(Field {
-                            field: fields? + i.wrapping_mul(monoclassfieldalignment),
+                        fields.map(|fields| Field {
+                            field: fields
+                                + i.wrapping_mul(module.offsets.monoclassfieldalignment as u64),
                         })
                     }),
                 )
-            } else {
-                iter_break = true;
-                None
             }
         })
+        .fuse()
         .flatten()
     }
 
@@ -425,8 +410,8 @@ impl Class {
                 field
                     .get_name::<CSTR>(process, module)
                     .is_ok_and(|name| name.matches(field_name))
-            })?
-            .get_offset(process, module)
+            })
+            .and_then(|field| field.get_offset(process, module))
     }
 
     /// Tries to find the address of a static instance of the class based on its
@@ -507,20 +492,16 @@ impl Class {
 
     /// Tries to find the parent class.
     pub fn get_parent(&self, process: &Process, module: &Module) -> Option<Class> {
-        let parent_addr = process
+        process
             .read_pointer(
                 self.class + module.offsets.monoclassdef_klass + module.offsets.monoclass_parent,
                 module.pointer_size,
             )
             .ok()
-            .filter(|val| !val.is_null())?;
-
-        Some(Class {
-            class: process
-                .read_pointer(parent_addr, module.pointer_size)
-                .ok()
-                .filter(|val| !val.is_null())?,
-        })
+            .filter(|val| !val.is_null())
+            .and_then(|parent_addr| process.read_pointer(parent_addr, module.pointer_size).ok())
+            .filter(|val| !val.is_null())
+            .map(|class| Class { class })
     }
 
     /// Tries to find a field with the specified name in the class. This returns
@@ -562,11 +543,12 @@ impl Field {
         process: &Process,
         module: &Module,
     ) -> Result<ArrayCString<N>, Error> {
-        process.read_pointer_path(
-            self.field,
-            module.pointer_size,
-            &[module.offsets.monoclassfield_name.into(), 0x0],
-        )
+        process
+            .read_pointer(
+                self.field + module.offsets.monoclassfield_name,
+                module.pointer_size,
+            )
+            .and_then(|addr| process.read(addr))
     }
 
     fn get_offset(&self, process: &Process, module: &Module) -> Option<u32> {
@@ -591,7 +573,6 @@ struct UnityPointerCache<const CAP: usize> {
     base_address: Address,
     offsets: [u64; CAP],
     resolved_offsets: usize,
-    current_instance_pointer: Option<Address>,
     starting_class: Option<Class>,
 }
 
@@ -611,9 +592,8 @@ impl<const CAP: usize> UnityPointer<CAP> {
         let cache = RefCell::new(UnityPointerCache {
             base_address: Address::default(),
             offsets: [u64::default(); CAP],
-            current_instance_pointer: None,
-            starting_class: None,
             resolved_offsets: usize::default(),
+            starting_class: None,
         });
 
         Self {
@@ -659,55 +639,42 @@ impl<const CAP: usize> UnityPointer<CAP> {
         // Recovering the address of the static table is not very CPU intensive,
         // but it might be worth caching it as well
         if cache.base_address.is_null() {
-            let s_table = starting_class
+            cache.base_address = starting_class
                 .get_static_table(process, module)
                 .ok_or(Error {})?;
-            cache.base_address = s_table;
         };
 
-        // As we need to be able to find instances in a more reliable way,
-        // instead of the Class itself, we need the address pointing to an
-        // instance of that Class. If the cache is empty, we start from the
-        // pointer to the static table of the first class.
-        let mut current_instance_pointer = match cache.current_instance_pointer {
-            Some(val) => val,
-            _ => starting_class
-                .get_static_table_pointer(process, module)
-                .ok_or(Error {})?,
+        // If we already resolved some offsets, we need to traverse them again starting from the base address
+        // of the static table in order to recalculate the address of the farthest object we can reach.
+        // If no offsets have been resolved yet, we just need to read the base address instead.
+        let mut current_object = {
+            let mut addr = cache.base_address;
+            for &i in &cache.offsets[..cache.resolved_offsets] {
+                addr = process.read_pointer(addr + i, module.pointer_size)?;
+            }
+            addr
         };
 
         // We keep track of the already resolved offsets in order to skip resolving them again
         for i in cache.resolved_offsets..self.depth {
-            let class_instance = process
-                .read_pointer(current_instance_pointer, module.pointer_size)
-                .ok()
-                .filter(|val| !val.is_null())
-                .ok_or(Error {})?;
-
-            // Try to parse the offset, passed as a string, as an actual hex or decimal value
-            let offset_from_string = super::value_from_string(self.fields[i]);
+            let offset_from_string = match self.fields[i].strip_prefix("0x") {
+                Some(rem) => u32::from_str_radix(rem, 16).ok(),
+                _ => self.fields[i].parse().ok(),
+            };
 
             let current_offset = match offset_from_string {
                 Some(offset) => offset as u64,
                 _ => {
                     let current_class = match i {
                         0 => starting_class,
-                        _ => {
-                            let class = process
-                                .read_pointer(
-                                    process
-                                        .read_pointer(class_instance, module.pointer_size)
-                                        .ok()
-                                        .filter(|val| !val.is_null())
-                                        .ok_or(Error {})?,
-                                    module.pointer_size,
-                                )
-                                .ok()
-                                .filter(|val| !val.is_null())
-                                .ok_or(Error {})?;
-
-                            Class { class }
-                        }
+                        _ => process
+                            .read_pointer(current_object, module.pointer_size)
+                            .ok()
+                            .filter(|val| !val.is_null())
+                            .and_then(|addr| process.read_pointer(addr, module.pointer_size).ok())
+                            .filter(|val| !val.is_null())
+                            .map(|class| Class { class })
+                            .ok_or(Error {})?,
                     };
 
                     let val = current_class
@@ -717,8 +684,7 @@ impl<const CAP: usize> UnityPointer<CAP> {
                                 .get_name::<CSTR>(process, module)
                                 .is_ok_and(|name| name.matches(self.fields[i]))
                         })
-                        .ok_or(Error {})?
-                        .get_offset(process, module)
+                        .and_then(|val| val.get_offset(process, module))
                         .ok_or(Error {})? as u64;
 
                     // Explicitly allowing this clippy because of borrowing rules shenanigans
@@ -728,10 +694,10 @@ impl<const CAP: usize> UnityPointer<CAP> {
             };
 
             cache.offsets[i] = current_offset;
-
-            current_instance_pointer = class_instance + current_offset;
-            cache.current_instance_pointer = Some(current_instance_pointer);
             cache.resolved_offsets += 1;
+
+            current_object =
+                process.read_pointer(current_object + current_offset, module.pointer_size)?;
         }
 
         Ok(())
@@ -761,30 +727,7 @@ impl<const CAP: usize> UnityPointer<CAP> {
         module: &Module,
         image: &Image,
     ) -> Result<T, Error> {
-        self.find_offsets(process, module, image)?;
-        let cache = self.cache.borrow();
-        process.read_pointer_path(
-            cache.base_address,
-            module.pointer_size,
-            &cache.offsets[..self.depth],
-        )
-    }
-
-    /// Generates a `DeepPointer` struct based on the offsets
-    /// recovered from this `UnityPointer`.
-    pub fn get_deep_pointer(
-        &self,
-        process: &Process,
-        module: &Module,
-        image: &Image,
-    ) -> Option<DeepPointer<CAP>> {
-        self.find_offsets(process, module, image).ok()?;
-        let cache = self.cache.borrow();
-        Some(DeepPointer::<CAP>::new(
-            cache.base_address,
-            module.pointer_size,
-            &cache.offsets[..self.depth],
-        ))
+        process.read(self.deref_offsets(process, module, image)?)
     }
 }
 
