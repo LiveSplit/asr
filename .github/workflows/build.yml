@@ -10,24 +10,12 @@ on:
 
 jobs:
   build:
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        label:
-          - WebAssembly Unknown
-          - WebAssembly WASI
-
-        include:
-          - label: WebAssembly Unknown
-            target: wasm32-unknown-unknown
-            os: ubuntu-latest
-            install_target: true
-          - label: WebAssembly WASI
-            target: wasm32-wasi
-            os: ubuntu-latest
-            install_target: true
-
+        target: [wasm32-unknown-unknown, wasm32-wasip1]
+        toolchain: [stable, nightly]
     steps:
       - name: Checkout Commit
         uses: actions/checkout@v4
@@ -35,11 +23,8 @@ jobs:
       - name: Install Rust
         uses: hecrj/setup-rust-action@v2
         with:
-          rust-version: ${{ matrix.toolchain || 'stable' }}
-
-      - name: Install Target
-        if: matrix.install_target != ''
-        run: rustup target add ${{ matrix.target }}
+          targets: ${{ matrix.target }}
+          rust-version: ${{ matrix.toolchain }}
 
       - name: Build (No Default Features)
         run: |
@@ -53,14 +38,19 @@ jobs:
         run: |
           cargo build --all-features --target ${{ matrix.target }}
 
-      - name: Test (Target, All Features)
+  test:
+    name: Test (Host)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Commit
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: hecrj/setup-rust-action@v2
+
+      - name: Test (All Features)
         run: |
           cargo test --all-features
-
-      # Test on the host to also run the doc tests
-      - name: Test (Host, All Features)
-        run: |
-          cargo test --target x86_64-unknown-linux-gnu --all-features
 
   clippy:
     name: Check clippy lints

@@ -1,7 +1,7 @@
 //! Useful synchronization primitives.
 
 use core::{
-    cell::{RefCell, RefMut},
+    cell::{RefCell, RefMut, UnsafeCell},
     marker::PhantomData,
     ops::{Deref, DerefMut},
 };
@@ -110,3 +110,47 @@ unsafe impl<T: ?Sized + Send> Sync for Mutex<T> {}
 // SAFETY: This is the same as std's MutexGuard, but it can only be safe in
 // single-threaded WASM, because we use RefMut underneath.
 unsafe impl<T: ?Sized + Sync> Sync for MutexGuard<'_, T> {}
+
+/// A wrapper type that can be used for creating mutable global variables. It
+/// does not by itself provide any thread safety.
+#[repr(transparent)]
+pub struct RacyCell<T>(UnsafeCell<T>);
+
+// SAFETY: The thread unsafety is delegated to the user of this type.
+unsafe impl<T> Sync for RacyCell<T> {}
+// SAFETY: The thread unsafety is delegated to the user of this type.
+unsafe impl<T> Send for RacyCell<T> {}
+
+impl<T> RacyCell<T> {
+    /// Creates a new `RacyCell` containing the given value.
+    #[inline(always)]
+    pub const fn new(value: T) -> Self {
+        RacyCell(UnsafeCell::new(value))
+    }
+
+    /// Accesses the inner value as mutable pointer. There is no synchronization
+    /// provided by this type, so it is up to the user to ensure that no other
+    /// references to the value are used while this pointer is alive.
+    ///
+    /// # Safety
+    ///
+    /// You need to ensure that no other references to the value are used while
+    /// this pointer is alive.
+    #[inline(always)]
+    pub const unsafe fn get_mut(&self) -> *mut T {
+        self.0.get()
+    }
+
+    /// Accesses the inner value as const pointer. There is no synchronization
+    /// provided by this type, so it is up to the user to ensure that no other
+    /// references to the value are used while this pointer is alive.
+    ///
+    /// # Safety
+    ///
+    /// You need to ensure that no other references to the value are used while
+    /// this pointer is alive.
+    #[inline(always)]
+    pub const unsafe fn get(&self) -> *const T {
+        self.0.get()
+    }
+}
