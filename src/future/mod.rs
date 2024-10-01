@@ -345,25 +345,27 @@ macro_rules! async_main {
         #[no_mangle]
         pub unsafe extern "C" fn update() {
             use core::{
+                cell::UnsafeCell,
                 future::Future,
                 pin::Pin,
                 ptr,
                 task::{Context, RawWaker, RawWakerVTable, Waker},
             };
-
-            type MainFuture = impl Future<Output = ()>;
-            const fn main_type() -> MainFuture {
-                async {
-                    main().await;
+            use $crate::sync::RacyCell;
+            mod fut {
+                pub type MainFuture = impl core::future::Future<Output = ()>;
+                pub const fn main_type() -> MainFuture {
+                    async {
+                        super::main().await;
+                    }
                 }
             }
-            static mut STATE: MainFuture = main_type();
-            static mut FINISHED: bool = false;
 
-            if unsafe { FINISHED } {
+            static STATE: RacyCell<fut::MainFuture> = RacyCell::new(fut::main_type());
+            static FINISHED: RacyCell<bool> = RacyCell::new(false);
+            if unsafe { *FINISHED.get() } {
                 return;
             }
-
             static VTABLE: RawWakerVTable = RawWakerVTable::new(
                 |_| RawWaker::new(ptr::null(), &VTABLE),
                 |_| {},
@@ -374,7 +376,9 @@ macro_rules! async_main {
             let waker = unsafe { Waker::from_raw(raw_waker) };
             let mut cx = Context::from_waker(&waker);
             unsafe {
-                FINISHED = Pin::new_unchecked(&mut STATE).poll(&mut cx).is_ready();
+                *FINISHED.get_mut() = Pin::new_unchecked(&mut *STATE.get_mut())
+                    .poll(&mut cx)
+                    .is_ready();
             }
         }
     };
@@ -385,17 +389,20 @@ macro_rules! async_main {
         #[cfg(target_family = "wasm")]
         pub unsafe extern "C" fn update() {
             use core::{
+                cell::UnsafeCell,
                 future::Future,
                 mem::{self, ManuallyDrop},
                 pin::Pin,
                 ptr,
                 task::{Context, RawWaker, RawWakerVTable, Waker},
             };
+            use $crate::sync::RacyCell;
 
-            static mut STATE: Option<Pin<&'static mut dyn Future<Output = ()>>> = None;
-            static mut FINISHED: bool = false;
+            static STATE: RacyCell<Option<Pin<&'static mut dyn Future<Output = ()>>>> =
+                RacyCell::new(None);
+            static FINISHED: RacyCell<bool> = RacyCell::new(false);
 
-            if unsafe { FINISHED } {
+            if unsafe { *FINISHED.get() } {
                 return;
             }
 
@@ -409,35 +416,36 @@ macro_rules! async_main {
             let waker = unsafe { Waker::from_raw(raw_waker) };
             let mut cx = Context::from_waker(&waker);
             unsafe {
-                FINISHED = Pin::new_unchecked(STATE.get_or_insert_with(|| {
-                    fn allocate<F: Future<Output = ()> + 'static>(
-                        f: ManuallyDrop<F>,
-                    ) -> Pin<&'static mut dyn Future<Output = ()>> {
-                        unsafe {
-                            let size = mem::size_of::<F>();
-                            const PAGE_SIZE: usize = 64 << 10;
-                            assert!(mem::align_of::<F>() <= PAGE_SIZE);
-                            let pages = size.div_ceil(PAGE_SIZE);
+                *FINISHED.get_mut() =
+                    Pin::new_unchecked((&mut *STATE.get_mut()).get_or_insert_with(|| {
+                        fn allocate<F: Future<Output = ()> + 'static>(
+                            f: ManuallyDrop<F>,
+                        ) -> Pin<&'static mut dyn Future<Output = ()>> {
+                            unsafe {
+                                let size = mem::size_of::<F>();
+                                const PAGE_SIZE: usize = 64 << 10;
+                                assert!(mem::align_of::<F>() <= PAGE_SIZE);
+                                let pages = size.div_ceil(PAGE_SIZE);
 
-                            #[cfg(target_arch = "wasm32")]
-                            let old_page_count = core::arch::wasm32::memory_grow(0, pages);
-                            #[cfg(target_arch = "wasm64")]
-                            let old_page_count = core::arch::wasm64::memory_grow(0, pages);
+                                #[cfg(target_arch = "wasm32")]
+                                let old_page_count = core::arch::wasm32::memory_grow(0, pages);
+                                #[cfg(target_arch = "wasm64")]
+                                let old_page_count = core::arch::wasm64::memory_grow(0, pages);
 
-                            let address = old_page_count * PAGE_SIZE;
-                            let ptr = address as *mut ManuallyDrop<F>;
-                            ptr::write(ptr, f);
-                            let ptr = ptr.cast::<F>();
-                            let future: &'static mut F = &mut *ptr;
-                            let future: &'static mut dyn Future<Output = ()> = future;
-                            Pin::static_mut(future)
+                                let address = old_page_count * PAGE_SIZE;
+                                let ptr = address as *mut ManuallyDrop<F>;
+                                ptr::write(ptr, f);
+                                let ptr = ptr.cast::<F>();
+                                let future: &'static mut F = &mut *ptr;
+                                let future: &'static mut dyn Future<Output = ()> = future;
+                                Pin::static_mut(future)
+                            }
                         }
-                    }
 
-                    allocate(ManuallyDrop::new(main()))
-                }))
-                .poll(&mut cx)
-                .is_ready();
+                        allocate(ManuallyDrop::new(main()))
+                    }))
+                    .poll(&mut cx)
+                    .is_ready();
             };
         }
     };
