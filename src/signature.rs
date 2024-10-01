@@ -1,6 +1,6 @@
 //! Support for finding patterns in a process's memory.
 
-use core::mem::{self, MaybeUninit};
+use core::{mem, slice};
 
 use bytemuck::AnyBitPattern;
 
@@ -194,22 +194,63 @@ impl<const N: usize> Signature<N> {
         process: &Process,
         (addr, len): (impl Into<Address>, u64),
     ) -> Option<Address> {
+        const MEM_SIZE: usize = 0x1000;
         let mut addr: Address = Into::into(addr);
-        // TODO: Handle the case where a signature may be cut in half by a page
-        // boundary.
         let overall_end = addr.value() + len;
-        let mut buf = [MaybeUninit::uninit(); 4 << 10];
+
+        // The sigscan essentially works by reading one memory page (0x1000 bytes)
+        // at a time and looking for the signature in each page.
+        // We create a buffer sligthly larger than 0x1000 bytes in order to keep
+        // the very first bytes as the tail of the previous memory page.
+        // This allows to scan across the memory page boundaries.
+        #[repr(packed)]
+        struct Buffer<const N: usize> {
+            _head: [u8; N],
+            _buffer: [u8; MEM_SIZE]
+        }
+
+        let buf = 
+            // SAFETY: Using mem::zeroed is safe in this instance as the Buffer struct
+            // only contains u8, for which zeroed data represent a valid bit pattern.
+            unsafe {
+                let mut global_buffer = mem::zeroed::<Buffer<N>>();
+                slice::from_raw_parts_mut(&mut global_buffer as *mut _ as *mut u8, N + MEM_SIZE)
+        };
+
+        let first = {
+            // SAFETY: The buffer is guaranteed to be initialized due
+            // to using mem::zeroed() so we can safely return an u8 slice of it.
+            unsafe { slice::from_raw_parts_mut(buf.as_mut_ptr(), N) }
+        };
+
+        let last = {
+            // SAFETY: The buffer is guaranteed to be initialized due
+            // to using mem::zeroed() so we can safely return an u8 slice of it.
+            unsafe { slice::from_raw_parts_mut(buf.as_mut_ptr().add(MEM_SIZE), N) }
+        };
+
+        let mut last_page_success = false;
         while addr.value() < overall_end {
             // We round up to the 4 KiB address boundary as that's a single
             // page, which is safe to read either fully or not at all. We do
-            // this to do a single read rather than many small ones as the
-            // syscall overhead is a quite high.
+            // this to reduce the number of syscalls as much as possible, as the
+            // syscall overhead is quite high.
             let end = (addr.value() & !((4 << 10) - 1)) + (4 << 10).min(overall_end);
             let len = end - addr.value();
-            let current_read_buf = &mut buf[..len as usize];
-            if let Ok(current_read_buf) = process.read_into_uninit_buf(addr, current_read_buf) {
-                if let Some(pos) = self.scan(current_read_buf) {
-                    return Some(addr.add(pos as u64));
+
+            // If we read the previous memory page successfully, then we can copy the last
+            // elements to the start of the buffer. Otherwise, we just fill it with zeroes.
+            if last_page_success {
+                first.copy_from_slice(last);
+                last_page_success = false;
+            } else {
+                first.fill(0);
+            }
+
+            if process.read_into_buf(addr, &mut buf[N..][..len as usize]).is_ok() {
+                last_page_success = true;
+                if let Some(pos) = self.scan(&mut buf[..len as usize + N]) {
+                    return Some(addr.add(pos as u64).add_signed(-(N as i64)));
                 }
             };
             addr = Address::new(end);
