@@ -1,5 +1,7 @@
 use crate::{
-    file_format::pe, signature::Signature, Address, Address32, Address64, MemoryRangeFlags, Process,
+    file_format::pe,
+    signature::{Signature, SignatureScanner},
+    Address, Address32, Address64, MemoryRangeFlags, Process,
 };
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -25,10 +27,10 @@ impl State {
             );
             const SIG_OFFSET: Signature<9> = Signature::new("89 D1 C1 E9 10 48 8B ?? ??");
 
-            self.addr_base = SIG_BASE.scan_process_range(game, main_module_range)? + 2;
+            self.addr_base = SIG_BASE.scan(game, main_module_range.0, main_module_range.1)? + 2;
             self.addr = game.read::<Address64>(self.addr_base).ok()?.into();
 
-            let offset = SIG_OFFSET.scan_process_range(game, main_module_range)? + 8;
+            let offset = SIG_OFFSET.scan(game, main_module_range.0, main_module_range.1)? + 8;
             let offset = game.read::<u8>(offset).ok()? as u64;
 
             let addr = game.read::<Address64>(self.addr + offset).ok()?;
@@ -45,7 +47,10 @@ impl State {
                         .unwrap_or_default()
                         .contains(MemoryRangeFlags::WRITE)
                 })
-                .find_map(|m| SIG.scan_process_range(game, m.range().ok()?))?
+                .find_map(|m| {
+                    let (base, size) = m.range().ok()?;
+                    SIG.scan(game, base, size)
+                })?
                 + 2;
 
             self.addr = game.read::<Address32>(self.addr_base).ok()?.into();

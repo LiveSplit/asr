@@ -1,4 +1,8 @@
-use crate::{file_format::pe, signature::Signature, Address, Address64, Process};
+use crate::{
+    file_format::pe,
+    signature::{Signature, SignatureScanner},
+    Address, Address64, Process,
+};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct State {
@@ -24,7 +28,7 @@ impl State {
             self.addr = debug_symbol.address;
         } else {
             // For older versions of Duckstation, we fall back to regular sigscanning
-            let addr = SIG.scan_process_range(game, main_module_range)? + 3;
+            let addr = SIG.scan(game, main_module_range.0, main_module_range.1)? + 3;
             self.addr = addr + 0x4 + game.read::<i32>(addr).ok()?;
         }
 

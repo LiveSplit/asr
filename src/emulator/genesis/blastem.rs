@@ -1,4 +1,8 @@
-use crate::{runtime::MemoryRangeFlags, signature::Signature, Address, Address32, Endian, Process};
+use crate::{
+    runtime::MemoryRangeFlags,
+    signature::{Signature, SignatureScanner},
+    Address, Address32, Endian, Process,
+};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct State;
@@ -18,7 +22,10 @@ impl State {
                     .contains(MemoryRangeFlags::WRITE)
                     && m.size().unwrap_or_default() == 0x101000
             })
-            .find_map(|m| SIG.scan_process_range(game, m.range().ok()?))?
+            .find_map(|m| {
+                let (base, size) = m.range().ok()?;
+                SIG.scan(game, base, size)
+            })?
             + 11;
 
         let wram = game.read::<Address32>(scanned_address).ok()?;

@@ -10,8 +10,11 @@ use core::{
 use bytemuck::CheckedBitPattern;
 
 use crate::{
-    file_format::pe, future::retry, signature::Signature, string::ArrayCString, Address, Error,
-    PointerSize, Process,
+    file_format::pe,
+    future::retry,
+    signature::{Signature, SignatureScanner},
+    string::ArrayCString,
+    Address, Error, PointerSize, Process,
 };
 
 const CSTR: usize = 128;
@@ -50,7 +53,7 @@ impl Module {
             ];
 
             let addr = GENGINE.iter().find_map(|(sig, offset)| {
-                Some(sig.scan_process_range(process, module_range)? + *offset)
+                Some(sig.scan(process, module_range.0, module_range.1)? + *offset)
             })?;
             addr + 0x8 + process.read::<i32>(addr).ok()?
         };
@@ -62,7 +65,7 @@ impl Module {
             )];
 
             let addr = GWORLD.iter().find_map(|(sig, offset)| {
-                Some(sig.scan_process_range(process, module_range)? + *offset)
+                Some(sig.scan(process, module_range.0, module_range.1)? + *offset)
             })?;
             addr + 0x4 + process.read::<i32>(addr).ok()?
         };
@@ -75,7 +78,7 @@ impl Module {
             ];
 
             let addr = FNAME_POOL.iter().find_map(|(sig, offset)| {
-                Some(sig.scan_process_range(process, module_range)? + *offset)
+                Some(sig.scan(process, module_range.0, module_range.1)? + *offset)
             })?;
             addr + 0x4 + process.read::<i32>(addr).ok()?
         };
@@ -217,7 +220,7 @@ impl UClass {
         &'a self,
         process: &'a Process,
         module: &'a Module,
-    ) -> impl FusedIterator<Item = UProperty> + '_ {
+    ) -> impl FusedIterator<Item = UProperty> + 'a {
         // Logic: properties are contained in a linked list that can be accessed directly
         // through the `property_link` field, from the most derived to the least derived class.
         // Source: https://gist.github.com/apple1417/b23f91f7a9e3b834d6d052d35a0010ff#object-structure

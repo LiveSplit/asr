@@ -1,4 +1,8 @@
-use crate::{file_format::pe, signature::Signature, Address, Address32, Address64, Error, Process};
+use crate::{
+    file_format::pe,
+    signature::{Signature, SignatureScanner},
+    Address, Address32, Address64, Error, Process,
+};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct State {
@@ -20,7 +24,7 @@ impl State {
         if self.is_64_bit {
             self.cached_ewram_pointer = {
                 const SIG: Signature<13> = Signature::new("48 8B 05 ?? ?? ?? ?? 81 E1 FF FF 03 00");
-                let ptr: Address = SIG.scan_process_range(game, main_module_range)? + 3;
+                let ptr: Address = SIG.scan(game, main_module_range.0, main_module_range.1)? + 3;
                 let mut addr: Address = ptr + 0x4 + game.read::<i32>(ptr).ok()?;
 
                 if game.read::<u8>(ptr + 10).ok()? == 0x48 {
@@ -36,7 +40,7 @@ impl State {
             self.cached_iwram_pointer = {
                 const SIG2: Signature<13> =
                     Signature::new("48 8B 05 ?? ?? ?? ?? 81 E1 FF 7F 00 00");
-                let ptr: Address = SIG2.scan_process_range(game, main_module_range)? + 3;
+                let ptr: Address = SIG2.scan(game, main_module_range.0, main_module_range.1)? + 3;
                 let mut addr: Address = ptr + 0x4 + game.read::<i32>(ptr).ok()?;
 
                 if game.read::<u8>(ptr + 10).ok()? == 0x48 {
@@ -56,13 +60,13 @@ impl State {
         } else {
             self.cached_ewram_pointer = {
                 const SIG: Signature<11> = Signature::new("A1 ?? ?? ?? ?? 81 ?? FF FF 03 00");
-                let ptr = SIG.scan_process_range(game, main_module_range)?;
+                let ptr = SIG.scan(game, main_module_range.0, main_module_range.1)?;
                 game.read::<Address32>(ptr + 1).ok()?.into()
             };
 
             self.cached_iwram_pointer = {
                 const SIG2: Signature<11> = Signature::new("A1 ?? ?? ?? ?? 81 ?? FF 7F 00 00");
-                let ptr = SIG2.scan_process_range(game, main_module_range)?;
+                let ptr = SIG2.scan(game, main_module_range.0, main_module_range.1)?;
                 game.read::<Address32>(ptr + 1).ok()?.into()
             };
 

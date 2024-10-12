@@ -1,4 +1,7 @@
-use crate::{signature::Signature, Address, Address32, Process};
+use crate::{
+    signature::{Signature, SignatureScanner},
+    Address, Address32, Process,
+};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct State {
@@ -16,7 +19,7 @@ impl State {
             .find_map(|(name, _)| game.get_module_range(name).ok())?;
 
         self.base_addr = game
-            .read::<Address32>(SIG.scan_process_range(game, main_module_range)? + 0x2)
+            .read::<Address32>(SIG.scan(game, main_module_range.0, main_module_range.1)? + 0x2)
             .ok()?
             .into();
 
