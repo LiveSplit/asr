@@ -1,4 +1,8 @@
-use crate::{file_format::pe, signature::Signature, Address, Address64, Process};
+use crate::{
+    file_format::pe,
+    signature::{Signature, SignatureScanner},
+    Address, Address64, Process,
+};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct State {
@@ -31,9 +35,7 @@ impl State {
 
         let base_addr = {
             const SIG: Signature<13> = Signature::new("48 8B ?? ?? ?? ?? ?? 81 ?? F0 3F 00 00");
-            let ptr = SIG
-                .scan_process_range(game, (core_address, game.get_module_size(core_name).ok()?))?
-                + 3;
+            let ptr = SIG.scan(game, core_address, game.get_module_size(core_name).ok()?)? + 3;
             ptr + 0x4 + game.read::<i32>(ptr).ok()?
         };
 

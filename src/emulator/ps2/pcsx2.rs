@@ -1,4 +1,8 @@
-use crate::{file_format::pe, signature::Signature, Address, Address32, Address64, Error, Process};
+use crate::{
+    file_format::pe,
+    signature::{Signature, SignatureScanner},
+    Address, Address32, Address64, Error, Process,
+};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct State {
@@ -18,15 +22,15 @@ impl State {
 
         self.addr_base = if self.is_64_bit {
             const SIG: Signature<12> = Signature::new("48 8B ?? ?? ?? ?? ?? 25 F0 3F 00 00");
-            let ptr = SIG.scan_process_range(game, main_module_range)? + 3;
+            let ptr = SIG.scan(game, main_module_range.0, main_module_range.1)? + 3;
             ptr + 0x4 + game.read::<i32>(ptr).ok()?
         } else {
             const SIG: Signature<11> = Signature::new("8B ?? ?? ?? ?? ?? 25 F0 3F 00 00");
             const SIG_ALT: Signature<12> = Signature::new("8B ?? ?? ?? ?? ?? 81 ?? F0 3F 00 00");
-            let ptr = if let Some(addr) = SIG.scan_process_range(game, main_module_range) {
+            let ptr = if let Some(addr) = SIG.scan(game, main_module_range.0, main_module_range.1) {
                 addr + 2
             } else {
-                SIG_ALT.scan_process_range(game, main_module_range)? + 2
+                SIG_ALT.scan(game, main_module_range.0, main_module_range.1)? + 2
             };
             self.read_pointer(game, ptr).ok()?
         };

@@ -109,8 +109,6 @@ use core::{
     task::{Context, Poll},
 };
 
-#[cfg(feature = "signature")]
-use crate::signature::Signature;
 use crate::{Address, Process};
 
 #[cfg(target_os = "wasi")]
@@ -251,22 +249,6 @@ impl Process {
     /// yielding back to the runtime between each try.
     pub async fn wait_module_range(&self, name: &str) -> (Address, u64) {
         retry(|| self.get_module_range(name)).await
-    }
-}
-
-#[cfg(feature = "signature")]
-impl<const N: usize> Signature<N> {
-    /// Asynchronously awaits scanning a process for the signature until it is
-    /// found. This will scan the address range of the process given. Once the
-    /// signature is found, the address of the start of the signature is
-    /// returned.
-    pub async fn wait_scan_process_range(
-        &self,
-        process: &Process,
-        (addr, len): (impl Into<Address>, u64),
-    ) -> Address {
-        let addr = addr.into();
-        retry(|| self.scan_process_range(process, (addr, len))).await
     }
 }
 

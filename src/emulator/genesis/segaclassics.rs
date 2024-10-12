@@ -1,4 +1,7 @@
-use crate::{signature::Signature, Address, Address32, Endian, Process};
+use crate::{
+    signature::{Signature, SignatureScanner},
+    Address, Address32, Endian, Process,
+};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct State {
@@ -13,14 +16,14 @@ impl State {
         const GENESISWRAPPERDLL: &str = "GenesisEmuWrapper.dll";
 
         let mut ptr = if let Ok(module) = game.get_module_range(GENESISWRAPPERDLL) {
-            SIG_GAMEROOM.scan_process_range(game, module)? + 2
+            SIG_GAMEROOM.scan(game, module.0, module.1)? + 2
         } else {
             let main_module = super::PROCESS_NAMES
                 .iter()
                 .filter(|(_, state)| matches!(state, super::State::SegaClassics(_)))
                 .find_map(|(name, _)| game.get_module_range(name).ok())?;
 
-            SIG_SEGACLASSICS.scan_process_range(game, main_module)? + 8
+            SIG_SEGACLASSICS.scan(game, main_module.0, main_module.1)? + 8
         };
 
         ptr = game.read::<Address32>(ptr).ok()?.into();
