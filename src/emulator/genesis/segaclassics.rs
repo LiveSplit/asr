@@ -16,14 +16,14 @@ impl State {
         const GENESISWRAPPERDLL: &str = "GenesisEmuWrapper.dll";
 
         let mut ptr = if let Ok(module) = game.get_module_range(GENESISWRAPPERDLL) {
-            SIG_GAMEROOM.scan(game, module.0, module.1)? + 2
+            SIG_GAMEROOM.scan(game, module)? + 2
         } else {
             let main_module = super::PROCESS_NAMES
                 .iter()
                 .filter(|(_, state)| matches!(state, super::State::SegaClassics(_)))
                 .find_map(|(name, _)| game.get_module_range(name).ok())?;
 
-            SIG_SEGACLASSICS.scan(game, main_module.0, main_module.1)? + 8
+            SIG_SEGACLASSICS.scan(game, main_module)? + 8
         };
 
         ptr = game.read::<Address32>(ptr).ok()?.into();

@@ -51,7 +51,7 @@ impl State {
             const SIG2: Signature<13> = Signature::new("48 8B 05 ?? ?? ?? ?? 81 E1 FF 7F 00 00");
 
             let ewram_pointer = {
-                let ptr: Address = SIG.scan(game, module_range.0, module_range.1)? + 3;
+                let ptr: Address = SIG.scan(game, module_range)? + 3;
                 let mut addr: Address = ptr + 0x4 + game.read::<i32>(ptr).ok()?;
 
                 if game.read::<u8>(ptr + 10).ok()? == 0x48 {
@@ -65,7 +65,7 @@ impl State {
             };
 
             let iwram_pointer = {
-                let ptr: Address = SIG2.scan(game, module_range.0, module_range.1)? + 3;
+                let ptr: Address = SIG2.scan(game, module_range)? + 3;
                 let mut addr: Address = ptr + 0x4 + game.read::<i32>(ptr).ok()?;
 
                 if game.read::<u8>(ptr + 10).ok()? == 0x48 {
@@ -89,12 +89,12 @@ impl State {
         } else {
             let ewram_pointer: Address = {
                 const SIG: Signature<11> = Signature::new("A1 ?? ?? ?? ?? 81 ?? FF FF 03 00");
-                let ptr = SIG.scan(game, module_range.0, module_range.1)?;
+                let ptr = SIG.scan(game, module_range)?;
                 game.read::<Address32>(ptr + 1).ok()?.into()
             };
             let iwram_pointer: Address = {
                 const SIG2: Signature<11> = Signature::new("A1 ?? ?? ?? ?? 81 ?? FF 7F 00 00");
-                let ptr = SIG2.scan(game, module_range.0, module_range.1)?;
+                let ptr = SIG2.scan(game, module_range)?;
                 game.read::<Address32>(ptr + 1).ok()?.into()
             };
 
@@ -118,24 +118,24 @@ impl State {
         let base_addr: Address = match is_64_bit {
             true => {
                 const SIG: Signature<10> = Signature::new("48 8B 15 ?? ?? ?? ?? 8B 42 40");
-                let ptr = SIG.scan(game, self.core_base, module_size)? + 3;
+                let ptr = SIG.scan(game, (self.core_base, module_size))? + 3;
                 let ptr: Address = ptr + 0x4 + game.read::<i32>(ptr).ok()?;
                 game.read::<Address64>(ptr).ok()?.into()
             }
             false => {
                 const SIG: Signature<11> = Signature::new("A3 ?? ?? ?? ?? F7 C5 02 00 00 00");
-                let ptr = SIG.scan(game, self.core_base, module_size)? + 1;
+                let ptr = SIG.scan(game, (self.core_base, module_size))? + 1;
                 game.read::<Address32>(ptr).ok()?.into()
             }
         };
 
         let ewram = {
-            let offset = SIG_EWRAM.scan(game, self.core_base, module_size)? + 8;
+            let offset = SIG_EWRAM.scan(game, (self.core_base, module_size))? + 8;
             base_addr + game.read::<i32>(offset).ok()?
         };
 
         let iwram = {
-            let offset = SIG_IWRAM.scan(game, self.core_base, module_size)? + 9;
+            let offset = SIG_IWRAM.scan(game, (self.core_base, module_size))? + 9;
             base_addr + game.read::<i32>(offset).ok()?
         };
 

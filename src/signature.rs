@@ -307,8 +307,7 @@ pub trait SignatureScanner {
     /// * `len` - The length of the memory range to scan.
     ///
     /// Returns `Some(Address)` of the first match if found, otherwise `None`.
-    fn scan<'a>(&'a self, process: &Process, addr: impl Into<Address>, len: u64)
-        -> Option<Address>;
+    fn scan<'a>(&'a self, process: &Process, range: (impl Into<Address>, u64)) -> Option<Address>;
 
     /// Returns an iterator over all occurrences of the signature in the process's memory range.
     ///
@@ -322,8 +321,7 @@ pub trait SignatureScanner {
     fn scan_process_range<'a>(
         &'a self,
         process: &'a Process,
-        addr: impl Into<Address>,
-        len: u64,
+        range: (impl Into<Address>, u64),
     ) -> impl Iterator<Item = Address> + 'a;
 
     /// Asynchronously awaits scanning a process for the signature until a match
@@ -338,8 +336,7 @@ pub trait SignatureScanner {
     async fn wait_scan_process_range(
         &self,
         process: &Process,
-        addr: impl Into<Address>,
-        len: u64,
+        range: (impl Into<Address>, u64),
     ) -> Address;
 }
 
@@ -347,22 +344,20 @@ impl<const N: usize> SignatureScanner for Signature<N> {
     fn scan<'a>(
         &'a self,
         process: &'a Process,
-        addr: impl Into<Address>,
-        len: u64,
+        range: (impl Into<Address>, u64),
     ) -> Option<Address> {
-        self.scan_process_range(process, addr, len).next()
+        self.scan_process_range(process, range).next()
     }
 
     fn scan_process_range<'a>(
         &'a self,
         process: &'a Process,
-        addr: impl Into<Address>,
-        len: u64,
+        range: (impl Into<Address>, u64),
     ) -> impl Iterator<Item = Address> + 'a {
         const MEM_SIZE: usize = 0x1000;
 
-        let mut addr: Address = Into::into(addr);
-        let overall_end = addr.value() + len;
+        let mut addr: Address = Into::into(range.0);
+        let overall_end = addr.value() + range.1;
 
         // The sigscan essentially works by reading one memory page (0x1000 bytes)
         // at a time and looking for the signature in each page. We will create a buffer
@@ -462,10 +457,9 @@ impl<const N: usize> SignatureScanner for Signature<N> {
     async fn wait_scan_process_range(
         &self,
         process: &Process,
-        addr: impl Into<Address>,
-        len: u64,
+        range: (impl Into<Address>, u64),
     ) -> Address {
-        let addr = addr.into();
-        retry(|| self.scan_process_range(process, addr, len).next()).await
+        let addr = range.0.into();
+        retry(|| self.scan_process_range(process, (addr, range.1)).next()).await
     }
 }

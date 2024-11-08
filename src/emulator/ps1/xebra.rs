@@ -15,7 +15,7 @@ impl State {
             .filter(|(_, state)| matches!(state, super::State::Xebra(_)))
             .find_map(|(name, _)| game.get_module_range(name).ok())?;
 
-        let ptr = SIG.scan(game, main_module_range.0, main_module_range.1)? + 1;
+        let ptr = SIG.scan(game, main_module_range)? + 1;
         let addr = ptr + 0x4 + game.read::<i32>(ptr).ok()?;
         let addr = game.read::<Address32>(addr + 0x16A).ok()?;
         let addr = game.read::<Address32>(addr).ok()?;

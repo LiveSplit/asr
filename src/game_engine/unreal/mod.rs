@@ -52,9 +52,9 @@ impl Module {
                 (Signature::new("A8 01 75 ?? C7 05 ??"), 6),
             ];
 
-            let addr = GENGINE.iter().find_map(|(sig, offset)| {
-                Some(sig.scan(process, module_range.0, module_range.1)? + *offset)
-            })?;
+            let addr = GENGINE
+                .iter()
+                .find_map(|(sig, offset)| Some(sig.scan(process, module_range)? + *offset))?;
             addr + 0x8 + process.read::<i32>(addr).ok()?
         };
 
@@ -64,9 +64,9 @@ impl Module {
                 3,
             )];
 
-            let addr = GWORLD.iter().find_map(|(sig, offset)| {
-                Some(sig.scan(process, module_range.0, module_range.1)? + *offset)
-            })?;
+            let addr = GWORLD
+                .iter()
+                .find_map(|(sig, offset)| Some(sig.scan(process, module_range)? + *offset))?;
             addr + 0x4 + process.read::<i32>(addr).ok()?
         };
 
@@ -77,9 +77,9 @@ impl Module {
                 (Signature::new("57 0F B7 F8 74 ?? B8 ?? ?? ?? ?? 8B 44"), 7),
             ];
 
-            let addr = FNAME_POOL.iter().find_map(|(sig, offset)| {
-                Some(sig.scan(process, module_range.0, module_range.1)? + *offset)
-            })?;
+            let addr = FNAME_POOL
+                .iter()
+                .find_map(|(sig, offset)| Some(sig.scan(process, module_range)? + *offset))?;
             addr + 0x4 + process.read::<i32>(addr).ok()?
         };
 

@@ -19,10 +19,7 @@ impl State {
                     .contains(MemoryRangeFlags::WRITE)
                     && m.size().unwrap_or_default() == 0x101000
             })
-            .find_map(|m| {
-                let (base, size) = m.range().ok()?;
-                SIG.scan(game, base, size)
-            })?
+            .find_map(|m| SIG.scan(game, m.range().ok()?))?
             + 10;
 
         let wram: Address = game.read::<Address32>(scanned_address).ok()?.into();

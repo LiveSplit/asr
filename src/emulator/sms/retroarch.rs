@@ -50,11 +50,11 @@ impl State {
         Some(
             if is_64_bit {
                 const SIG: Signature<9> = Signature::new("48 8D 0D ?? ?? ?? ?? 41 B8");
-                let ptr = SIG.scan(game, self.core_base, module_size)? + 3;
+                let ptr = SIG.scan(game, (self.core_base, module_size))? + 3;
                 ptr + 0x4 + game.read::<i32>(ptr).ok()?
             } else {
                 const SIG: Signature<8> = Signature::new("B9 ?? ?? ?? ?? C1 EF 10");
-                let ptr = SIG.scan(game, self.core_base, module_size)? + 1;
+                let ptr = SIG.scan(game, (self.core_base, module_size))? + 1;
                 game.read::<Address32>(ptr).ok()?.into()
             } + 0x20000,
         )
@@ -65,11 +65,11 @@ impl State {
 
         Some(if is_64_bit {
             const SIG: Signature<10> = Signature::new("48 8D 0D ?? ?? ?? ?? 4C 8B 2D");
-            let ptr = SIG.scan(game, self.core_base, module_size)? + 3;
+            let ptr = SIG.scan(game, (self.core_base, module_size))? + 3;
             ptr + 0x4 + game.read::<i32>(ptr).ok()?
         } else {
             const SIG: Signature<7> = Signature::new("A3 ?? ?? ?? ?? 29 F9");
-            let ptr = SIG.scan(game, self.core_base, module_size)? + 1;
+            let ptr = SIG.scan(game, (self.core_base, module_size))? + 1;
             game.read::<Address32>(ptr).ok()?.into()
         })
     }
@@ -79,11 +79,11 @@ impl State {
 
         Some(if is_64_bit {
             const SIG: Signature<5> = Signature::new("31 F6 48 C7 05");
-            let ptr = SIG.scan(game, self.core_base, module_size)? + 5;
+            let ptr = SIG.scan(game, (self.core_base, module_size))? + 5;
             ptr + 0x8 + game.read::<i32>(ptr).ok()?
         } else {
             const SIG: Signature<4> = Signature::new("83 FA 02 B8");
-            let ptr = SIG.scan(game, self.core_base, module_size)? + 4;
+            let ptr = SIG.scan(game, (self.core_base, module_size))? + 4;
             game.read::<Address32>(ptr).ok()?.into()
         })
     }
@@ -93,7 +93,7 @@ impl State {
 
         Some(if is_64_bit {
             const SIG: Signature<13> = Signature::new("83 ?? 02 75 ?? 48 8B 0D ?? ?? ?? ?? E8");
-            let ptr = SIG.scan(game, self.core_base, module_size)? + 8;
+            let ptr = SIG.scan(game, (self.core_base, module_size))? + 8;
             let offset = game
                 .read::<u8>(ptr + 13 + 0x4 + game.read::<i32>(ptr + 13).ok()? + 3)
                 .ok()?;
@@ -111,7 +111,7 @@ impl State {
             }
         } else {
             const SIG: Signature<12> = Signature::new("83 ?? 02 75 ?? 8B ?? ?? ?? ?? ?? E8");
-            let ptr = SIG.scan(game, self.core_base, module_size)? + 7;
+            let ptr = SIG.scan(game, (self.core_base, module_size))? + 7;
             let offset = game
                 .read::<u8>(ptr + 12 + 0x4 + game.read::<i32>(ptr + 12).ok()? + 2)
                 .ok()?;

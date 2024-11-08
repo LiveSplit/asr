@@ -21,8 +21,8 @@ impl State {
             pe::MachineType::read(game, main_module_range.0) == Some(pe::MachineType::X86_64);
 
         let ptr = match is_64_bit {
-            true => SIG_64.scan(game, main_module_range.0, main_module_range.1)? + 8,
-            false => SIG_32.scan(game, main_module_range.0, main_module_range.1)? + 7,
+            true => SIG_64.scan(game, main_module_range)? + 8,
+            false => SIG_32.scan(game, main_module_range)? + 7,
         };
 
         Some(game.read::<Address32>(ptr).ok()?.into())
