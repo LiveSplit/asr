@@ -10,8 +10,11 @@ use core::{
 use bytemuck::CheckedBitPattern;
 
 use crate::{
-    file_format::pe, future::retry, signature::Signature, string::ArrayCString, Address, Error,
-    PointerSize, Process,
+    file_format::pe,
+    future::retry,
+    signature::{Signature, SignatureScanner},
+    string::ArrayCString,
+    Address, Error, PointerSize, Process,
 };
 
 const CSTR: usize = 128;
@@ -49,9 +52,9 @@ impl Module {
                 (Signature::new("A8 01 75 ?? C7 05 ??"), 6),
             ];
 
-            let addr = GENGINE.iter().find_map(|(sig, offset)| {
-                Some(sig.scan_process_range(process, module_range)? + *offset)
-            })?;
+            let addr = GENGINE
+                .iter()
+                .find_map(|(sig, offset)| Some(sig.scan(process, module_range)? + *offset))?;
             addr + 0x8 + process.read::<i32>(addr).ok()?
         };
 
@@ -61,9 +64,9 @@ impl Module {
                 3,
             )];
 
-            let addr = GWORLD.iter().find_map(|(sig, offset)| {
-                Some(sig.scan_process_range(process, module_range)? + *offset)
-            })?;
+            let addr = GWORLD
+                .iter()
+                .find_map(|(sig, offset)| Some(sig.scan(process, module_range)? + *offset))?;
             addr + 0x4 + process.read::<i32>(addr).ok()?
         };
 
@@ -74,9 +77,9 @@ impl Module {
                 (Signature::new("57 0F B7 F8 74 ?? B8 ?? ?? ?? ?? 8B 44"), 7),
             ];
 
-            let addr = FNAME_POOL.iter().find_map(|(sig, offset)| {
-                Some(sig.scan_process_range(process, module_range)? + *offset)
-            })?;
+            let addr = FNAME_POOL
+                .iter()
+                .find_map(|(sig, offset)| Some(sig.scan(process, module_range)? + *offset))?;
             addr + 0x4 + process.read::<i32>(addr).ok()?
         };
 
@@ -217,7 +220,7 @@ impl UClass {
         &'a self,
         process: &'a Process,
         module: &'a Module,
-    ) -> impl FusedIterator<Item = UProperty> + '_ {
+    ) -> impl FusedIterator<Item = UProperty> + 'a {
         // Logic: properties are contained in a linked list that can be accessed directly
         // through the `property_link` field, from the most derived to the least derived class.
         // Source: https://gist.github.com/apple1417/b23f91f7a9e3b834d6d052d35a0010ff#object-structure
