@@ -166,6 +166,7 @@ impl Emulator {
 }
 
 /// A future that executes a future until the emulator closes.
+#[must_use = "You need to await this future."]
 pub struct UntilEmulatorCloses<'a, F> {
     emulator: &'a Emulator,
     future: F,
