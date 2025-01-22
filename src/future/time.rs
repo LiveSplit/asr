@@ -115,6 +115,7 @@ pub fn sleep(duration: Duration) -> Sleep {
 ///   // the future timed out
 /// }
 /// ```
+#[must_use = "You need to await this future."]
 pub struct Timeout<F> {
     sleep: Sleep,
     future: F,

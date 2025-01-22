@@ -3,6 +3,8 @@
 use core::{
     cell::Cell,
     future::Future,
+    mem::size_of,
+    ops::Sub,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -118,6 +120,38 @@ impl Emulator {
         success
     }
 
+    /// Converts a GBA memory address to a real memory address in the emulator process' virtual memory space
+    ///
+    /// Valid addresses range:
+    /// - from `0x02000000` to `0x0203FFFF` for EWRAM
+    /// - from `0x03000000` to `0x03007FFF` for IWRAM
+    pub fn get_address(&self, offset: u32) -> Result<Address, Error> {
+        match offset {
+            (0x02000000..=0x0203FFFF) => {
+                let r_offset = offset.sub(0x02000000);
+                let [ewram, _] = self.ram_base.get().ok_or(Error {})?;
+                Ok(ewram + r_offset)
+            }
+            (0x03000000..=0x03007FFF) => {
+                let r_offset = offset.sub(0x03000000);
+                let [_, iwram] = self.ram_base.get().ok_or(Error {})?;
+                Ok(iwram + r_offset)
+            }
+            _ => Err(Error {}),
+        }
+    }
+
+    /// Checks if a memory reading operation would exceed the memory bounds of the emulated system.
+    ///
+    /// Returns `true` if the read operation can be performed safely, `false` otherwise.
+    const fn check_bounds<T>(&self, offset: u32) -> bool {
+        match offset {
+            (0x02000000..=0x0203FFFF) => offset + size_of::<T>() as u32 <= 0x02040000,
+            (0x03000000..=0x03007FFF) => offset + size_of::<T>() as u32 <= 0x03008000,
+            _ => false,
+        }
+    }
+
     /// Reads any value from the emulated RAM.
     ///
     /// The offset provided is meant to be the same memory address as usually mapped on the original hardware.
@@ -125,76 +159,57 @@ impl Emulator {
     /// - from `0x02000000` to `0x0203FFFF` for EWRAM
     /// - from `0x03000000` to `0x03007FFF` for IWRAM
     ///
-    /// Values outside these ranges will be considered invalid, and will make this method immediately return `Err()`.
+    /// Values outside these ranges are invalid, and will make this method immediately return `Err()`.
     pub fn read<T: CheckedBitPattern>(&self, offset: u32) -> Result<T, Error> {
-        match offset >> 24 {
-            2 => self.read_from_ewram(offset),
-            3 => self.read_from_iwram(offset),
-            _ => Err(Error {}),
+        match self.check_bounds::<T>(offset) {
+            true => self.process.read(self.get_address(offset)?),
+            false => Err(Error {}),
         }
     }
 
-    /// Reads any value from the EWRAM section of the emulated RAM.
-    ///
-    /// The offset provided can either be the relative offset from the
-    /// start of EWRAM, or a memory address as mapped on the original hardware.
-    ///
-    /// Valid addresses range from `0x02000000` to `0x0203FFFF`.
-    /// For example, providing an offset value of `0x3000` or `0x02003000`
-    /// will return the exact same value.
-    ///
-    /// Invalid offset values, or values outside the allowed ranges will
-    /// make this method immediately return `Err()`.
-    pub fn read_from_ewram<T: CheckedBitPattern>(&self, offset: u32) -> Result<T, Error> {
-        if (offset > 0x3FFFF && offset < 0x02000000) || offset > 0x0203FFFF {
-            return Err(Error {});
-        }
-
-        let [ewram, _] = self.ram_base.get().ok_or(Error {})?;
-        let end_offset = offset.checked_sub(0x02000000).unwrap_or(offset);
-
-        self.process.read(ewram + end_offset)
+    /// Follows a path of pointers from the address given and reads a value of the type specified from
+    /// the process at the end of the pointer path.
+    pub fn read_pointer_path<T: CheckedBitPattern>(
+        &self,
+        base_address: u32,
+        path: &[u32],
+    ) -> Result<T, Error> {
+        self.read(self.deref_offsets(base_address, path)?)
     }
 
-    /// Reads any value from the IWRAM section of the emulated RAM.
-    ///
-    /// The offset provided can either be the relative offset from the
-    /// start of IWRAM, or a memory address as mapped on the original hardware.
-    ///
-    /// Valid addresses range from `0x03000000` to `0x03007FFF`.
-    /// For example, providing an offset value of `0x3000` or `0x03003000`
-    /// will return the exact same value.
-    ///
-    /// Invalid offset values, or values outside the allowed ranges will
-    /// make this method immediately return `Err()`.
-    pub fn read_from_iwram<T: CheckedBitPattern>(&self, offset: u32) -> Result<T, Error> {
-        if (offset > 0x7FFF && offset < 0x03000000) || offset > 0x03007FFF {
-            return Err(Error {});
+    /// Follows a path of pointers from the address given and returns the address at the end
+    /// of the pointer path
+    fn deref_offsets(&self, base_address: u32, path: &[u32]) -> Result<u32, Error> {
+        let mut address = base_address;
+        let (&last, path) = path.split_last().ok_or(Error {})?;
+        for &offset in path {
+            address = self.read::<u32>(address + offset)?;
         }
-
-        let [_, iwram] = self.ram_base.get().ok_or(Error {})?;
-        let end_offset = offset.checked_sub(0x03000000).unwrap_or(offset);
-
-        self.process.read(iwram + end_offset)
+        Ok(address + last)
     }
 }
 
 /// A future that executes a future until the emulator closes.
+#[must_use = "You need to await this future."]
 pub struct UntilEmulatorCloses<'a, F> {
     emulator: &'a Emulator,
     future: F,
 }
 
-impl<F: Future<Output = ()>> Future for UntilEmulatorCloses<'_, F> {
-    type Output = ();
+impl<T, F: Future<Output = T>> Future for UntilEmulatorCloses<'_, F> {
+    type Output = Option<T>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         if !self.emulator.is_open() {
-            return Poll::Ready(());
+            return Poll::Ready(None);
         }
         self.emulator.update();
         // SAFETY: We are simply projecting the Pin.
-        unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().future).poll(cx) }
+        unsafe {
+            Pin::new_unchecked(&mut self.get_unchecked_mut().future)
+                .poll(cx)
+                .map(Some)
+        }
     }
 }
 

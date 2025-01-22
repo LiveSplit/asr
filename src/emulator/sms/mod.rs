@@ -3,6 +3,8 @@
 use core::{
     cell::Cell,
     future::Future,
+    mem::size_of,
+    ops::Sub,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -109,6 +111,26 @@ impl Emulator {
         }
     }
 
+    /// Converts a SEGA Master System memory address to a real memory address in the emulator process' virtual memory space
+    ///
+    /// Valid addresses for the SMS range from `0xC000` to `0xDFFF`.
+    pub fn get_address(&self, offset: u32) -> Result<Address, Error> {
+        match offset {
+            (0xC000..=0xDFFF) => Ok(self.ram_base.get().ok_or(Error {})? + offset.sub(0xC000)),
+            _ => Err(Error {}),
+        }
+    }
+
+    /// Checks if a memory reading operation would exceed the memory bounds of the emulated system.
+    ///
+    /// Returns `true` if the read operation can be performed safely, `false` otherwise.
+    const fn check_bounds<T>(&self, offset: u32) -> bool {
+        match offset {
+            (0xC000..=0xDFFF) => offset + size_of::<T>() as u32 <= 0xE000,
+            _ => false,
+        }
+    }
+
     /// Reads any value from the emulated RAM.
     ///
     /// The offset provided is meant to be the same used on the original hardware.
@@ -118,33 +140,34 @@ impl Emulator {
     ///
     /// Providing any offset outside this range will return `Err()`.
     pub fn read<T: CheckedBitPattern>(&self, offset: u32) -> Result<T, Error> {
-        if (offset > 0x1FFF && offset < 0xC000) || offset > 0xDFFF {
-            return Err(Error {});
+        match self.check_bounds::<T>(offset) {
+            true => self.process.read(self.get_address(offset)?),
+            false => Err(Error {}),
         }
-
-        let wram = self.ram_base.get().ok_or(Error {})?;
-        let end_offset = offset.checked_sub(0xC000).unwrap_or(offset);
-
-        self.process.read(wram + end_offset)
     }
 }
 
 /// A future that executes a future until the emulator closes.
+#[must_use = "You need to await this future."]
 pub struct UntilEmulatorCloses<'a, F> {
     emulator: &'a Emulator,
     future: F,
 }
 
-impl<F: Future<Output = ()>> Future for UntilEmulatorCloses<'_, F> {
-    type Output = ();
+impl<T, F: Future<Output = T>> Future for UntilEmulatorCloses<'_, F> {
+    type Output = Option<T>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         if !self.emulator.is_open() {
-            return Poll::Ready(());
+            return Poll::Ready(None);
         }
         self.emulator.update();
         // SAFETY: We are simply projecting the Pin.
-        unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().future).poll(cx) }
+        unsafe {
+            Pin::new_unchecked(&mut self.get_unchecked_mut().future)
+                .poll(cx)
+                .map(Some)
+        }
     }
 }
 

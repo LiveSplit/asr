@@ -464,7 +464,7 @@ impl Class {
 
         // Mono V1 behaves differently when it comes to recover the static table
         match module.version {
-            Version::V1 => Some(vtables + module.offsets.monoclass_vtable_size),
+            Version::V1 | Version::V1Cattrs => Some(vtables + module.offsets.monoclass_vtable_size),
             _ => {
                 vtables = vtables + module.offsets.monovtable_vtable;
 
@@ -746,7 +746,7 @@ struct Offsets {
     monoclass_name_space: u8,
     monoclass_fields: u8,
     monoclassdef_field_count: u16,
-    monoclass_runtime_info: u8,
+    monoclass_runtime_info: u16,
     monoclass_vtable_size: u8,
     monoclass_parent: u8,
     monoclassfield_name: u8,
@@ -773,6 +773,27 @@ impl Offsets {
                     monoclass_fields: 0xA8,
                     monoclassdef_field_count: 0x94,
                     monoclass_runtime_info: 0xF8,
+                    monoclass_vtable_size: 0x18, // MonoVtable.data
+                    monoclass_parent: 0x30,
+                    monoclassfield_name: 0x8,
+                    monoclassfield_offset: 0x18,
+                    monoclassruntimeinfo_domain_vtables: 0x8,
+                    monovtable_vtable: 0x48,
+                    monoclassfieldalignment: 0x20,
+                }),
+                Version::V1Cattrs => Some(&Self {
+                    monoassembly_aname: 0x10,
+                    monoassembly_image: 0x58,
+                    monoimage_class_cache: 0x3D0,
+                    monointernalhashtable_table: 0x20,
+                    monointernalhashtable_size: 0x18,
+                    monoclassdef_next_class_cache: 0x108,
+                    monoclassdef_klass: 0x0,
+                    monoclass_name: 0x50,
+                    monoclass_name_space: 0x58,
+                    monoclass_fields: 0xB0,
+                    monoclassdef_field_count: 0x9C,
+                    monoclass_runtime_info: 0x100,
                     monoclass_vtable_size: 0x18, // MonoVtable.data
                     monoclass_parent: 0x30,
                     monoclassfield_name: 0x8,
@@ -846,6 +867,27 @@ impl Offsets {
                     monovtable_vtable: 0x28,
                     monoclassfieldalignment: 0x10,
                 }),
+                Version::V1Cattrs => Some(&Self {
+                    monoassembly_aname: 0x8,
+                    monoassembly_image: 0x40,
+                    monoimage_class_cache: 0x2A0,
+                    monointernalhashtable_table: 0x14,
+                    monointernalhashtable_size: 0xC,
+                    monoclassdef_next_class_cache: 0xAC,
+                    monoclassdef_klass: 0x0,
+                    monoclass_name: 0x34,
+                    monoclass_name_space: 0x38,
+                    monoclass_fields: 0x78,
+                    monoclassdef_field_count: 0x68,
+                    monoclass_runtime_info: 0xA8,
+                    monoclass_vtable_size: 0xC, // MonoVtable.data
+                    monoclass_parent: 0x24,
+                    monoclassfield_name: 0x4,
+                    monoclassfield_offset: 0xC,
+                    monoclassruntimeinfo_domain_vtables: 0x4,
+                    monovtable_vtable: 0x28,
+                    monoclassfieldalignment: 0x10,
+                }),
                 Version::V2 => Some(&Self {
                     monoassembly_aname: 0x8,
                     monoassembly_image: 0x44,
@@ -900,6 +942,8 @@ impl Offsets {
 pub enum Version {
     /// Version 1
     V1,
+    /// Version 1 with cattrs
+    V1Cattrs,
     /// Version 2
     V2,
     /// Version 3
@@ -908,7 +952,27 @@ pub enum Version {
 
 fn detect_version(process: &Process) -> Option<Version> {
     if process.get_module_address("mono.dll").is_ok() {
-        return Some(Version::V1);
+        // If the module mono.dll is present, then it's either V1 or V1Cattrs.
+        // In order to distinguish between them, we check the first class listed in the
+        // default Assembly-CSharp image and check for the pointer to its name, assuming it's using V1.
+        // If such pointer matches the address to the assembly image instead, then it's V1Cattrs.
+        // The idea is taken from https://github.com/Voxelse/Voxif/blob/main/Voxif.Helpers/Voxif.Helpers.UnityHelper/UnityHelper.cs#L343-L344
+        let module = Module::attach(process, Version::V1)?;
+        let image = module.get_default_image(process)?;
+        let class = image.classes(process, &module).next()?;
+
+        let pointer_to_image = process
+            .read_pointer(
+                class.class + module.offsets.monoclass_name,
+                module.pointer_size,
+            )
+            .ok()?;
+
+        return Some(if pointer_to_image.eq(&image.image) {
+            Version::V1Cattrs
+        } else {
+            Version::V1
+        });
     }
 
     let unity_module = {

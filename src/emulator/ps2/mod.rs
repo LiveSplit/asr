@@ -3,6 +3,8 @@
 use core::{
     cell::Cell,
     future::Future,
+    mem::size_of,
+    ops::Sub,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -101,6 +103,28 @@ impl Emulator {
         }
     }
 
+    /// Converts a PS2 memory address to a real memory address in the emulator process' virtual memory space
+    ///
+    /// Valid addresses for the PS2 range from `0x00100000` to `0x01FFFFFF`.
+    pub fn get_address(&self, offset: u32) -> Result<Address, Error> {
+        match offset {
+            (0x00100000..=0x01FFFFFF) => {
+                Ok(self.ram_base.get().ok_or(Error {})? + offset.sub(0x00100000))
+            }
+            _ => Err(Error {}),
+        }
+    }
+
+    /// Checks if a memory reading operation would exceed the memory bounds of the emulated system.
+    ///
+    /// Returns `true` if the read operation can be performed safely, `false` otherwise.
+    const fn check_bounds<T>(&self, offset: u32) -> bool {
+        match offset {
+            (0x00100000..=0x01FFFFFF) => offset + size_of::<T>() as u32 <= 0x02000000,
+            _ => false,
+        }
+    }
+
     /// Reads any value from the emulated RAM.
     ///
     /// In PS2, memory addresses are mapped at fixed locations starting
@@ -111,56 +135,56 @@ impl Emulator {
     ///
     /// Providing any offset outside the range of the PS2's RAM will return
     /// `Err()`.
-    pub fn read<T: CheckedBitPattern>(&self, address: u32) -> Result<T, Error> {
-        if !(0x00100000..0x02000000).contains(&address) {
-            return Err(Error {});
+    pub fn read<T: CheckedBitPattern>(&self, offset: u32) -> Result<T, Error> {
+        match self.check_bounds::<T>(offset) {
+            true => self.process.read(self.get_address(offset)?),
+            false => Err(Error {}),
         }
-
-        let ram_base = self.ram_base.get().ok_or(Error {})?;
-        self.process.read(ram_base + address)
     }
 
-    /// Follows a path of pointers from the base address given and reads a value of the
-    /// type specified at the end of the pointer path.
-    ///
-    /// In PS2, memory addresses are mapped at fixed locations starting
-    /// from `0x00100000` (addresses below this threashold are
-    /// reserved for the kernel).
-    ///
-    /// Valid addresses for the PS2's memory range from `0x00100000` to `0x01FFFFFF`
-    ///
-    /// Providing any offset outside the range of the PS2's RAM will return
-    /// `Err()`.
+    /// Follows a path of pointers from the address given and reads a value of the type specified from
+    /// the process at the end of the pointer path.
     pub fn read_pointer_path<T: CheckedBitPattern>(
         &self,
         base_address: u32,
         path: &[u32],
     ) -> Result<T, Error> {
+        self.read(self.deref_offsets(base_address, path)?)
+    }
+
+    /// Follows a path of pointers from the address given and returns the address at the end
+    /// of the pointer path
+    fn deref_offsets(&self, base_address: u32, path: &[u32]) -> Result<u32, Error> {
         let mut address = base_address;
         let (&last, path) = path.split_last().ok_or(Error {})?;
         for &offset in path {
-            address = self.read(address + offset)?;
+            address = self.read::<u32>(address + offset)?;
         }
-        self.read(address + last)
+        Ok(address + last)
     }
 }
 
 /// A future that executes a future until the emulator closes.
+#[must_use = "You need to await this future."]
 pub struct UntilEmulatorCloses<'a, F> {
     emulator: &'a Emulator,
     future: F,
 }
 
-impl<F: Future<Output = ()>> Future for UntilEmulatorCloses<'_, F> {
-    type Output = ();
+impl<T, F: Future<Output = T>> Future for UntilEmulatorCloses<'_, F> {
+    type Output = Option<T>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         if !self.emulator.is_open() {
-            return Poll::Ready(());
+            return Poll::Ready(None);
         }
         self.emulator.update();
         // SAFETY: We are simply projecting the Pin.
-        unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().future).poll(cx) }
+        unsafe {
+            Pin::new_unchecked(&mut self.get_unchecked_mut().future)
+                .poll(cx)
+                .map(Some)
+        }
     }
 }
 

@@ -253,6 +253,7 @@ impl Process {
 }
 
 /// A future that executes a future until the process closes.
+#[must_use = "You need to await this future."]
 pub struct UntilProcessCloses<'a, F> {
     process: &'a Process,
     future: F,
