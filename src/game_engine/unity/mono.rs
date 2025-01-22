@@ -2,11 +2,8 @@
 //! backend.
 
 use crate::{
-    file_format::pe,
-    future::retry,
-    signature::{Signature, SignatureScanner},
-    string::ArrayCString,
-    Address, Address32, Address64, Error, PointerSize, Process,
+    file_format::pe, future::retry, signature::Signature, string::ArrayCString, Address, Address32,
+    Address64, Error, PointerSize, Process,
 };
 use core::{
     array,
@@ -66,17 +63,16 @@ impl Module {
             PointerSize::Bit64 => {
                 const SIG_MONO_64: Signature<3> = Signature::new("48 8B 0D");
                 let scan_address: Address =
-                    SIG_MONO_64.scan(process, (root_domain_function_address, 0x100))? + 3;
+                    SIG_MONO_64.scan_once(process, (root_domain_function_address, 0x100))? + 3;
                 scan_address + 0x4 + process.read::<i32>(scan_address).ok()?
             }
             PointerSize::Bit32 => {
                 const SIG_32_1: Signature<2> = Signature::new("FF 35");
                 const SIG_32_2: Signature<2> = Signature::new("8B 0D");
 
-                let ptr = [SIG_32_1, SIG_32_2]
-                    .iter()
-                    .find_map(|sig| sig.scan(process, (root_domain_function_address, 0x100)))?
-                    + 2;
+                let ptr = [SIG_32_1, SIG_32_2].iter().find_map(|sig| {
+                    sig.scan_once(process, (root_domain_function_address, 0x100))
+                })? + 2;
 
                 process.read::<Address32>(ptr).ok()?.into()
             }
@@ -983,7 +979,7 @@ fn detect_version(process: &Process) -> Option<Version> {
 
     const SIG_202X: Signature<6> = Signature::new("00 32 30 32 ?? 2E");
 
-    let Some(addr) = SIG_202X.scan(process, unity_module) else {
+    let Some(addr) = SIG_202X.scan_once(process, unity_module) else {
         return Some(Version::V2);
     };
 

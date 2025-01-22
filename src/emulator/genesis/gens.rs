@@ -1,7 +1,4 @@
-use crate::{
-    signature::{Signature, SignatureScanner},
-    Address, Address32, Endian, Process,
-};
+use crate::{signature::Signature, Address, Address32, Endian, Process};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct State;
@@ -15,7 +12,7 @@ impl State {
             .filter(|(_, state)| matches!(state, super::State::Gens(_)))
             .find_map(|(name, _)| game.get_module_range(name).ok())?;
 
-        let ptr = SIG.scan(game, main_module)? + 11;
+        let ptr = SIG.scan_once(game, main_module)? + 11;
 
         *endian = if game.read::<u8>(ptr + 4).ok()? == 0x86 {
             Endian::Big

@@ -1,8 +1,4 @@
-use crate::{
-    file_format::pe,
-    signature::{Signature, SignatureScanner},
-    Address, Address32, Process,
-};
+use crate::{file_format::pe, signature::Signature, Address, Address32, Process};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct State;
@@ -21,8 +17,8 @@ impl State {
             pe::MachineType::read(game, main_module_range.0) == Some(pe::MachineType::X86_64);
 
         let ptr = match is_64_bit {
-            true => SIG_64.scan(game, main_module_range)? + 8,
-            false => SIG_32.scan(game, main_module_range)? + 7,
+            true => SIG_64.scan_once(game, main_module_range)? + 8,
+            false => SIG_32.scan_once(game, main_module_range)? + 7,
         };
 
         Some(game.read::<Address32>(ptr).ok()?.into())

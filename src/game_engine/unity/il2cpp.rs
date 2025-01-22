@@ -7,11 +7,8 @@ use core::{
 };
 
 use crate::{
-    file_format::pe,
-    future::retry,
-    signature::{Signature, SignatureScanner},
-    string::ArrayCString,
-    Address, Address64, Error, PointerSize, Process,
+    file_format::pe, future::retry, signature::Signature, string::ArrayCString, Address, Address64,
+    Error, PointerSize, Process,
 };
 
 #[cfg(feature = "derive")]
@@ -62,14 +59,14 @@ impl Module {
                 const ASSEMBLIES_TRG_SIG: Signature<12> =
                     Signature::new("48 FF C5 80 3C ?? 00 75 ?? 48 8B 1D");
 
-                let addr = ASSEMBLIES_TRG_SIG.scan(process, mono_module)? + 12;
+                let addr = ASSEMBLIES_TRG_SIG.scan_once(process, mono_module)? + 12;
                 addr + 0x4 + process.read::<i32>(addr).ok()?
             }
             PointerSize::Bit32 => {
                 const ASSEMBLIES_TRG_SIG: Signature<9> =
                     Signature::new("8A 07 47 84 C0 75 ?? 8B 35");
 
-                let addr = ASSEMBLIES_TRG_SIG.scan(process, mono_module)? + 9;
+                let addr = ASSEMBLIES_TRG_SIG.scan_once(process, mono_module)? + 9;
                 process.read_pointer(addr, pointer_size).ok()?
             }
             _ => return None,
@@ -80,7 +77,7 @@ impl Module {
                 Signature::new("48 83 3C ?? 00 75 ?? 8B C? E8");
 
             let addr = TYPE_INFO_DEFINITION_TABLE_TRG_SIG
-                .scan(process, mono_module)?
+                .scan_once(process, mono_module)?
                 .add_signed(-4);
 
             process
@@ -91,7 +88,7 @@ impl Module {
             const TYPE_INFO_DEFINITION_TABLE_TRG_SIG: Signature<10> =
                 Signature::new("C3 A1 ?? ?? ?? ?? 83 3C ?? 00");
 
-            let addr = TYPE_INFO_DEFINITION_TABLE_TRG_SIG.scan(process, mono_module)? + 2;
+            let addr = TYPE_INFO_DEFINITION_TABLE_TRG_SIG.scan_once(process, mono_module)? + 2;
 
             process
                 .read_pointer(process.read_pointer(addr, pointer_size).ok()?, pointer_size)
@@ -801,14 +798,14 @@ fn detect_version(process: &Process) -> Option<Version> {
     const SIG_202X: Signature<6> = Signature::new("00 32 30 32 ?? 2E");
     const SIG_2019: Signature<6> = Signature::new("00 32 30 31 39 2E");
 
-    if SIG_202X.scan(process, unity_module).is_some() {
+    if SIG_202X.scan_once(process, unity_module).is_some() {
         let il2cpp_version = {
             const SIG: Signature<14> = Signature::new("48 2B ?? 48 2B ?? ?? ?? ?? ?? 48 F7 ?? 48");
             let address = process.get_module_address("GameAssembly.dll").ok()?;
             let size = pe::read_size_of_image(process, address)? as u64;
 
             let ptr = {
-                let addr = SIG.scan(process, (address, size))? + 6;
+                let addr = SIG.scan_once(process, (address, size))? + 6;
                 addr + 0x4 + process.read::<i32>(addr).ok()?
             };
 
@@ -821,7 +818,7 @@ fn detect_version(process: &Process) -> Option<Version> {
         } else {
             Version::V2019
         })
-    } else if SIG_2019.scan(process, unity_module).is_some() {
+    } else if SIG_2019.scan_once(process, unity_module).is_some() {
         Some(Version::V2019)
     } else {
         Some(Version::Base)

@@ -294,62 +294,36 @@ impl<const N: usize> Signature<N> {
         })
         .fuse()
     }
-}
 
-/// Trait that provides scanning methods for the `Signature` type.
-pub trait SignatureScanner {
     /// Scans a process's memory in the given range for the first occurrence of the signature.
     ///
     /// # Arguments
     ///
     /// * `process` - A reference to the `Process` in which the scan occurs.
-    /// * `addr` - The starting address of the memory range.
-    /// * `len` - The length of the memory range to scan.
+    /// * `range` - A tuple containing:
+    ///     - The starting address of the memory range
+    ///     - The length of the memory range to scan
     ///
     /// Returns `Some(Address)` of the first match if found, otherwise `None`.
-    fn scan<'a>(&'a self, process: &Process, range: (impl Into<Address>, u64)) -> Option<Address>;
+    pub fn scan_once<'a>(
+        &'a self,
+        process: &'a Process,
+        range: (impl Into<Address>, u64),
+    ) -> Option<Address> {
+        self.scan_iter(process, range).next()
+    }
 
     /// Returns an iterator over all occurrences of the signature in the process's memory range.
     ///
     /// # Arguments
     ///
     /// * `process` - A reference to the `Process` in which the scan occurs.
-    /// * `addr` - The starting address of the memory range.
-    /// * `len` - The length of the memory range to scan.
+    /// * `range` - A tuple containing:
+    ///     - The starting address of the memory range
+    ///     - The length of the memory range to scan
     ///
     /// Returns an iterator that yields each matching address.
-    fn scan_process_range<'a>(
-        &'a self,
-        process: &'a Process,
-        range: (impl Into<Address>, u64),
-    ) -> impl Iterator<Item = Address> + 'a;
-
-    /// Asynchronously awaits scanning a process for the signature until a match
-    /// is found.
-    ///
-    /// # Arguments
-    ///
-    /// * `process` - A reference to the `Process` in which the scan occurs.
-    /// * `addr` - The starting address of the memory range.
-    /// * `len` - The length of the memory range to scan.
-    #[allow(async_fn_in_trait)]
-    async fn wait_scan_process_range(
-        &self,
-        process: &Process,
-        range: (impl Into<Address>, u64),
-    ) -> Address;
-}
-
-impl<const N: usize> SignatureScanner for Signature<N> {
-    fn scan<'a>(
-        &'a self,
-        process: &'a Process,
-        range: (impl Into<Address>, u64),
-    ) -> Option<Address> {
-        self.scan_process_range(process, range).next()
-    }
-
-    fn scan_process_range<'a>(
+    pub fn scan_iter<'a>(
         &'a self,
         process: &'a Process,
         range: (impl Into<Address>, u64),
@@ -454,12 +428,21 @@ impl<const N: usize> SignatureScanner for Signature<N> {
         .flatten()
     }
 
-    async fn wait_scan_process_range(
+    /// Asynchronously awaits scanning a process for the signature until a match
+    /// is found.
+    ///
+    /// # Arguments
+    ///
+    /// * `process` - A reference to the `Process` in which the scan occurs.
+    /// * `range` - A tuple containing:
+    ///     - The starting address of the memory range
+    ///     - The length of the memory range to scan
+    pub async fn wait_scan_once(
         &self,
         process: &Process,
         range: (impl Into<Address>, u64),
     ) -> Address {
         let addr = range.0.into();
-        retry(|| self.scan_process_range(process, (addr, range.1)).next()).await
+        retry(|| self.scan_iter(process, (addr, range.1)).next()).await
     }
 }
