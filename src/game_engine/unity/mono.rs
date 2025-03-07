@@ -833,6 +833,8 @@ impl Offsets {
                     monovtable_vtable: 0x48,
                     monoclassfieldalignment: 0x20,
                 }),
+                // 64-bit PE V2 matches Unity2019_4_2020_3_x64_PE_Offsets from
+                // https://github.com/hackf5/unityspy/blob/master/src/HackF5.UnitySpy/Offsets/MonoLibraryOffsets.cs#L49
                 Version::V2 => Some(&Self {
                     monoassembly_aname: 0x10,
                     monoassembly_image: 0x60,
@@ -875,6 +877,74 @@ impl Offsets {
                     monovtable_vtable: 0x48,
                     monoclassfieldalignment: 0x20,
                 }),
+            },
+            (PointerSize::Bit64, BinaryFormat::ELF) => match version {
+                Version::V1 => Some(&Self {
+                    monoassembly_aname: 0x10,
+                    monoassembly_image: 0x58,
+                    monoimage_class_cache: 0x3D0,
+                    monointernalhashtable_table: 0x20,
+                    monointernalhashtable_size: 0x18,
+                    monoclassdef_next_class_cache: 0xF8,
+                    monoclassdef_klass: 0x0,
+                    monoclass_name: 0x40,
+                    monoclass_name_space: 0x48,
+                    monoclass_fields: 0xA0,
+                    monoclassdef_field_count: 0x8C,
+                    monoclass_runtime_info: 0xF0,
+                    monoclass_vtable_size: 0x18, // MonoVtable.data
+                    monoclass_parent: 0x28,
+                    monoclassfield_name: 0x8,
+                    monoclassfield_offset: 0x18,
+                    monoclassruntimeinfo_domain_vtables: 0x8,
+                    monovtable_vtable: 0x48,
+                    monoclassfieldalignment: 0x20,
+                }),
+                Version::V1Cattrs => Some(&Self {
+                    monoassembly_aname: 0x10,
+                    monoassembly_image: 0x58,
+                    monoimage_class_cache: 0x3D0,
+                    monointernalhashtable_table: 0x20,
+                    monointernalhashtable_size: 0x18,
+                    monoclassdef_next_class_cache: 0x100,
+                    monoclassdef_klass: 0x0,
+                    monoclass_name: 0x48,
+                    monoclass_name_space: 0x50,
+                    monoclass_fields: 0xA8,
+                    monoclassdef_field_count: 0x94,
+                    monoclass_runtime_info: 0xF8,
+                    monoclass_vtable_size: 0x18, // MonoVtable.data
+                    monoclass_parent: 0x28,
+                    monoclassfield_name: 0x8,
+                    monoclassfield_offset: 0x18,
+                    monoclassruntimeinfo_domain_vtables: 0x8,
+                    monovtable_vtable: 0x48,
+                    monoclassfieldalignment: 0x20,
+                }),
+                // 64-bit ELF V2 happens to match Unity2019_4_2020_3_x64_MachO_Offsets from
+                // https://github.com/hackf5/unityspy/blob/master/src/HackF5.UnitySpy/Offsets/MonoLibraryOffsets.cs#L86
+                Version::V2 => Some(&Self {
+                    monoassembly_aname: 0x10,
+                    monoassembly_image: 0x60,
+                    monoimage_class_cache: 0x4C0,
+                    monointernalhashtable_table: 0x20,
+                    monointernalhashtable_size: 0x18,
+                    monoclassdef_next_class_cache: 0x100,
+                    monoclassdef_klass: 0x0,
+                    monoclass_name: 0x40,
+                    monoclass_name_space: 0x48,
+                    monoclass_fields: 0x90,
+                    monoclassdef_field_count: 0xF8,
+                    monoclass_runtime_info: 0xC8,
+                    monoclass_vtable_size: 0x54,
+                    monoclass_parent: 0x28,
+                    monoclassfield_name: 0x8,
+                    monoclassfield_offset: 0x18,
+                    monoclassruntimeinfo_domain_vtables: 0x8,
+                    monovtable_vtable: 0x40,
+                    monoclassfieldalignment: 0x20,
+                }),
+                _ => None,
             },
             (PointerSize::Bit32, BinaryFormat::PE) => match version {
                 Version::V1 => Some(&Self {
@@ -919,6 +989,8 @@ impl Offsets {
                     monovtable_vtable: 0x28,
                     monoclassfieldalignment: 0x10,
                 }),
+                // 32-bit PE V2 matches Unity2018_4_10_x86_PE_Offsets from
+                // https://github.com/hackf5/unityspy/blob/master/src/HackF5.UnitySpy/Offsets/MonoLibraryOffsets.cs#L12
                 Version::V2 => Some(&Self {
                     monoassembly_aname: 0x8,
                     monoassembly_image: 0x44,
