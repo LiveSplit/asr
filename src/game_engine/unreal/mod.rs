@@ -51,7 +51,7 @@ impl Module {
 
             let addr = GENGINE
                 .iter()
-                .find_map(|(sig, offset)| Some(sig.scan_once(process, module_range)? + *offset))?;
+                .find_map(|(sig, offset)| Some(sig.scan_process_range(process, module_range)? + *offset))?;
             addr + 0x8 + process.read::<i32>(addr).ok()?
         };
 
@@ -73,7 +73,7 @@ impl Module {
 
             let addr = GWORLD
                 .iter()
-                .find_map(|(sig, offset)| Some(sig.scan_once(process, module_range)? + *offset))?;
+                .find_map(|(sig, offset)| Some(sig.scan_process_range(process, module_range)? + *offset))?;
             addr + 0x4 + process.read::<i32>(addr).ok()?
         };
 
@@ -86,7 +86,7 @@ impl Module {
 
             let addr = FNAME_POOL
                 .iter()
-                .find_map(|(sig, offset)| Some(sig.scan_once(process, module_range)? + *offset))?;
+                .find_map(|(sig, offset)| Some(sig.scan_process_range(process, module_range)? + *offset))?;
             addr + 0x4 + process.read::<i32>(addr).ok()?
         };
 

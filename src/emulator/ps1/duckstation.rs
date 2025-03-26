@@ -24,7 +24,7 @@ impl State {
             self.addr = debug_symbol.address;
         } else {
             // For older versions of Duckstation, we fall back to regular sigscanning
-            let addr = SIG.scan_once(game, main_module_range)? + 3;
+            let addr = SIG.scan_process_range(game, main_module_range)? + 3;
             self.addr = addr + 0x4 + game.read::<i32>(addr).ok()?;
         }
 

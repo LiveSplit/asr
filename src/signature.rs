@@ -305,7 +305,7 @@ impl<const N: usize> Signature<N> {
     ///     - The length of the memory range to scan
     ///
     /// Returns `Some(Address)` of the first match if found, otherwise `None`.
-    pub fn scan_once<'a>(
+    pub fn scan_process_range<'a>(
         &'a self,
         process: &'a Process,
         range: (impl Into<Address>, u64),
@@ -337,36 +337,33 @@ impl<const N: usize> Signature<N> {
         // at a time and looking for the signature in each page. We will create a buffer
         // sligthly larger than 0x1000 bytes in order to accomodate the size of
         // the memory page + the signature - 1. The very first bytes of the
-        // buffer are intended to be used as the tail of the previous memory page.
+        // buffer will be used as the tail of the previous memory page.
         // This allows to scan across the memory page boundaries.
 
-        // We should use N - 1 but we resort to MEM_SIZE - 1 to avoid using [feature(generic_const_exprs)]
+        // The buffer struct is essentially an array with the size of MEM_SIZE + N - 1
         #[repr(packed)]
         struct Buffer<const N: usize> {
             _head: [u8; N],
-            _buffer: [u8; MEM_SIZE - 1],
+            _buffer: [u8; MEM_SIZE.saturating_sub(1)],
         }
+        let mut buffer = MaybeUninit::<Buffer<N>>::uninit();
 
         // The tail of the previous memory page, if read correctly, is stored here
-        let mut tail = [0; N];
         let mut last_page_success = false;
+
+        // SAFETY: The buffer is not initialized, so we purposefully make a slice of MaybeUninit<u8>, for which initialization is not required.
+        // In order to ensure memory safety, we need to ensure the data is written before transmuting.
+        let buffer = unsafe {
+            slice::from_raw_parts_mut(
+                buffer.as_mut_ptr() as *mut MaybeUninit<u8>,
+                size_of::<Buffer<N>>(),
+            )
+        };
 
         iter::from_fn(move || {
             if addr.value() >= overall_end {
                 return None;
             }
-
-            let mut global_buffer = MaybeUninit::<Buffer<N>>::uninit();
-
-            let buf = {
-                // SAFETY: The buffer is not initialized, but we are returning a slice of MaybeUninit, which do not require initialization
-                unsafe {
-                    slice::from_raw_parts_mut(
-                        &mut global_buffer as *mut _ as *mut MaybeUninit<u8>,
-                        size_of::<Buffer<N>>(),
-                    )
-                }
-            };
 
             // We round up to the 4 KiB address boundary as that's a single
             // page, which is safe to read either fully or not at all. We do
@@ -375,28 +372,29 @@ impl<const N: usize> Signature<N> {
             let end = ((addr.value() & !((4 << 10) - 1)) + (4 << 10)).min(overall_end);
             let len = end.saturating_sub(addr.value()) as usize;
 
-            // If we read the previous memory page successfully, then we can copy the last
+            // If we have read the previous memory page successfully, then we can copy the last
             // elements to the start of the buffer.
             if last_page_success {
-                unsafe {
-                    (buf.as_mut_ptr() as *mut u8).copy_from(tail.as_ptr(), tail.len() - 1);
-                }
+                // This of course assumes that N is always lower than MEM_SIZE.
+                // For the current implementation, this is always true.
+                let (start, end) = buffer.split_at_mut(N.saturating_sub(1));
+                start.copy_from_slice(&end[MEM_SIZE..]);
             }
 
             let current_page_success = process
-                .read_into_uninit_buf(addr, &mut buf[N - 1..][..len])
+                .read_into_uninit_buf(addr, &mut buffer[N.saturating_sub(1)..][..len])
                 .is_ok();
 
             // We define the final slice on which to perform the memory scan into. If we failed to read the memory page,
             // this returns an empty slice so the subsequent iterator will result into an empty iterator.
-            // If we managed to read the current memory page, instead, we check if we have the data from the previous
-            // memory page if it got read successfully.
+            // If we managed to read the current memory page, instead, we check if we have successfully read the data
+            // from the previous memory page.
             let scan_buf = unsafe {
                 let ptr = if current_page_success {
                     if last_page_success {
-                        &buf[..len + N - 1]
+                        &buffer[..len + N.saturating_sub(1)]
                     } else {
-                        &buf[N - 1..][..len]
+                        &buffer[N.saturating_sub(1)..][..len]
                     }
                 } else {
                     &[]
@@ -404,10 +402,6 @@ impl<const N: usize> Signature<N> {
 
                 mem::transmute::<&[MaybeUninit<u8>], &[u8]>(ptr)
             };
-
-            if current_page_success {
-                (&mut tail[..N - 1]).copy_from_slice(&scan_buf[scan_buf.len() - (N - 1)..]);
-            }
 
             let cur_addr = addr;
             let cur_suc = last_page_success;
@@ -419,7 +413,7 @@ impl<const N: usize> Signature<N> {
                 let mut address = cur_addr.add(pos as u64);
 
                 if cur_suc {
-                    address = address.add_signed(-(N as i64 - 1))
+                    address = address.add_signed(-((N as i64).saturating_sub(1)))
                 }
 
                 address
@@ -437,12 +431,12 @@ impl<const N: usize> Signature<N> {
     /// * `range` - A tuple containing:
     ///     - The starting address of the memory range
     ///     - The length of the memory range to scan
-    pub async fn wait_scan_once(
+    pub async fn wait_scan(
         &self,
         process: &Process,
         range: (impl Into<Address>, u64),
     ) -> Address {
         let addr = range.0.into();
-        retry(|| self.scan_iter(process, (addr, range.1)).next()).await
+        retry(|| self.scan_process_range(process, (addr, range.1))).await
     }
 }

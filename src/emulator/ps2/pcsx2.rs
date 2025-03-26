@@ -18,15 +18,15 @@ impl State {
 
         self.addr_base = if self.is_64_bit {
             const SIG: Signature<12> = Signature::new("48 8B ?? ?? ?? ?? ?? 25 F0 3F 00 00");
-            let ptr = SIG.scan_once(game, main_module_range)? + 3;
+            let ptr = SIG.scan_process_range(game, main_module_range)? + 3;
             ptr + 0x4 + game.read::<i32>(ptr).ok()?
         } else {
             const SIG: Signature<11> = Signature::new("8B ?? ?? ?? ?? ?? 25 F0 3F 00 00");
             const SIG_ALT: Signature<12> = Signature::new("8B ?? ?? ?? ?? ?? 81 ?? F0 3F 00 00");
-            let ptr = if let Some(addr) = SIG.scan_once(game, main_module_range) {
+            let ptr = if let Some(addr) = SIG.scan_process_range(game, main_module_range) {
                 addr + 2
             } else {
-                SIG_ALT.scan_once(game, main_module_range)? + 2
+                SIG_ALT.scan_process_range(game, main_module_range)? + 2
             };
             self.read_pointer(game, ptr).ok()?
         };

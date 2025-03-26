@@ -56,13 +56,13 @@ impl SceneManager {
         // There are multiple signatures that can be used, depending on the version of Unity
         // used in the target game.
         let base_address: Address = if pointer_size == PointerSize::Bit64 {
-            let addr = SIG_64_BIT.scan_once(process, unity_player)? + 7;
+            let addr = SIG_64_BIT.scan_process_range(process, unity_player)? + 7;
             addr + 0x4 + process.read::<i32>(addr).ok()?
-        } else if let Some(addr) = SIG_32_1.scan_once(process, unity_player) {
+        } else if let Some(addr) = SIG_32_1.scan_process_range(process, unity_player) {
             process.read::<Address32>(addr + 5).ok()?.into()
-        } else if let Some(addr) = SIG_32_2.scan_once(process, unity_player) {
+        } else if let Some(addr) = SIG_32_2.scan_process_range(process, unity_player) {
             process.read::<Address32>(addr.add_signed(-4)).ok()?.into()
-        } else if let Some(addr) = SIG_32_3.scan_once(process, unity_player) {
+        } else if let Some(addr) = SIG_32_3.scan_process_range(process, unity_player) {
             process.read::<Address32>(addr + 7).ok()?.into()
         } else {
             return None;

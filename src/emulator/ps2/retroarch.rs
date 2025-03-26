@@ -32,7 +32,7 @@ impl State {
         let base_addr = {
             const SIG: Signature<13> = Signature::new("48 8B ?? ?? ?? ?? ?? 81 ?? F0 3F 00 00");
             let ptr =
-                SIG.scan_once(game, (core_address, game.get_module_size(core_name).ok()?))? + 3;
+                SIG.scan_process_range(game, (core_address, game.get_module_size(core_name).ok()?))? + 3;
             ptr + 0x4 + game.read::<i32>(ptr).ok()?
         };
 
