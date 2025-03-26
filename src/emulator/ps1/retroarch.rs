@@ -33,14 +33,18 @@ impl State {
             if is_64_bit {
                 const SIG: Signature<14> =
                     Signature::new("48 8B 05 ?? ?? ?? ?? 41 81 E4 FF FF 1F 00");
-                let ptr =
-                    SIG.scan_process_range(game, (core_address, game.get_module_size(core_name).ok()?))? + 3;
+                let ptr = SIG.scan_process_range(
+                    game,
+                    (core_address, game.get_module_size(core_name).ok()?),
+                )? + 3;
                 let ptr = ptr + 0x4 + game.read::<i32>(ptr).ok()?;
                 Some(game.read::<Address64>(ptr).ok()?.into())
             } else {
                 const SIG: Signature<11> = Signature::new("A1 ?? ?? ?? ?? 81 E3 FF FF 1F 00");
-                let ptr =
-                    SIG.scan_process_range(game, (core_address, game.get_module_size(core_name).ok()?))? + 1;
+                let ptr = SIG.scan_process_range(
+                    game,
+                    (core_address, game.get_module_size(core_name).ok()?),
+                )? + 1;
                 let ptr = game.read::<Address32>(ptr).ok()?;
                 Some(game.read::<Address32>(ptr).ok()?.into())
             }
@@ -49,14 +53,18 @@ impl State {
             if is_64_bit {
                 const SIG: Signature<15> =
                     Signature::new("48 89 0D ?? ?? ?? ?? 89 35 ?? ?? ?? ?? 89 3D");
-                let addr =
-                    SIG.scan_process_range(game, (core_address, game.get_module_size(core_name).ok()?))? + 3;
+                let addr = SIG.scan_process_range(
+                    game,
+                    (core_address, game.get_module_size(core_name).ok()?),
+                )? + 3;
                 let ptr = addr + 0x4 + game.read::<i32>(addr).ok()?;
                 Some(game.read::<Address64>(ptr).ok()?.into())
             } else {
                 const SIG: Signature<8> = Signature::new("A1 ?? ?? ?? ?? 23 CB 8B");
-                let ptr =
-                    SIG.scan_process_range(game, (core_address, game.get_module_size(core_name).ok()?))? + 1;
+                let ptr = SIG.scan_process_range(
+                    game,
+                    (core_address, game.get_module_size(core_name).ok()?),
+                )? + 1;
                 let ptr = game.read::<Address32>(ptr).ok()?;
                 Some(game.read::<Address32>(ptr).ok()?.into())
             }
@@ -64,15 +72,19 @@ impl State {
             // PCSX ReARMed
             if is_64_bit {
                 const SIG: Signature<9> = Signature::new("48 8B 35 ?? ?? ?? ?? 81 E2");
-                let addr =
-                    SIG.scan_process_range(game, (core_address, game.get_module_size(core_name).ok()?))? + 3;
+                let addr = SIG.scan_process_range(
+                    game,
+                    (core_address, game.get_module_size(core_name).ok()?),
+                )? + 3;
                 let ptr = addr + 0x4 + game.read::<i32>(addr).ok()?;
                 let ptr = game.read::<Address64>(ptr).ok()?;
                 Some(game.read::<Address64>(ptr).ok()?.into())
             } else {
                 const SIG: Signature<9> = Signature::new("FF FF 1F 00 89 ?? ?? ?? A1");
-                let ptr =
-                    SIG.scan_process_range(game, (core_address, game.get_module_size(core_name).ok()?))? + 9;
+                let ptr = SIG.scan_process_range(
+                    game,
+                    (core_address, game.get_module_size(core_name).ok()?),
+                )? + 9;
                 let ptr = game.read::<Address32>(ptr).ok()?;
                 Some(game.read::<Address32>(ptr).ok()?.into())
             }

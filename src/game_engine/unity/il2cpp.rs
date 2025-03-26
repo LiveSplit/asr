@@ -88,7 +88,8 @@ impl Module {
             const TYPE_INFO_DEFINITION_TABLE_TRG_SIG: Signature<10> =
                 Signature::new("C3 A1 ?? ?? ?? ?? 83 3C ?? 00");
 
-            let addr = TYPE_INFO_DEFINITION_TABLE_TRG_SIG.scan_process_range(process, mono_module)? + 2;
+            let addr =
+                TYPE_INFO_DEFINITION_TABLE_TRG_SIG.scan_process_range(process, mono_module)? + 2;
 
             process
                 .read_pointer(process.read_pointer(addr, pointer_size).ok()?, pointer_size)

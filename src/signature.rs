@@ -378,7 +378,7 @@ impl<const N: usize> Signature<N> {
                 // This of course assumes that N is always lower than MEM_SIZE.
                 // For the current implementation, this is always true.
                 let (start, end) = buffer.split_at_mut(N.saturating_sub(1));
-                start.copy_from_slice(&end[MEM_SIZE..]);
+                start.copy_from_slice(&end[MEM_SIZE.saturating_sub(N)..]);
             }
 
             let current_page_success = process
@@ -431,11 +431,7 @@ impl<const N: usize> Signature<N> {
     /// * `range` - A tuple containing:
     ///     - The starting address of the memory range
     ///     - The length of the memory range to scan
-    pub async fn wait_scan(
-        &self,
-        process: &Process,
-        range: (impl Into<Address>, u64),
-    ) -> Address {
+    pub async fn wait_scan(&self, process: &Process, range: (impl Into<Address>, u64)) -> Address {
         let addr = range.0.into();
         retry(|| self.scan_process_range(process, (addr, range.1))).await
     }

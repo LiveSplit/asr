@@ -62,8 +62,9 @@ impl Module {
         let assemblies: Address = match pointer_size {
             PointerSize::Bit64 => {
                 const SIG_MONO_64: Signature<3> = Signature::new("48 8B 0D");
-                let scan_address: Address =
-                    SIG_MONO_64.scan_process_range(process, (root_domain_function_address, 0x100))? + 3;
+                let scan_address: Address = SIG_MONO_64
+                    .scan_process_range(process, (root_domain_function_address, 0x100))?
+                    + 3;
                 scan_address + 0x4 + process.read::<i32>(scan_address).ok()?
             }
             PointerSize::Bit32 => {

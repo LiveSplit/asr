@@ -58,9 +58,10 @@ impl State {
             if is_x86_64 {
                 const SIG_64: Signature<10> = Signature::new("48 8D 0D ?? ?? ?? ?? 4C 8B 2D");
 
-                let addr = SIG_64
-                    .scan_process_range(game, (core_address, game.get_module_size(core_name).ok()?))?
-                    + 3;
+                let addr = SIG_64.scan_process_range(
+                    game,
+                    (core_address, game.get_module_size(core_name).ok()?),
+                )? + 3;
 
                 let wram = addr + 0x4 + game.read::<i32>(addr).ok()?;
 
@@ -68,9 +69,10 @@ impl State {
             } else {
                 const SIG_32: Signature<7> = Signature::new("A3 ?? ?? ?? ?? 29 F9");
 
-                let ptr = SIG_32
-                    .scan_process_range(game, (core_address, game.get_module_size(core_name).ok()?))?
-                    + 1;
+                let ptr = SIG_32.scan_process_range(
+                    game,
+                    (core_address, game.get_module_size(core_name).ok()?),
+                )? + 1;
 
                 let wram = game.read::<Address32>(ptr).ok()?;
 
@@ -83,9 +85,10 @@ impl State {
             if is_x86_64 {
                 const SIG_64: Signature<9> = Signature::new("48 8D 0D ?? ?? ?? ?? 41 B8");
 
-                let addr = SIG_64
-                    .scan_process_range(game, (core_address, game.get_module_size(core_name).ok()?))?
-                    + 3;
+                let addr = SIG_64.scan_process_range(
+                    game,
+                    (core_address, game.get_module_size(core_name).ok()?),
+                )? + 3;
 
                 let wram = addr + 0x4 + game.read::<i32>(addr).ok()?;
 
@@ -93,9 +96,10 @@ impl State {
             } else {
                 const SIG_32: Signature<8> = Signature::new("B9 ?? ?? ?? ?? C1 EF 10");
 
-                let ptr = SIG_32
-                    .scan_process_range(game, (core_address, game.get_module_size(core_name).ok()?))?
-                    + 1;
+                let ptr = SIG_32.scan_process_range(
+                    game,
+                    (core_address, game.get_module_size(core_name).ok()?),
+                )? + 1;
 
                 let wram = game.read::<Address32>(ptr).ok()?;
 

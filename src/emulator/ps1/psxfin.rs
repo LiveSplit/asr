@@ -15,7 +15,8 @@ impl State {
             .filter(|(_, state)| matches!(state, super::State::PsxFin(_)))
             .find_map(|(name, _)| game.get_module_range(name).ok())?;
 
-        let mut ptr: Address32 = if let Some(sig) = SIG.scan_process_range(game, main_module_range) {
+        let mut ptr: Address32 = if let Some(sig) = SIG.scan_process_range(game, main_module_range)
+        {
             game.read(sig + 2).ok()?
         } else if let Some(sig) = SIG_0.scan_process_range(game, main_module_range) {
             game.read(sig + 1).ok()?
