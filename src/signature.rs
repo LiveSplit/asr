@@ -1,11 +1,7 @@
 //! Support for finding patterns in a process's memory.
 
 use crate::{future::retry, Address, Process};
-use core::{
-    iter,
-    mem::{self, MaybeUninit},
-    slice,
-};
+use core::{iter, mem, slice};
 
 type Offset = u8;
 
@@ -330,7 +326,7 @@ impl<const N: usize> Signature<N> {
     ) -> impl Iterator<Item = Address> + 'a {
         const MEM_SIZE: usize = 0x1000;
 
-        let mut addr: Address = Into::into(range.0);
+        let mut addr: Address = range.0.into();
         let overall_end = addr.value() + range.1;
 
         // The sigscan essentially works by reading one memory page (0x1000 bytes)
@@ -340,24 +336,26 @@ impl<const N: usize> Signature<N> {
         // buffer will be used as the tail of the previous memory page.
         // This allows to scan across the memory page boundaries.
 
-        // The buffer struct is essentially an array with the size of MEM_SIZE + N - 1
+        // The buffer struct is a convenience struct we want to reinterpret as an array
+        // of u8 and the size of MEM_SIZE + N - 1
         #[repr(packed)]
         struct Buffer<const N: usize> {
             _head: [u8; N],
             _buffer: [u8; MEM_SIZE.saturating_sub(1)],
         }
-        let mut buffer = MaybeUninit::<Buffer<N>>::uninit();
 
-        // The tail of the previous memory page, if read correctly, is stored here
         let mut last_page_success = false;
 
-        // SAFETY: The buffer is not initialized, so we purposefully make a slice of MaybeUninit<u8>, for which initialization is not required.
-        // In order to ensure memory safety, we need to ensure the data is written before transmuting.
+        // Although a bit slower, we need to ensure the compiler doesn't do unexpected optimizations
+        // to the MaybeUninit struct. For this reason we are explicitly zero-initializing our buffer.
+        // Using MaybeUninit here breaks the following code.
+        // SAFETY: zero-initializing an array of u8 poses no problems in terms of memory safety
+        let mut buffer = unsafe { mem::zeroed::<Buffer<N>>() };
+
+        // SAFETY: As the data is zero-initialized, we know it's safe to reinterpret this data as
+        // an array uf u8.
         let buffer = unsafe {
-            slice::from_raw_parts_mut(
-                buffer.as_mut_ptr() as *mut MaybeUninit<u8>,
-                size_of::<Buffer<N>>(),
-            )
+            slice::from_raw_parts_mut(&mut buffer as *mut _ as *mut u8, size_of::<Buffer<N>>())
         };
 
         iter::from_fn(move || {
@@ -375,15 +373,12 @@ impl<const N: usize> Signature<N> {
             // If we have read the previous memory page successfully, then we can copy the last
             // elements to the start of the buffer.
             if last_page_success {
-
-                // This of course assumes that N is always lower than MEM_SIZE.
-                // For the current implementation, this is always true.
                 let (start, end) = buffer.split_at_mut(N.saturating_sub(1));
                 start.copy_from_slice(&end[len.saturating_sub(N).saturating_add(1)..]);
             }
 
             let current_page_success = process
-                .read_into_uninit_buf(addr, &mut buffer[N.saturating_sub(1)..][..len])
+                .read_into_slice(addr, &mut buffer[N.saturating_sub(1)..][..len])
                 .is_ok();
 
             // We define the final slice on which to perform the memory scan into. If we failed to read the memory page,
@@ -391,17 +386,18 @@ impl<const N: usize> Signature<N> {
             // If we managed to read the current memory page, instead, we check if we have successfully read the data
             // from the previous memory page.
             let scan_buf = unsafe {
-                let ptr = if current_page_success {
+                if current_page_success {
                     if last_page_success {
-                        &buffer[..len.saturating_add(N).saturating_sub(1)]
+                        slice::from_raw_parts(
+                            buffer.as_ptr(),
+                            len.saturating_add(N).saturating_sub(1),
+                        )
                     } else {
-                        &buffer[N.saturating_sub(1)..][..len]
+                        slice::from_raw_parts(buffer.as_ptr().byte_add(N).byte_sub(1), len)
                     }
                 } else {
                     &[]
-                };
-
-                mem::transmute::<&[MaybeUninit<u8>], &[u8]>(ptr)
+                }
             };
 
             let cur_addr = addr;
