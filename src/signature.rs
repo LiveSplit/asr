@@ -1,6 +1,6 @@
 //! Support for finding patterns in a process's memory.
 
-use crate::{future::retry, Address, Process};
+use crate::{Address, Process};
 use core::{iter, mem, slice};
 
 type Offset = u8;
@@ -417,19 +417,5 @@ impl<const N: usize> Signature<N> {
             }))
         })
         .flatten()
-    }
-
-    /// Asynchronously awaits scanning a process for the signature until a match
-    /// is found.
-    ///
-    /// # Arguments
-    ///
-    /// * `process` - A reference to the `Process` in which the scan occurs.
-    /// * `range` - A tuple containing:
-    ///     - The starting address of the memory range
-    ///     - The length of the memory range to scan
-    pub async fn wait_scan(&self, process: &Process, range: (impl Into<Address>, u64)) -> Address {
-        let addr = range.0.into();
-        retry(|| self.scan_process_range(process, (addr, range.1))).await
     }
 }
