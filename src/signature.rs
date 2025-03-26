@@ -375,10 +375,11 @@ impl<const N: usize> Signature<N> {
             // If we have read the previous memory page successfully, then we can copy the last
             // elements to the start of the buffer.
             if last_page_success {
+
                 // This of course assumes that N is always lower than MEM_SIZE.
                 // For the current implementation, this is always true.
                 let (start, end) = buffer.split_at_mut(N.saturating_sub(1));
-                start.copy_from_slice(&end[MEM_SIZE.saturating_sub(N)..]);
+                start.copy_from_slice(&end[len.saturating_sub(N).saturating_add(1)..]);
             }
 
             let current_page_success = process
@@ -392,7 +393,7 @@ impl<const N: usize> Signature<N> {
             let scan_buf = unsafe {
                 let ptr = if current_page_success {
                     if last_page_success {
-                        &buffer[..len + N.saturating_sub(1)]
+                        &buffer[..len.saturating_add(N).saturating_sub(1)]
                     } else {
                         &buffer[N.saturating_sub(1)..][..len]
                     }
@@ -413,7 +414,7 @@ impl<const N: usize> Signature<N> {
                 let mut address = cur_addr.add(pos as u64);
 
                 if cur_suc {
-                    address = address.add_signed(-((N as i64).saturating_sub(1)))
+                    address = address.add_signed(-(N.saturating_sub(1) as i64))
                 }
 
                 address

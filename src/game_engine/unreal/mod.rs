@@ -227,7 +227,7 @@ impl UClass {
         &'a self,
         process: &'a Process,
         module: &'a Module,
-    ) -> impl FusedIterator<Item = UProperty> + '_ {
+    ) -> impl FusedIterator<Item = UProperty> + 'a {
         // Logic: properties are contained in a linked list that can be accessed directly
         // through the `property_link` field, from the most derived to the least derived class.
         // Source: https://gist.github.com/apple1417/b23f91f7a9e3b834d6d052d35a0010ff#object-structure
