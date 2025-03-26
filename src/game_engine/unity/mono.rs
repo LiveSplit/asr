@@ -2,8 +2,11 @@
 //! backend.
 
 use crate::{
-    file_format::pe, future::retry, signature::Signature, string::ArrayCString, Address, Address32,
-    Address64, Error, PointerSize, Process,
+    file_format::{elf, pe},
+    future::retry,
+    signature::Signature,
+    string::ArrayCString,
+    Address, Address32, Address64, Error, PointerSize, Process,
 };
 use core::{
     array,
@@ -40,34 +43,61 @@ impl Module {
     /// correct for this function to work. If you don't know the version in
     /// advance, use [`attach_auto_detect`](Self::attach_auto_detect) instead.
     pub fn attach(process: &Process, version: Version) -> Option<Self> {
-        let module = ["mono.dll", "mono-2.0-bdwgc.dll"]
-            .iter()
-            .find_map(|&name| process.get_module_address(name).ok())?;
+        #[allow(unused)]
+        let (module_range, format) = [
+            ("mono.dll", BinaryFormat::PE),
+            ("libmono.so", BinaryFormat::ELF),
+            ("mono-2.0-bdwgc.dll", BinaryFormat::PE),
+            ("libmonobdwgc-2.0.so", BinaryFormat::ELF),
+        ]
+        .into_iter()
+        .find_map(|(name, format)| Some((process.get_module_range(name).ok()?, format)))?;
+        let module = module_range.0;
 
-        let pointer_size = match pe::MachineType::read(process, module)? {
-            pe::MachineType::X86_64 => PointerSize::Bit64,
-            _ => PointerSize::Bit32,
+        let pointer_size = match format {
+            BinaryFormat::PE => pe::MachineType::read(process, module)?.pointer_size()?,
+            BinaryFormat::ELF => elf::pointer_size(process, module)?,
         };
 
-        let offsets = Offsets::new(version, pointer_size)?;
+        let offsets = Offsets::new(version, pointer_size, format)?;
 
-        let root_domain_function_address = pe::symbols(process, module)
-            .find(|symbol| {
-                symbol
-                    .get_name::<25>(process)
-                    .is_ok_and(|name| name.matches("mono_assembly_foreach"))
-            })?
-            .address;
+        let root_domain_function_address = match format {
+            BinaryFormat::PE => {
+                pe::symbols(process, module)
+                    .find(|symbol| {
+                        symbol
+                            .get_name::<25>(process)
+                            .is_ok_and(|name| name.matches("mono_assembly_foreach"))
+                    })?
+                    .address
+            }
+            BinaryFormat::ELF => {
+                elf::symbols(process, module)
+                    .find(|symbol| {
+                        symbol
+                            .get_name::<25>(process)
+                            .is_ok_and(|name| name.matches("mono_assembly_foreach"))
+                    })?
+                    .address
+            }
+        };
 
-        let assemblies: Address = match pointer_size {
-            PointerSize::Bit64 => {
+        let assemblies: Address = match (pointer_size, format) {
+            (PointerSize::Bit64, BinaryFormat::PE) => {
                 const SIG_MONO_64: Signature<3> = Signature::new("48 8B 0D");
                 let scan_address: Address = SIG_MONO_64
                     .scan_process_range(process, (root_domain_function_address, 0x100))?
                     + 3;
                 scan_address + 0x4 + process.read::<i32>(scan_address).ok()?
             }
-            PointerSize::Bit32 => {
+            (PointerSize::Bit64, BinaryFormat::ELF) => {
+                const SIG_MONO_64_ELF: Signature<3> = Signature::new("48 8B 3D");
+                let scan_address: Address = SIG_MONO_64_ELF
+                    .scan_process_range(process, (root_domain_function_address, 0x100))?
+                    + 3;
+                scan_address + 0x4 + process.read::<i32>(scan_address).ok()?
+            }
+            (PointerSize::Bit32, BinaryFormat::PE) => {
                 const SIG_32_1: Signature<2> = Signature::new("FF 35");
                 const SIG_32_2: Signature<2> = Signature::new("8B 0D");
 
@@ -754,9 +784,13 @@ struct Offsets {
 }
 
 impl Offsets {
-    const fn new(version: Version, pointer_size: PointerSize) -> Option<&'static Self> {
-        match pointer_size {
-            PointerSize::Bit64 => match version {
+    const fn new(
+        version: Version,
+        pointer_size: PointerSize,
+        format: BinaryFormat,
+    ) -> Option<&'static Self> {
+        match (pointer_size, format) {
+            (PointerSize::Bit64, BinaryFormat::PE) => match version {
                 Version::V1 => Some(&Self {
                     monoassembly_aname: 0x10,
                     monoassembly_image: 0x58,
@@ -799,6 +833,8 @@ impl Offsets {
                     monovtable_vtable: 0x48,
                     monoclassfieldalignment: 0x20,
                 }),
+                // 64-bit PE V2 matches Unity2019_4_2020_3_x64_PE_Offsets from
+                // https://github.com/hackf5/unityspy/blob/master/src/HackF5.UnitySpy/Offsets/MonoLibraryOffsets.cs#L49
                 Version::V2 => Some(&Self {
                     monoassembly_aname: 0x10,
                     monoassembly_image: 0x60,
@@ -842,7 +878,95 @@ impl Offsets {
                     monoclassfieldalignment: 0x20,
                 }),
             },
-            PointerSize::Bit32 => match version {
+            (PointerSize::Bit64, BinaryFormat::ELF) => match version {
+                Version::V1 => Some(&Self {
+                    monoassembly_aname: 0x10,
+                    monoassembly_image: 0x58,
+                    monoimage_class_cache: 0x3D0,
+                    monointernalhashtable_table: 0x20,
+                    monointernalhashtable_size: 0x18,
+                    monoclassdef_next_class_cache: 0xF8,
+                    monoclassdef_klass: 0x0,
+                    monoclass_name: 0x40,
+                    monoclass_name_space: 0x48,
+                    monoclass_fields: 0xA0,
+                    monoclassdef_field_count: 0x8C,
+                    monoclass_runtime_info: 0xF0,
+                    monoclass_vtable_size: 0x18, // MonoVtable.data
+                    monoclass_parent: 0x28,
+                    monoclassfield_name: 0x8,
+                    monoclassfield_offset: 0x18,
+                    monoclassruntimeinfo_domain_vtables: 0x8,
+                    monovtable_vtable: 0x48,
+                    monoclassfieldalignment: 0x20,
+                }),
+                Version::V1Cattrs => Some(&Self {
+                    monoassembly_aname: 0x10,
+                    monoassembly_image: 0x58,
+                    monoimage_class_cache: 0x3D0,
+                    monointernalhashtable_table: 0x20,
+                    monointernalhashtable_size: 0x18,
+                    monoclassdef_next_class_cache: 0x100,
+                    monoclassdef_klass: 0x0,
+                    monoclass_name: 0x48,
+                    monoclass_name_space: 0x50,
+                    monoclass_fields: 0xA8,
+                    monoclassdef_field_count: 0x94,
+                    monoclass_runtime_info: 0xF8,
+                    monoclass_vtable_size: 0x18, // MonoVtable.data
+                    monoclass_parent: 0x28,
+                    monoclassfield_name: 0x8,
+                    monoclassfield_offset: 0x18,
+                    monoclassruntimeinfo_domain_vtables: 0x8,
+                    monovtable_vtable: 0x48,
+                    monoclassfieldalignment: 0x20,
+                }),
+                // 64-bit ELF V2 happens to match Unity2019_4_2020_3_x64_MachO_Offsets from
+                // https://github.com/hackf5/unityspy/blob/master/src/HackF5.UnitySpy/Offsets/MonoLibraryOffsets.cs#L86
+                Version::V2 => Some(&Self {
+                    monoassembly_aname: 0x10,
+                    monoassembly_image: 0x60,
+                    monoimage_class_cache: 0x4C0,
+                    monointernalhashtable_table: 0x20,
+                    monointernalhashtable_size: 0x18,
+                    monoclassdef_next_class_cache: 0x100,
+                    monoclassdef_klass: 0x0,
+                    monoclass_name: 0x40,
+                    monoclass_name_space: 0x48,
+                    monoclass_fields: 0x90,
+                    monoclassdef_field_count: 0xF8,
+                    monoclass_runtime_info: 0xC8,
+                    monoclass_vtable_size: 0x54,
+                    monoclass_parent: 0x28,
+                    monoclassfield_name: 0x8,
+                    monoclassfield_offset: 0x18,
+                    monoclassruntimeinfo_domain_vtables: 0x8,
+                    monovtable_vtable: 0x40,
+                    monoclassfieldalignment: 0x20,
+                }),
+                Version::V3 => Some(&Self {
+                    monoassembly_aname: 0x10,
+                    monoassembly_image: 0x60,
+                    monoimage_class_cache: 0x4D0,
+                    monointernalhashtable_table: 0x20,
+                    monointernalhashtable_size: 0x18,
+                    monoclassdef_next_class_cache: 0x100,
+                    monoclassdef_klass: 0x0,
+                    monoclass_name: 0x40,
+                    monoclass_name_space: 0x48,
+                    monoclass_fields: 0x90,
+                    monoclassdef_field_count: 0xF8,
+                    monoclass_runtime_info: 0xC8,
+                    monoclass_vtable_size: 0x54,
+                    monoclass_parent: 0x28,
+                    monoclassfield_name: 0x8,
+                    monoclassfield_offset: 0x18,
+                    monoclassruntimeinfo_domain_vtables: 0x8,
+                    monovtable_vtable: 0x48,
+                    monoclassfieldalignment: 0x20,
+                }),
+            },
+            (PointerSize::Bit32, BinaryFormat::PE) => match version {
                 Version::V1 => Some(&Self {
                     monoassembly_aname: 0x8,
                     monoassembly_image: 0x40,
@@ -885,6 +1009,8 @@ impl Offsets {
                     monovtable_vtable: 0x28,
                     monoclassfieldalignment: 0x10,
                 }),
+                // 32-bit PE V2 matches Unity2018_4_10_x86_PE_Offsets from
+                // https://github.com/hackf5/unityspy/blob/master/src/HackF5.UnitySpy/Offsets/MonoLibraryOffsets.cs#L12
                 Version::V2 => Some(&Self {
                     monoassembly_aname: 0x8,
                     monoassembly_image: 0x44,
@@ -933,6 +1059,13 @@ impl Offsets {
     }
 }
 
+#[derive(Copy, Clone, PartialEq, Hash, Debug)]
+#[non_exhaustive]
+enum BinaryFormat {
+    PE,
+    ELF,
+}
+
 /// The version of Mono that was used for the game. These don't correlate to the
 /// Mono version numbers.
 #[derive(Copy, Clone, PartialEq, Hash, Debug)]
@@ -948,7 +1081,9 @@ pub enum Version {
 }
 
 fn detect_version(process: &Process) -> Option<Version> {
-    if process.get_module_address("mono.dll").is_ok() {
+    if process.get_module_address("mono.dll").is_ok()
+        || process.get_module_address("libmono.so").is_ok()
+    {
         // If the module mono.dll is present, then it's either V1 or V1Cattrs.
         // In order to distinguish between them, we check the first class listed in the
         // default Assembly-CSharp image and check for the pointer to its name, assuming it's using V1.
@@ -972,11 +1107,19 @@ fn detect_version(process: &Process) -> Option<Version> {
         });
     }
 
-    let unity_module = {
-        let address = process.get_module_address("UnityPlayer.dll").ok()?;
-        let range = pe::read_size_of_image(process, address)? as u64;
-        (address, range)
-    };
+    let unity_module = [
+        ("UnityPlayer.dll", BinaryFormat::PE),
+        ("UnityPlayer.so", BinaryFormat::ELF),
+    ]
+    .into_iter()
+    .find_map(|(name, format)| match format {
+        BinaryFormat::PE => {
+            let address = process.get_module_address(name).ok()?;
+            let range = pe::read_size_of_image(process, address)? as u64;
+            Some((address, range))
+        }
+        BinaryFormat::ELF => process.get_module_range(name).ok(),
+    })?;
 
     const SIG_202X: Signature<6> = Signature::new("00 32 30 32 ?? 2E");
 
