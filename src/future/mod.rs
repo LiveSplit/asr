@@ -109,7 +109,9 @@ use core::{
     task::{Context, Poll},
 };
 
-use crate::{signature::Signature, Address, Process};
+#[cfg(feature = "signature")]
+use crate::signature::Signature;
+use crate::{Address, Process};
 
 #[cfg(target_os = "wasi")]
 mod time;
