@@ -23,7 +23,7 @@ mod instant {
                 1, // precision... seems ignored though?
                 rp0.as_mut_ptr() as _,
             );
-            assert_eq!(ret, wasi::ERRNO_SUCCESS.raw() as _);
+            assert_eq!(ret, wasi::ERRNO_SUCCESS.raw() as i32);
             rp0.assume_init()
         }
     }
