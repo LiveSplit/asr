@@ -271,7 +271,7 @@ impl Value {
             let mut len = N;
             let success =
                 sys::setting_value_get_string(self.0, buf.as_bytes_mut().as_mut_ptr(), &mut len);
-            if !success {
+            if !(success && len <= N) {
                 return if len == 0 { None } else { Some(Err(Error {})) };
             }
             buf.set_len(len);
