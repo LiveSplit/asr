@@ -112,7 +112,7 @@ impl Emulator {
             State::PsxFin(x) => x.keep_alive(),
             State::Duckstation(x) => x.keep_alive(&self.process, &mut ram_base),
             State::Retroarch(x) => x.keep_alive(&self.process),
-            State::PcsxRedux(x) => x.keep_alive(&self.process),
+            State::PcsxRedux(x) => x.keep_alive(&self.process, &mut ram_base),
             State::Xebra(x) => x.keep_alive(),
             State::Mednafen(x) => x.keep_alive(),
         };

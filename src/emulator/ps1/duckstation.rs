@@ -1,4 +1,4 @@
-use crate::{file_format::pe, signature::Signature, Address, Address64, Process};
+use crate::{file_format::pe, signature::Signature, Address, Address64, PointerSize, Process};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct State {
@@ -7,12 +7,15 @@ pub struct State {
 
 impl State {
     pub fn find_ram(&mut self, game: &Process) -> Option<Address> {
-        const SIG: Signature<8> = Signature::new("48 89 0D ?? ?? ?? ?? B8");
-
         let main_module_range = super::PROCESS_NAMES
             .iter()
             .filter(|(_, state)| matches!(state, super::State::Duckstation(_)))
             .find_map(|(name, _)| game.get_module_range(name).ok())?;
+
+        // 32bit versions of Duckstation are not supported (nor developed)
+        if pe::MachineType::read(game, main_module_range.0)?.pointer_size()? != PointerSize::Bit64 {
+            return None;
+        }
 
         // Recent Duckstation releases include a debug symbol that can be used to easily retrieve the address of the emulated RAM
         // Info: https://github.com/stenzek/duckstation/commit/c98e0bd0969abdd82589bfc565aea52119fd0f19
@@ -24,8 +27,11 @@ impl State {
             self.addr = debug_symbol.address;
         } else {
             // For older versions of Duckstation, we fall back to regular sigscanning
-            let addr = SIG.scan_process_range(game, main_module_range)? + 3;
-            self.addr = addr + 0x4 + game.read::<i32>(addr).ok()?;
+            const SIG: Signature<8> = Signature::new("48 89 0D ?? ?? ?? ?? B8");
+            self.addr = SIG
+                .scan_process_range(game, main_module_range)
+                .map(|val| val + 3)
+                .and_then(|addr| Some(addr + 0x4 + game.read::<i32>(addr).ok()?))?;
         }
 
         Some(game.read::<Address64>(self.addr).ok()?.into())

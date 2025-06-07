@@ -12,9 +12,10 @@ impl State {
             .filter(|(_, state)| matches!(state, super::State::Epsxe(_)))
             .find_map(|(name, _)| game.get_module_range(name).ok())?;
 
-        let ptr = SIG.scan_process_range(game, main_module_range)? + 5;
-
-        Some(game.read::<Address32>(ptr).ok()?.into())
+        SIG.scan_process_range(game, main_module_range)
+            .map(|val| val + 5)
+            .and_then(|addr| game.read::<Address32>(addr).ok())
+            .map(|val| val.into())
     }
 
     pub const fn keep_alive(&self) -> bool {

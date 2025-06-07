@@ -15,26 +15,26 @@ impl State {
             .filter(|(_, state)| matches!(state, super::State::PsxFin(_)))
             .find_map(|(name, _)| game.get_module_range(name).ok())?;
 
-        let mut ptr: Address32 = if let Some(sig) = SIG.scan_process_range(game, main_module_range)
-        {
-            game.read(sig + 2).ok()?
-        } else if let Some(sig) = SIG_0.scan_process_range(game, main_module_range) {
-            game.read(sig + 1).ok()?
-        } else if let Some(sig) = SIG_1.scan_process_range(game, main_module_range) {
-            game.read(sig + 1).ok()?
-        } else if let Some(sig) = SIG_2.scan_process_range(game, main_module_range) {
-            game.read(sig + 1).ok()?
-        } else {
-            return None;
-        };
+        let ptr: Address = SIG
+            .scan_process_range(game, main_module_range)
+            .and_then(|addr| {
+                game.read::<Address32>(addr + 2)
+                    .ok()
+                    .map(|addr| addr.into())
+            })
+            .or_else(|| SIG_0.scan_process_range(game, main_module_range))
+            .or_else(|| SIG_1.scan_process_range(game, main_module_range))
+            .or_else(|| SIG_2.scan_process_range(game, main_module_range))
+            .and_then(|addr| {
+                game.read::<Address32>(addr + 1)
+                    .ok()
+                    .map(|addr| addr.into())
+            })?;
 
-        ptr = game.read::<Address32>(ptr).ok()?;
-
-        if ptr.is_null() {
-            None
-        } else {
-            Some(ptr.into())
-        }
+        game.read::<Address32>(ptr)
+            .ok()
+            .filter(|val| !val.is_null())
+            .map(|addr| addr.into())
     }
 
     pub const fn keep_alive(&self) -> bool {
