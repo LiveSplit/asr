@@ -7,7 +7,7 @@ use core::{
     mem::size_of,
 };
 
-use bytemuck::CheckedBitPattern;
+use bytemuck::{CheckedBitPattern, Pod, Zeroable};
 
 use crate::{
     file_format::pe, future::retry, signature::Signature, string::ArrayCString, Address, Error,
@@ -136,6 +136,28 @@ impl Module {
         }
     }
 
+    /// Returns string associated with provided FNameKey
+    pub fn get_fname<const N: usize>(
+        &self, 
+        process: &Process, 
+        key: FNameKey,
+    ) -> Result<ArrayCString<N>, Error> {
+        let addr = process.read_pointer(
+            self.fname_base + self.size_of_ptr().wrapping_mul(key.chunk_offset as u64 + 2),
+            self.pointer_size,
+        )? + (key.name_offset as u64).wrapping_mul(size_of::<u16>() as u64);
+
+        let string_size = process
+            .read::<u16>(addr)?
+            .checked_shr(6)
+            .unwrap_or_default() as usize;
+
+        let mut string = process.read::<ArrayCString<N>>(addr + size_of::<u16>() as u64)?;
+        string.set_len(string_size);
+
+        Ok(string)
+    }
+
     #[inline]
     const fn size_of_ptr(&self) -> u64 {
         self.pointer_size as u64
@@ -164,23 +186,9 @@ impl UObject {
         process: &Process,
         module: &Module,
     ) -> Result<ArrayCString<N>, Error> {
-        let [name_offset, chunk_offset] =
-            process.read::<[u16; 2]>(self.object + module.offsets.uobject_fname)?;
+        let key = process.read::<FNameKey>(self.object + module.offsets.uobject_fname)?;
 
-        let addr = process.read_pointer(
-            module.fname_base + module.size_of_ptr().wrapping_mul(chunk_offset as u64 + 2),
-            module.pointer_size,
-        )? + (name_offset as u64).wrapping_mul(size_of::<u16>() as u64);
-
-        let string_size = process
-            .read::<u16>(addr)?
-            .checked_shr(6)
-            .unwrap_or_default() as usize;
-
-        let mut string = process.read::<ArrayCString<N>>(addr + size_of::<u16>() as u64)?;
-        string.set_len(string_size);
-
-        Ok(string)
+        module.get_fname(process, key)
     }
 
     /// Returns the underlying class definition for the current `UObject`
@@ -317,23 +325,9 @@ impl UProperty {
         process: &Process,
         module: &Module,
     ) -> Result<ArrayCString<N>, Error> {
-        let [name_offset, chunk_offset] =
-            process.read::<[u16; 2]>(self.property + module.offsets.uproperty_fname)?;
+        let key = process.read::<FNameKey>(self.property + module.offsets.uproperty_fname)?;
 
-        let addr = process.read_pointer(
-            module.fname_base + module.size_of_ptr().wrapping_mul(chunk_offset as u64 + 2),
-            module.pointer_size,
-        )? + (name_offset as u64).wrapping_mul(size_of::<u16>() as u64);
-
-        let string_size = process
-            .read::<u16>(addr)?
-            .checked_shr(6)
-            .unwrap_or_default() as usize;
-
-        let mut string = process.read::<ArrayCString<N>>(addr + size_of::<u16>() as u64)?;
-        string.set_len(string_size);
-
-        Ok(string)
+        module.get_fname(process, key)
     }
 
     fn get_offset(&self, process: &Process, module: &Module) -> Option<u32> {
@@ -342,6 +336,33 @@ impl UProperty {
             .ok()
     }
 }
+
+/// A key to an `FName`, whose associated string can be retrieved from the FName pool
+#[derive(Copy, Clone, PartialEq, Eq)]
+#[repr(C)]
+pub struct FNameKey {
+    chunk_offset: u16,
+    name_offset: u16,
+}
+
+impl FNameKey {
+    /// Returns `true` if the key's values are 0
+    /// TODO: make sure (0, 0) is in fact an invalid FName
+    pub fn is_null(&self) -> bool {
+        self.chunk_offset == 0 && self.name_offset == 0
+    }
+}
+
+impl Default for FNameKey {
+    fn default() -> Self {
+        Self { chunk_offset: Default::default(), name_offset: Default::default() }
+    }
+}
+
+/// SAFETY: The type is a C struct of two u16s, which is `Pod`.
+unsafe impl Pod for FNameKey {}
+/// SAFETY: The type is a C struct of two u16s, which is `Zeroable`.
+unsafe impl Zeroable for FNameKey{}
 
 /// An implementation for automatic pointer path resolution
 #[derive(Clone)]
