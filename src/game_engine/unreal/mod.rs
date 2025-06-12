@@ -343,12 +343,10 @@ impl UProperty {
 pub struct FNameKey {
     name_offset: u16,
     chunk_offset: u16,
-    
 }
 
 impl FNameKey {
     /// Returns `true` if the key's values are 0
-    /// TODO: make sure (0, 0) is in fact an invalid FName
     pub fn is_null(&self) -> bool {
         self.chunk_offset == 0 && self.name_offset == 0
     }
