@@ -341,8 +341,9 @@ impl UProperty {
 #[derive(Copy, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct FNameKey {
-    chunk_offset: u16,
     name_offset: u16,
+    chunk_offset: u16,
+    
 }
 
 impl FNameKey {
