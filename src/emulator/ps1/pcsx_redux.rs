@@ -30,23 +30,20 @@ impl State {
             game.read::<u8>(addr + 14).ok()?.into(),
         ];
 
-        game.read_pointer_path::<Address64>(self.addr_base, PointerSize::Bit64, &self.offsets)
-            .map(|val| val.into())
-            .ok()
+        Some(
+            game.read_pointer_path::<Address64>(self.addr_base, PointerSize::Bit64, &self.offsets)
+                .unwrap_or_default()
+                .into(),
+        )
     }
 
     pub fn keep_alive(&self, game: &Process, ram_base: &mut Option<Address>) -> bool {
-        match game
-            .read_pointer_path::<Address64>(self.addr_base, PointerSize::Bit64, &self.offsets)
-            .ok()
-            .filter(|addr| !addr.is_null())
-        {
-            Some(result) => {
-                *ram_base = Some(result.into());
-                true
-            }
-            None => false,
-        }
+        *ram_base = Some(
+            game.read_pointer_path::<Address64>(self.addr_base, PointerSize::Bit64, &self.offsets)
+                .unwrap_or_default()
+                .into(),
+        );
+        true
     }
 
     pub const fn new() -> Self {

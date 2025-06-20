@@ -34,16 +34,12 @@ impl State {
                 .and_then(|addr| Some(addr + 0x4 + game.read::<i32>(addr).ok()?))?;
         }
 
-        Some(game.read::<Address64>(self.addr).ok()?.into())
+        Some(game.read::<Address64>(self.addr).unwrap_or_default().into())
     }
 
     pub fn keep_alive(&self, game: &Process, wram_base: &mut Option<Address>) -> bool {
-        if let Ok(addr) = game.read::<Address64>(self.addr) {
-            *wram_base = Some(addr.into());
-            true
-        } else {
-            false
-        }
+        *wram_base = Some(game.read::<Address64>(self.addr).unwrap_or_default().into());
+        true
     }
 
     pub const fn new() -> Self {
