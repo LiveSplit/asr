@@ -66,7 +66,7 @@ impl State {
                 SIG.scan_process_range(game, (base_scan, 0x100))
                     .map(|addr| addr + 3)
                     .and_then(|addr| {
-                        game.read::<Address64>(game.read::<Address64>(addr).ok()?)
+                        game.read::<Address64>(addr + 0x4 + game.read::<i32>(addr).ok()?)
                             .ok()
                     })
                     .map(|addr| addr.into())
@@ -85,7 +85,7 @@ impl State {
             if is_64_bit {
                 const SIG: Signature<10> = Signature::new("48 8B 05 ?? ?? ?? ?? 48 8B 00");
                 SIG.scan_process_range(game, (base_scan, 0x100))
-                    .map(|addr| addr + 4)
+                    .map(|addr| addr + 3)
                     .and_then(|addr| {
                         game.read::<Address64>(
                             game.read::<Address64>(addr + 0x4 + game.read::<i32>(addr).ok()?)
