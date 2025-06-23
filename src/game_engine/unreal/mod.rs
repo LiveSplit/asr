@@ -180,6 +180,18 @@ pub struct UObject {
 }
 
 impl UObject {
+    /// Create an arbitrary `UObject` from an address 
+    pub fn new(address: Address) -> Self {
+        Self {
+            object: address,
+        }
+    }
+
+    /// Returns the address of the current `UObject`
+    pub fn get_address(&self) -> Address {
+        self.object
+    }
+
     /// Reads the `FName` of the current `UObject`
     pub fn get_fname<const N: usize>(
         &self,
