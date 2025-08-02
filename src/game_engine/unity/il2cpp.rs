@@ -363,7 +363,7 @@ impl Class {
         &'a self,
         process: &'a Process,
         module: &'a Module,
-    ) -> impl FusedIterator<Item = Field> + '_ {
+    ) -> impl FusedIterator<Item = Field> + 'a {
         let mut this_class = Some(*self);
 
         iter::from_fn(move || {
