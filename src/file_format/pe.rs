@@ -356,3 +356,133 @@ pub fn symbols(
         })
     })
 }
+
+/// A definition of the version number encoded into a PE module.
+///
+/// This is split into four 16-bit parts:
+/// - `major_version`  = HIWORD(dwFileVersionMS)
+/// - `minor_version`  = LOWORD(dwFileVersionMS)
+/// - `build_part`     = HIWORD(dwFileVersionLS)
+/// - `private_part`   = LOWORD(dwFileVersionLS)
+///
+/// Example: a version "1.2.3.4" corresponds to:
+/// ```
+/// FileVersion { major_version: 1, minor_version: 2, build_part: 3, private_part: 4 }
+/// ```
+// Reference: https://learn.microsoft.com/en-us/dotnet/api/system.diagnostics.fileversioninfo.fileversion
+#[allow(missing_docs)]
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Zeroable, Pod, Default)]
+pub struct FileVersion {
+    pub minor_version: u16,
+    pub major_version: u16,
+    pub private_part: u16,
+    pub build_part: u16,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Zeroable, Pod, Default)]
+struct VsFixedFileInfo {
+    signature: u32, // must be 0xFEEF04BD
+    struct_version: u32,
+    file_version: FileVersion,
+}
+
+/// Reads the numeric file version (major.minor.build.private) from the VERSIONINFO
+/// resource of the PE module starting at the specified memory address.
+/// Returns `None` if the module has no version resource or parsing fails.
+pub fn file_version_info(
+    process: &Process,
+    module_address: impl Into<Address>,
+) -> Option<FileVersion> {
+    let address: Address = module_address.into();
+
+    let coff_header_address = read_coff_header(process, address)
+        .filter(|(coff, _)| {
+            (coff.size_of_optional_header as usize) >= mem::size_of::<OptionalCOFFHeader>()
+        })
+        .map(|(_, address)| address)?;
+
+    let optional_header_address = coff_header_address + mem::size_of::<COFFHeader>() as u64;
+
+    let optional_header_magic = process.read::<u16>(optional_header_address).ok()?;
+    let is_64_bit = match optional_header_magic {
+        0x10B => false,   // PE32
+        0x20B => true,    // PE32+
+        _ => return None, // Invalid data
+    };
+
+    let res_dd_offset = if is_64_bit { 0x80 } else { 0x70 };
+    let res_dd_addr = optional_header_address + res_dd_offset;
+
+    let data_directory = process
+        .read::<[u32; 2]>(res_dd_addr)
+        .ok()
+        .filter(|[a, b]| *a != 0 && *b != 0)
+        .map(|[a, _]| a)?;
+
+    let res_base = address + data_directory;
+
+    // Small helper: read IMAGE_RESOURCE_DIRECTORY
+    fn read_dir_header(process: &Process, addr: Address) -> Option<u16> {
+        let hdr = process.read::<[u16; 8]>(addr).ok()?;
+        // [6] = NumberOfNamedEntries, [7] = NumberOfIdEntries
+        Some(hdr[6] + hdr[7])
+    }
+
+    // Level 1 (resource type = RT_VERSION = 0x10)
+    let count1 = read_dir_header(process, res_base)?;
+
+    let mut type_dir: Address = Address::NULL;
+    for i in 0..count1 {
+        let [id, offset] = process.read::<[u32; 2]>(res_base + 0x10 + i * 8).ok()?;
+
+        if id == 16 && (offset & 0x80000000) != 0 {
+            type_dir = res_base + (offset & 0x7FFFFFFF);
+            break;
+        }
+    }
+    if type_dir.is_null() {
+        return None;
+    }
+
+    // Level 2 (language directory)
+    let count2 = read_dir_header(process, type_dir)?;
+
+    let mut lang_dir = Address::NULL;
+    for i in 0..count2 {
+        let [_, offset] = process.read::<[u32; 2]>(type_dir + 0x10 + i * 8).ok()?;
+
+        if (offset & 0x80000000) != 0 {
+            lang_dir = res_base + (offset & 0x7FFFFFFF);
+            break;
+        }
+    }
+    if lang_dir.is_null() {
+        return None;
+    }
+
+    // Level 3 (data entry)
+    let count3 = read_dir_header(process, lang_dir)?;
+
+    let mut data_entry = Address::NULL;
+    for i in 0..count3 {
+        let [_, offset] = process.read::<[u32; 2]>(lang_dir + 0x10 + i * 8).ok()?;
+
+        if (offset & 0x80000000) == 0 {
+            data_entry = res_base + (offset & 0x7FFFFFFF) as u64;
+            break;
+        }
+    }
+    if data_entry.is_null() {
+        return None;
+    }
+
+    let vs_version_va = address + process.read::<u32>(data_entry).ok()?;
+
+    process
+        .read::<VsFixedFileInfo>(vs_version_va + 0x28)
+        .ok()
+        .filter(|val| val.signature == 0xFEEF04BD)
+        .map(|val| val.file_version)
+}
