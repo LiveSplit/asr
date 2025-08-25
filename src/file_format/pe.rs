@@ -364,11 +364,6 @@ pub fn symbols(
 /// - `minor_version`  = LOWORD(dwFileVersionMS)
 /// - `build_part`     = HIWORD(dwFileVersionLS)
 /// - `private_part`   = LOWORD(dwFileVersionLS)
-///
-/// Example: a version "1.2.3.4" corresponds to:
-/// ```
-/// FileVersion { major_version: 1, minor_version: 2, build_part: 3, private_part: 4 }
-/// ```
 // Reference: https://learn.microsoft.com/en-us/dotnet/api/system.diagnostics.fileversioninfo.fileversion
 #[allow(missing_docs)]
 #[repr(C)]
