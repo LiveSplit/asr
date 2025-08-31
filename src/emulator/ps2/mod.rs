@@ -4,7 +4,6 @@ use core::{
     cell::Cell,
     future::Future,
     mem::size_of,
-    ops::Sub,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -107,10 +106,14 @@ impl Emulator {
     ///
     /// Valid addresses for the PS2 range from `0x00100000` to `0x01FFFFFF`.
     pub fn get_address(&self, offset: u32) -> Result<Address, Error> {
+        let ram_base = self
+            .ram_base
+            .get()
+            .filter(|addr| !addr.is_null())
+            .ok_or(Error {})?;
+
         match offset {
-            (0x00100000..=0x01FFFFFF) => {
-                Ok(self.ram_base.get().ok_or(Error {})? + offset.sub(0x00100000))
-            }
+            (0x00100000..=0x01FFFFFF) => Ok(ram_base + offset),
             _ => Err(Error {}),
         }
     }

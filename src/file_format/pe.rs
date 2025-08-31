@@ -356,3 +356,117 @@ pub fn symbols(
         })
     })
 }
+
+/// A definition of the version number encoded into a PE module.
+///
+/// This is split into four 16-bit parts:
+/// - `major_version`  = HIWORD(dwFileVersionMS)
+/// - `minor_version`  = LOWORD(dwFileVersionMS)
+/// - `build_part`     = HIWORD(dwFileVersionLS)
+/// - `private_part`   = LOWORD(dwFileVersionLS)
+// Reference: https://learn.microsoft.com/en-us/dotnet/api/system.diagnostics.fileversioninfo.fileversion
+#[allow(missing_docs)]
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Zeroable, Pod, Default)]
+pub struct FileVersion {
+    pub minor_version: u16,
+    pub major_version: u16,
+    pub private_part: u16,
+    pub build_part: u16,
+}
+
+/// Reads the numeric file version (major.minor.build.private) from the VERSIONINFO
+/// resource of the PE module starting at the specified memory address.
+/// Returns `None` if the module has no version resource or parsing fails.
+pub fn file_version_info(
+    process: &Process,
+    module_address: impl Into<Address>,
+) -> Option<FileVersion> {
+    #[repr(C)]
+    #[derive(Debug, Copy, Clone, Zeroable, Pod, Default)]
+    struct VsFixedFileInfo {
+        signature: u32, // must be 0xFEEF04BD
+        struct_version: u32,
+        file_version: FileVersion,
+    }
+
+    fn read_dir_header(process: &Process, addr: Address) -> Option<u16> {
+        // [6] = NumberOfNamedEntries, [7] = NumberOfIdEntries
+        process.read::<[u16; 8]>(addr)
+            .map(|val| val[6] + val[7])
+            .ok()
+    }
+
+    #[repr(C)]
+    #[derive(Pod, Zeroable, Copy, Clone, Debug, Default)]
+    struct DataEntry {
+        id: u32,
+        offset: u32,
+    }
+
+    impl DataEntry {
+        fn is_rt_version(&self) -> bool {
+            self.id == 0x10
+        }
+
+        fn is_directory(&self) -> bool {
+            (self.offset & 0x80000000) != 0
+        }
+
+        fn get_offset(&self) -> u32 {
+            self.offset & 0x7FFFFFFF
+        }
+    }
+
+    let address: Address = module_address.into();
+
+    let coff_header_address = read_coff_header(process, address)
+        .filter(|(coff, _)| {
+            (coff.size_of_optional_header as usize) >= mem::size_of::<OptionalCOFFHeader>()
+        })
+        .map(|(_, address)| address)?;
+
+    let optional_header_address = coff_header_address + mem::size_of::<COFFHeader>() as u64;
+
+    let optional_header_magic = process.read::<u16>(optional_header_address).ok()?;
+    let is_64_bit = match optional_header_magic {
+        0x10B => false,   // PE32
+        0x20B => true,    // PE32+
+        _ => return None, // Invalid data
+    };
+
+    let res_dd_offset = if is_64_bit { 0x80 } else { 0x70 };
+    let res_dd_addr = optional_header_address + res_dd_offset;
+
+    let data_directory = process
+        .read::<[u32; 2]>(res_dd_addr)
+        .ok()
+        .filter(|[a, b]| *a != 0 && *b != 0)
+        .map(|[a, _]| a)?;
+
+    let res_base = address + data_directory;
+
+    // Level 1 (resource type = RT_VERSION = 0x10)
+    let type_dir = (0..read_dir_header(process, res_base)?)
+        .filter_map(|i| process.read::<DataEntry>(res_base + 0x10 + i * 8).ok())
+        .find(|entry| entry.is_directory() && entry.is_rt_version())
+        .map(|entry| res_base + entry.get_offset())?;
+
+    let lang_dir = (0..read_dir_header(process, type_dir)?)
+        .filter_map(|i| process.read::<DataEntry>(type_dir + 0x10 + i * 8).ok())
+        .find(|entry| entry.is_directory())
+        .map(|entry| res_base + entry.get_offset())?;
+
+    let data_entry = (0..read_dir_header(process, lang_dir)?)
+        .filter_map(|i| process.read::<DataEntry>(lang_dir + 0x10 + i * 8).ok())
+        .find(|entry| !entry.is_directory())
+        .map(|entry| res_base + entry.get_offset())?;
+
+    let vs_version_va = address + process.read::<u32>(data_entry).ok()?;
+
+    process
+        .read::<VsFixedFileInfo>(vs_version_va + 0x28)
+        .ok()
+        .filter(|val| val.signature == 0xFEEF04BD)
+        .map(|val| val.file_version)
+}
