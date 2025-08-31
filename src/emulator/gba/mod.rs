@@ -224,7 +224,7 @@ pub enum State {
     Mednafen(mednafen::State),
 }
 
-static PROCESS_NAMES: [(&str, State); 7] = [
+static PROCESS_NAMES: [(&str, State); 8] = [
     (
         "visualboyadvance-m.exe",
         State::VisualBoyAdvance(vba::State::new()),
@@ -234,6 +234,7 @@ static PROCESS_NAMES: [(&str, State); 7] = [
         State::VisualBoyAdvance(vba::State::new()),
     ),
     ("mGBA.exe", State::Mgba(mgba::State)),
+    ("mGBA", State::Mgba(mgba::State)),
     ("NO$GBA.EXE", State::NoCashGba(nocashgba::State::new())),
     ("retroarch.exe", State::Retroarch(retroarch::State::new())),
     ("EmuHawk.exe", State::EmuHawk(emuhawk::State::new())),

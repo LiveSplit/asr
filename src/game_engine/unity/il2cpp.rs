@@ -7,8 +7,11 @@ use core::{
 };
 
 use crate::{
-    file_format::pe, future::retry, signature::Signature, string::ArrayCString, Address, Address64,
-    Error, PointerSize, Process,
+    file_format::pe::{self, FileVersion},
+    future::retry,
+    signature::Signature,
+    string::ArrayCString,
+    Address, Address64, Error, PointerSize, Process,
 };
 
 #[cfg(feature = "derive")]
@@ -273,13 +276,15 @@ impl Image {
             .filter(|val| !val.eq(&0));
 
         let metadata_ptr = type_count.and_then(|_| match module.version {
-            Version::V2020 => process
+            Version::Base | Version::V2019 => {
+                Some(self.image + module.offsets.monoimage_metadatahandle)
+            }
+            _ => process
                 .read_pointer(
                     self.image + module.offsets.monoimage_metadatahandle,
                     module.pointer_size,
                 )
                 .ok(),
-            _ => Some(self.image + module.offsets.monoimage_metadatahandle),
         });
 
         let metadata_handle = type_count
@@ -766,6 +771,22 @@ impl Offsets {
                         monoclassfield_name: 0x0,
                         monoclassfield_offset: 0x18,
                     },
+                    Version::V2022 => &Self {
+                        monoassembly_image: 0x0,
+                        monoassembly_aname: 0x18,
+                        monoassemblyname_name: 0x0,
+                        monoimage_typecount: 0x18,
+                        monoimage_metadatahandle: 0x28,
+                        monoclass_name: 0x10,
+                        monoclass_name_space: 0x18,
+                        monoclass_fields: 0x80,
+                        monoclass_field_count: 0x124,
+                        monoclass_static_fields: 0xB8,
+                        monoclass_parent: 0x58,
+                        monoclassfield_structsize: 0x20,
+                        monoclassfield_name: 0x0,
+                        monoclassfield_offset: 0x18,
+                    },
                 })
             }
             _ => None,
@@ -779,49 +800,40 @@ impl Offsets {
 pub enum Version {
     /// The base version.
     Base,
-    /// The version used in 2019.
+    /// The version used starting from Unity 2019.0
     V2019,
-    /// The version used in 2020.
+    /// The version used starting from Unity 2020.2
     V2020,
+    /// The version used starting from Unity 2022.2
+    V2022,
 }
 
 fn detect_version(process: &Process) -> Option<Version> {
-    let unity_module = {
-        let address = process.get_module_address("UnityPlayer.dll").ok()?;
-        let size = pe::read_size_of_image(process, address)? as u64;
-        (address, size)
-    };
+    let unity_module = process.get_module_address("UnityPlayer.dll").ok()?;
 
-    if pe::MachineType::read(process, unity_module.0)? == pe::MachineType::X86 {
+    if pe::MachineType::pointer_size(pe::MachineType::read(process, unity_module)?)?
+        == PointerSize::Bit32
+    {
         return Some(Version::Base);
     }
 
-    const SIG_202X: Signature<6> = Signature::new("00 32 30 32 ?? 2E");
-    const SIG_2019: Signature<6> = Signature::new("00 32 30 31 39 2E");
+    let file_version = pe::file_version_info(process, unity_module)?;
 
-    if SIG_202X.scan_process_range(process, unity_module).is_some() {
-        let il2cpp_version = {
-            const SIG: Signature<14> = Signature::new("48 2B ?? 48 2B ?? ?? ?? ?? ?? 48 F7 ?? 48");
-            let address = process.get_module_address("GameAssembly.dll").ok()?;
-            let size = pe::read_size_of_image(process, address)? as u64;
-
-            let ptr = {
-                let addr = SIG.scan_process_range(process, (address, size))? + 6;
-                addr + 0x4 + process.read::<i32>(addr).ok()?
-            };
-
-            let addr = process.read::<Address64>(ptr).ok()?;
-            process.read::<u32>(addr + 0x4).ok()?
-        };
-
-        Some(if il2cpp_version >= 27 {
+    return Some(
+        if file_version.major_version > 2023
+            || (file_version.major_version == 2022 && file_version.minor_version >= 2)
+        {
+            Version::V2022
+        } else if (file_version.major_version >= 2021 && file_version.major_version < 2023)
+            || (file_version.major_version == 2020 && file_version.minor_version >= 2)
+        {
             Version::V2020
-        } else {
+        } else if (file_version.major_version == 2020 && file_version.minor_version < 2)
+            || file_version.major_version == 2019
+        {
             Version::V2019
-        })
-    } else if SIG_2019.scan_process_range(process, unity_module).is_some() {
-        Some(Version::V2019)
-    } else {
-        Some(Version::Base)
-    }
+        } else {
+            Version::Base
+        },
+    );
 }
