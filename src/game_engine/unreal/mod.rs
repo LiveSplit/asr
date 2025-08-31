@@ -143,7 +143,7 @@ impl Module {
         key: FNameKey,
     ) -> Result<ArrayCString<N>, Error> {
         let addr = process.read_pointer(
-            self.fname_base + self.size_of_ptr().wrapping_mul(key.chunk_offset as u64 + 2),
+            self.fname_base + (self.pointer_size as u64).wrapping_mul(key.chunk_offset as u64 + 2),
             self.pointer_size,
         )? + (key.name_offset as u64).wrapping_mul(size_of::<u16>() as u64);
 
@@ -156,11 +156,6 @@ impl Module {
         string.set_len(string_size);
 
         Ok(string)
-    }
-
-    #[inline]
-    const fn size_of_ptr(&self) -> u64 {
-        self.pointer_size as u64
     }
 }
 
@@ -235,7 +230,7 @@ impl UClass {
         &'a self,
         process: &'a Process,
         module: &'a Module,
-    ) -> impl FusedIterator<Item = UProperty> + '_ {
+    ) -> impl FusedIterator<Item = UProperty> + 'a {
         // Logic: properties are contained in a linked list that can be accessed directly
         // through the `property_link` field, from the most derived to the least derived class.
         // Source: https://gist.github.com/apple1417/b23f91f7a9e3b834d6d052d35a0010ff#object-structure
@@ -338,7 +333,7 @@ impl UProperty {
 }
 
 /// A key to an `FName`, whose associated string can be retrieved from the FName pool
-#[derive(Pod, Zeroable, Copy, Clone, PartialEq, Eq)]
+#[derive(Pod, Zeroable, Copy, Clone, PartialEq, Eq, Debug)]
 #[repr(C)]
 pub struct FNameKey {
     name_offset: u16,
@@ -349,12 +344,6 @@ impl FNameKey {
     /// Returns `true` if the key's values are 0
     pub fn is_null(&self) -> bool {
         self.chunk_offset == 0 && self.name_offset == 0
-    }
-}
-
-impl Default for FNameKey {
-    fn default() -> Self {
-        Self { chunk_offset: Default::default(), name_offset: Default::default() }
     }
 }
 
