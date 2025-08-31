@@ -338,7 +338,7 @@ impl UProperty {
 }
 
 /// A key to an `FName`, whose associated string can be retrieved from the FName pool
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Pod, Zeroable, Copy, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct FNameKey {
     name_offset: u16,
@@ -357,11 +357,6 @@ impl Default for FNameKey {
         Self { chunk_offset: Default::default(), name_offset: Default::default() }
     }
 }
-
-/// SAFETY: The type is a C struct of two u16s, which is `Pod`.
-unsafe impl Pod for FNameKey {}
-/// SAFETY: The type is a C struct of two u16s, which is `Zeroable`.
-unsafe impl Zeroable for FNameKey{}
 
 /// An implementation for automatic pointer path resolution
 #[derive(Clone)]
