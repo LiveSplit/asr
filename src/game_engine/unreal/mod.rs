@@ -7,7 +7,7 @@ use core::{
     mem::size_of,
 };
 
-use bytemuck::CheckedBitPattern;
+use bytemuck::{CheckedBitPattern, Pod, Zeroable};
 
 use crate::{
     file_format::pe, future::retry, signature::Signature, string::ArrayCString, Address, Error,
@@ -136,9 +136,26 @@ impl Module {
         }
     }
 
-    #[inline]
-    const fn size_of_ptr(&self) -> u64 {
-        self.pointer_size as u64
+    /// Returns string associated with provided FNameKey
+    pub fn get_fname<const N: usize>(
+        &self, 
+        process: &Process, 
+        key: FNameKey,
+    ) -> Result<ArrayCString<N>, Error> {
+        let addr = process.read_pointer(
+            self.fname_base + (self.pointer_size as u64).wrapping_mul(key.chunk_offset as u64 + 2),
+            self.pointer_size,
+        )? + (key.name_offset as u64).wrapping_mul(size_of::<u16>() as u64);
+
+        let string_size = process
+            .read::<u16>(addr)?
+            .checked_shr(6)
+            .unwrap_or_default() as usize;
+
+        let mut string = process.read::<ArrayCString<N>>(addr + size_of::<u16>() as u64)?;
+        string.set_len(string_size);
+
+        Ok(string)
     }
 }
 
@@ -164,23 +181,9 @@ impl UObject {
         process: &Process,
         module: &Module,
     ) -> Result<ArrayCString<N>, Error> {
-        let [name_offset, chunk_offset] =
-            process.read::<[u16; 2]>(self.object + module.offsets.uobject_fname)?;
+        let key = process.read::<FNameKey>(self.object + module.offsets.uobject_fname)?;
 
-        let addr = process.read_pointer(
-            module.fname_base + module.size_of_ptr().wrapping_mul(chunk_offset as u64 + 2),
-            module.pointer_size,
-        )? + (name_offset as u64).wrapping_mul(size_of::<u16>() as u64);
-
-        let string_size = process
-            .read::<u16>(addr)?
-            .checked_shr(6)
-            .unwrap_or_default() as usize;
-
-        let mut string = process.read::<ArrayCString<N>>(addr + size_of::<u16>() as u64)?;
-        string.set_len(string_size);
-
-        Ok(string)
+        module.get_fname(process, key)
     }
 
     /// Returns the underlying class definition for the current `UObject`
@@ -227,7 +230,7 @@ impl UClass {
         &'a self,
         process: &'a Process,
         module: &'a Module,
-    ) -> impl FusedIterator<Item = UProperty> + '_ {
+    ) -> impl FusedIterator<Item = UProperty> + 'a {
         // Logic: properties are contained in a linked list that can be accessed directly
         // through the `property_link` field, from the most derived to the least derived class.
         // Source: https://gist.github.com/apple1417/b23f91f7a9e3b834d6d052d35a0010ff#object-structure
@@ -317,29 +320,30 @@ impl UProperty {
         process: &Process,
         module: &Module,
     ) -> Result<ArrayCString<N>, Error> {
-        let [name_offset, chunk_offset] =
-            process.read::<[u16; 2]>(self.property + module.offsets.uproperty_fname)?;
+        let key = process.read::<FNameKey>(self.property + module.offsets.uproperty_fname)?;
 
-        let addr = process.read_pointer(
-            module.fname_base + module.size_of_ptr().wrapping_mul(chunk_offset as u64 + 2),
-            module.pointer_size,
-        )? + (name_offset as u64).wrapping_mul(size_of::<u16>() as u64);
-
-        let string_size = process
-            .read::<u16>(addr)?
-            .checked_shr(6)
-            .unwrap_or_default() as usize;
-
-        let mut string = process.read::<ArrayCString<N>>(addr + size_of::<u16>() as u64)?;
-        string.set_len(string_size);
-
-        Ok(string)
+        module.get_fname(process, key)
     }
 
     fn get_offset(&self, process: &Process, module: &Module) -> Option<u32> {
         process
             .read(self.property + module.offsets.uproperty_offset_internal)
             .ok()
+    }
+}
+
+/// A key to an `FName`, whose associated string can be retrieved from the FName pool
+#[derive(Pod, Zeroable, Copy, Clone, PartialEq, Eq, Debug)]
+#[repr(C)]
+pub struct FNameKey {
+    name_offset: u16,
+    chunk_offset: u16,
+}
+
+impl FNameKey {
+    /// Returns `true` if the key's values are 0
+    pub fn is_null(&self) -> bool {
+        self.chunk_offset == 0 && self.name_offset == 0
     }
 }
 
