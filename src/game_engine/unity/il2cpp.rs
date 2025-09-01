@@ -7,11 +7,8 @@ use core::{
 };
 
 use crate::{
-    file_format::pe::{self, FileVersion},
-    future::retry,
-    signature::Signature,
-    string::ArrayCString,
-    Address, Address64, Error, PointerSize, Process,
+    file_format::pe, future::retry, signature::Signature, string::ArrayCString, Address, Error,
+    PointerSize, Process,
 };
 
 #[cfg(feature = "derive")]
@@ -368,7 +365,7 @@ impl Class {
         &'a self,
         process: &'a Process,
         module: &'a Module,
-    ) -> impl FusedIterator<Item = Field> + '_ {
+    ) -> impl FusedIterator<Item = Field> + 'a {
         let mut this_class = Some(*self);
 
         iter::from_fn(move || {

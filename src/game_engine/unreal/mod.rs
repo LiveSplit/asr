@@ -138,8 +138,8 @@ impl Module {
 
     /// Returns string associated with provided FNameKey
     pub fn get_fname<const N: usize>(
-        &self, 
-        process: &Process, 
+        &self,
+        process: &Process,
         key: FNameKey,
     ) -> Result<ArrayCString<N>, Error> {
         let addr = process.read_pointer(
@@ -174,7 +174,25 @@ pub struct UObject {
     object: Address,
 }
 
+impl From<Address> for UObject {
+    fn from(addr: Address) -> Self {
+        UObject { object: addr }
+    }
+}
+
 impl UObject {
+    /// Create an arbitrary `UObject` from an address
+    pub fn new(address: impl Into<Address>) -> Self {
+        Self {
+            object: address.into(),
+        }
+    }
+
+    /// Returns the address of the current `UObject`
+    pub fn get_address(&self) -> Address {
+        self.object
+    }
+
     /// Reads the `FName` of the current `UObject`
     pub fn get_fname<const N: usize>(
         &self,
