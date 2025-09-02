@@ -79,6 +79,18 @@ extern "C" {
     pub fn timer_undo_split();
     /// Resets the timer.
     pub fn timer_reset();
+    /// Accesses the index of the split the attempt is currently on.
+    /// If there's no attempt in progress, `-1` is returned instead.
+    /// This returns an index that is equal to the amount of segments
+    /// when the attempt is finished, but has not been reset.
+    /// So you need to be careful when using this value for indexing.
+    /// Same index does not imply same split on undo and then split.
+    pub fn timer_current_split_index() -> i64;
+    /// Whether the segment at `idx` was splitted this attempt.
+    /// Returns `1` if the segment was splitted, or `0` if skipped.
+    /// If `idx` is greater than or equal to the current split index,
+    /// `-1` is returned instead.
+    pub fn timer_segment_splitted(idx: u64) -> i32;
     /// Sets a custom key value pair. This may be arbitrary information that the
     /// auto splitter wants to provide for visualization. The pointers need to
     /// point to valid UTF-8 encoded text with the respective given length.
