@@ -85,6 +85,8 @@ extern "C" {
     /// finished, but has not been reset. So you need to be careful when using
     /// this value for indexing.
     pub fn timer_current_split_index() -> i32;
+    /// Whether the segment at `idx` was splitted this attempt.
+    pub fn timer_segment_splitted(idx: i32) -> bool;
     /// Sets a custom key value pair. This may be arbitrary information that the
     /// auto splitter wants to provide for visualization. The pointers need to
     /// point to valid UTF-8 encoded text with the respective given length.

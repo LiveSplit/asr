@@ -121,6 +121,11 @@ pub fn current_split_index() -> i32 {
     unsafe { sys::timer_current_split_index() }
 }
 
+/// Whether the segment at `idx` was splitted this attempt.
+pub fn segment_splitted(idx: i32) -> bool {
+    unsafe { sys::timer_segment_splitted(idx) }
+}
+
 /// Sets the game time.
 #[inline]
 pub fn set_game_time(time: time::Duration) {
