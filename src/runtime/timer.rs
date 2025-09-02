@@ -112,6 +112,15 @@ pub fn state() -> TimerState {
     }
 }
 
+/// Accesses the index of the split the attempt is currently on. If there's
+/// no attempt in progress, `-1` is returned instead. This returns an
+/// index that is equal to the amount of segments when the attempt is
+/// finished, but has not been reset. So you need to be careful when using
+/// this value for indexing.
+pub fn current_split_index() -> i32 {
+    unsafe { sys::timer_current_split_index() }
+}
+
 /// Sets the game time.
 #[inline]
 pub fn set_game_time(time: time::Duration) {
