@@ -90,7 +90,7 @@ impl Module {
             }
             #[cfg(feature = "alloc")]
             BinaryFormat::MachO => {
-                macho::symbols(process, module_range)?
+                macho::symbols(process, module_range)
                     .find(|symbol| {
                         symbol
                             .get_name::<26>(process)

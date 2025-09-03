@@ -46,6 +46,29 @@ fn scan_macho_page(process: &Process, range: (Address, u64)) -> Option<Address> 
     None
 }
 
+/// Scans the range for pages that begin with Mach-O Magic
+#[cfg(feature = "alloc")]
+fn scan_macho_pages(
+    process: &Process,
+    range: (Address, u64),
+) -> impl FusedIterator<Item = Address> + '_ {
+    const PAGE_SIZE: u64 = 0x1000;
+    let (addr, len) = range;
+    // negation mod PAGE_SIZE
+    let distance_to_page = (PAGE_SIZE - (addr.value() % PAGE_SIZE)) % PAGE_SIZE;
+    // round up to the next multiple of PAGE_SIZE
+    let first_page = addr + distance_to_page;
+    (0..((len - distance_to_page) / PAGE_SIZE))
+        .filter_map(move |i| {
+            let a = first_page + (i * PAGE_SIZE);
+            match process.read::<u32>(a) {
+                Ok(MH_MAGIC_64 | MH_CIGAM_64 | MH_MAGIC_32 | MH_CIGAM_32) => Some(a),
+                _ => None,
+            }
+        })
+        .fuse()
+}
+
 // Constants for the cmd field of load commands, the type
 // https://opensource.apple.com/source/xnu/xnu-4570.71.2/EXTERNAL_HEADERS/mach-o/loader.h.auto.html
 /// link-edit stab symbol table info
@@ -113,11 +136,18 @@ impl Symbol {
 /// Iterates over the exported symbols for a given module.
 /// Only 64-bit Mach-O format is supported
 #[cfg(feature = "alloc")]
-pub fn symbols(
+pub fn symbols(process: &Process, range: (Address, u64)) -> impl FusedIterator<Item = Symbol> + '_ {
+    scan_macho_pages(process, range)
+        .filter_map(|page| macho_page_symbols(process, page))
+        .flatten()
+        .fuse()
+}
+
+#[cfg(feature = "alloc")]
+fn macho_page_symbols(
     process: &Process,
-    range: (Address, u64),
+    page: Address,
 ) -> Option<impl FusedIterator<Item = Symbol> + '_> {
-    let page = scan_macho_page(process, range)?;
     let offsets = MachOFormatOffsets::new();
     let number_of_commands: u32 = process.read(page + offsets.number_of_commands).ok()?;
 
