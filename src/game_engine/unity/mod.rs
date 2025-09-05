@@ -85,6 +85,14 @@
 
 pub mod il2cpp;
 pub mod mono;
+pub mod scene_manager;
 
-mod scene;
-pub use self::scene::*;
+
+const CSTR: usize = 128;
+
+#[derive(Copy, Clone, PartialEq, Hash, Debug)]
+#[non_exhaustive]
+enum BinaryFormat {
+    PE,
+    ELF,
+}

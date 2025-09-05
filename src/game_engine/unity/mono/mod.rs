@@ -24,7 +24,7 @@ pub use pointer::UnityPointer;
 mod offsets;
 use offsets::MonoOffsets;
 
-const CSTR: usize = 128;
+use super::{BinaryFormat, CSTR};
 
 /// Represents access to a Unity game that is using the standard Mono backend.
 pub struct Module {
@@ -228,11 +228,4 @@ impl Module {
     const fn size_of_ptr(&self) -> u64 {
         self.pointer_size as u64
     }
-}
-
-#[derive(Copy, Clone, PartialEq, Hash, Debug)]
-#[non_exhaustive]
-enum BinaryFormat {
-    PE,
-    ELF,
 }

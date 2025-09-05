@@ -17,7 +17,7 @@ pub use pointer::UnityPointer;
 mod offsets;
 use offsets::IL2CPPOffsets;
 
-const CSTR: usize = 128;
+use super::CSTR;
 
 /// Represents access to a Unity game that is using the IL2CPP backend.
 pub struct Module {
