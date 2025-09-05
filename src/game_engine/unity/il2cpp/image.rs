@@ -1,6 +1,6 @@
-use super::{Module, Class, Version};
-use crate::{future::retry, Address, Process};
 use super::CSTR;
+use super::{Class, Module, Version};
+use crate::{future::retry, Address, Process};
 
 /// An image is a .NET DLL that is loaded by the game. The `Assembly-CSharp`
 /// image is the main game assembly, and contains all the game logic.

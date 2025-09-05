@@ -1,27 +1,19 @@
 //! Support for attaching to Unity games that are using the IL2CPP backend.
 
-use crate::{
-    file_format::pe, future::retry, signature::Signature, Address, Error, PointerSize, Process,
-};
+use crate::{file_format::pe, future::retry, signature::Signature, Address, PointerSize, Process};
 
 mod assembly;
 use assembly::Assembly;
-
 mod image;
 pub use image::Image;
-
 mod class;
 pub use class::Class;
-
 mod field;
 use field::Field;
-
 mod version;
 pub use version::Version;
-
 mod pointer;
 pub use pointer::UnityPointer;
-
 mod offsets;
 use offsets::IL2CPPOffsets;
 
@@ -42,7 +34,7 @@ impl Module {
     /// know the version in advance or it fails detecting it, use
     /// [`attach`](Self::attach) instead.
     pub fn attach_auto_detect(process: &Process) -> Option<Self> {
-        let version = version::detect_version(process)?;
+        let version = Version::detect(process)?;
         Self::attach(process, version)
     }
 

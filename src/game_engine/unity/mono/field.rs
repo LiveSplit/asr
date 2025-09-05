@@ -1,6 +1,5 @@
-use crate::{string::ArrayCString, Address, Error, Process};
-
 use super::Module;
+use crate::{string::ArrayCString, Address, Error, Process};
 
 #[derive(Copy, Clone)]
 pub(super) struct Field {

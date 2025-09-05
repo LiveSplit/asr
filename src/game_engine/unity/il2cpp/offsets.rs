@@ -1,14 +1,14 @@
 use crate::{game_engine::unity::il2cpp::Version, PointerSize};
 
-pub(crate) struct IL2CPPOffsets {
-    pub(crate) assembly: AssemblyOffsets,
-    pub(crate) image: ImageOffsets,
-    pub(crate) class: ClassOffsets,
-    pub(crate) field: FieldInfoOffsets,
+pub(super) struct IL2CPPOffsets {
+    pub(super) assembly: AssemblyOffsets,
+    pub(super) image: ImageOffsets,
+    pub(super) class: ClassOffsets,
+    pub(super) field: FieldInfoOffsets,
 }
 
 impl IL2CPPOffsets {
-    pub fn new(version: Version, pointer_size: PointerSize) -> Option<&'static Self> {
+    pub(super) fn new(version: Version, pointer_size: PointerSize) -> Option<&'static Self> {
         match pointer_size {
             PointerSize::Bit64 => Some(match version {
                 Version::V2022 => &Self {
@@ -109,27 +109,27 @@ impl IL2CPPOffsets {
     }
 }
 
-pub(crate) struct AssemblyOffsets {
-    pub(crate) image: u8,
-    pub(crate) aname: u8,
+pub(super) struct AssemblyOffsets {
+    pub(super) image: u8,
+    pub(super) aname: u8,
 }
 
-pub(crate) struct ImageOffsets {
-    pub(crate) type_count: u8,
-    pub(crate) matadata_handle: u8,
+pub(super) struct ImageOffsets {
+    pub(super) type_count: u8,
+    pub(super) matadata_handle: u8,
 }
 
-pub(crate) struct ClassOffsets {
-    pub(crate) name: u8,
-    pub(crate) namespace: u8,
-    pub(crate) parent: u8,
-    pub(crate) fields: u8,
-    pub(crate) static_fields: u8,
-    pub(crate) field_count: u16,
+pub(super) struct ClassOffsets {
+    pub(super) name: u8,
+    pub(super) namespace: u8,
+    pub(super) parent: u8,
+    pub(super) fields: u8,
+    pub(super) static_fields: u8,
+    pub(super) field_count: u16,
 }
 
-pub(crate) struct FieldInfoOffsets {
-    pub(crate) name: u8,
-    pub(crate) offset: u8,
-    pub(crate) struct_size: u8,
+pub(super) struct FieldInfoOffsets {
+    pub(super) name: u8,
+    pub(super) offset: u8,
+    pub(super) struct_size: u8,
 }

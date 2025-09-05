@@ -1,10 +1,9 @@
-use bytemuck::CheckedBitPattern;
-
 use super::{Class, Image, Module};
 use crate::{Address, Error, Process};
+use bytemuck::CheckedBitPattern;
 use core::{array, cell::RefCell};
 
-/// An IL2CPP-specific implementation for automatic pointer path resolution
+/// A Mono-specific implementation for automatic pointer path resolution
 pub struct UnityPointer<const CAP: usize> {
     inner: RefCell<UnityPointerInternal<CAP>>,
 }
@@ -29,7 +28,7 @@ impl<const CAP: usize> UnityPointer<CAP> {
     /// If a higher number of offsets is provided, the pointer path will be truncated
     /// according to the value of `CAP`.
     pub fn new(class_name: &'static str, nr_of_parents: usize, fields: &[&'static str]) -> Self {
-        let fields = {
+        let fields: [&str; CAP] = {
             let mut iter = fields.iter();
             array::from_fn(|_| iter.next().copied().unwrap_or_default())
         };
@@ -48,7 +47,7 @@ impl<const CAP: usize> UnityPointer<CAP> {
         }
     }
 
-    /// Tries to resolve the pointer path for the `IL2CPP` class specified
+    /// Tries to resolve the pointer path for the `Mono` class specified
     fn find_offsets(&self, process: &Process, module: &Module, image: &Image) -> Result<(), Error> {
         let mut inner = self.inner.borrow_mut();
 
@@ -113,6 +112,8 @@ impl<const CAP: usize> UnityPointer<CAP> {
                         _ => process
                             .read_pointer(current_object, module.pointer_size)
                             .ok()
+                            .filter(|val| !val.is_null())
+                            .and_then(|addr| process.read_pointer(addr, module.pointer_size).ok())
                             .filter(|val| !val.is_null())
                             .map(|class| Class { class })
                             .ok_or(Error {})?,

@@ -1,14 +1,9 @@
-use core::iter;
-use core::iter::FusedIterator;
-
-use crate::future::retry;
-use crate::{string::ArrayCString, Address, Error, Process};
-
-use super::CSTR;
-use super::{Field, Module};
+use super::{Field, Module, Version, CSTR};
+use crate::{future::retry, string::ArrayCString, Address, Error, Process};
+use core::iter::{self, FusedIterator};
 
 #[cfg(feature = "derive")]
-pub use asr_derive::Il2cppClass as Class;
+pub use asr_derive::MonoClass as Class;
 
 /// A .NET class that is part of an [`Image`](Image).
 #[derive(Copy, Clone)]
@@ -66,10 +61,10 @@ impl Class {
             this_class = class.get_parent(process, module);
 
             let field_count = process
-                .read::<u16>(class.class + module.offsets.class.field_count)
+                .read::<i32>(class.class + module.offsets.class.field_count)
                 .ok()
-                .filter(|&val| val != u16::MAX)
-                .unwrap_or_default() as u64;
+                .filter(|&val| val > 0)
+                .unwrap_or_default();
 
             let fields = match field_count {
                 0 => None,
@@ -78,13 +73,12 @@ impl Class {
                         class.class + module.offsets.class.fields,
                         module.pointer_size,
                     )
-                    .ok()
-                    .filter(|addr| !addr.is_null()),
+                    .ok(),
             };
 
-            Some((0..field_count).filter_map(move |i| {
+            Some((0..field_count as u64).filter_map(move |i| {
                 fields.map(|fields| Field {
-                    field: fields + i.wrapping_mul(module.offsets.field.struct_size as _),
+                    field: fields + i.wrapping_mul(module.offsets.field.alignment as u64),
                 })
             }))
         })
@@ -92,9 +86,8 @@ impl Class {
         .fuse()
     }
 
-    /// Tries to find a field with the specified name in the class. This returns
-    /// the offset of the field from the start of an instance of the class. If
-    /// it's a static field, the offset will be from the start of the static
+    /// Tries to find the offset for a field with the specified name in the class.
+    /// If it's a static field, the offset will be from the start of the static
     /// table.
     pub fn get_field_offset(
         &self,
@@ -129,20 +122,48 @@ impl Class {
             process
                 .read_pointer(singleton_location, module.pointer_size)
                 .ok()
-                .filter(|val| !val.is_null())
+                .filter(|addr| !addr.is_null())
         })
         .await
     }
 
-    fn get_static_table_pointer(&self, module: &Module) -> Address {
-        self.class + module.offsets.class.static_fields
+    fn get_static_table_pointer(&self, process: &Process, module: &Module) -> Option<Address> {
+        let runtime_info = process
+            .read_pointer(
+                self.class + module.offsets.class.runtime_info,
+                module.pointer_size,
+            )
+            .ok()
+            .filter(|addr| !addr.is_null())?;
+
+        let mut vtables = process
+            .read_pointer(runtime_info + module.size_of_ptr(), module.pointer_size)
+            .ok()
+            .filter(|addr| !addr.is_null())?;
+
+        // Mono V1 behaves differently when it comes to recover the static table
+        match module.version {
+            Version::V1 | Version::V1Cattrs => Some(vtables + module.offsets.class.vtable_size),
+            _ => {
+                vtables = vtables + module.offsets.v_table.vtable;
+
+                let vtable_size = process
+                    .read::<u32>(self.class + module.offsets.class.vtable_size)
+                    .ok()?;
+
+                Some(vtables + module.size_of_ptr().wrapping_mul(vtable_size as u64))
+            }
+        }
     }
 
     /// Returns the address of the static table of the class. This contains the
     /// values of all the static fields.
     pub fn get_static_table(&self, process: &Process, module: &Module) -> Option<Address> {
         process
-            .read_pointer(self.get_static_table_pointer(module), module.pointer_size)
+            .read_pointer(
+                self.get_static_table_pointer(process, module)?,
+                module.pointer_size,
+            )
             .ok()
             .filter(|val| !val.is_null())
     }
