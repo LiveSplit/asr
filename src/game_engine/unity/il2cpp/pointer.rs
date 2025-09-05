@@ -29,20 +29,20 @@ impl<const CAP: usize> UnityPointer<CAP> {
     /// If a higher number of offsets is provided, the pointer path will be truncated
     /// according to the value of `CAP`.
     pub fn new(class_name: &'static str, nr_of_parents: usize, fields: &[&'static str]) -> Self {
-        let fields = {
+        let named_fields = {
             let mut iter = fields.iter();
             array::from_fn(|_| iter.next().copied().unwrap_or_default())
         };
 
         Self {
             inner: RefCell::new(UnityPointerInternal {
-                base_address: Address::default(),
+                base_address: Address::NULL,
                 offsets: [0; CAP],
-                resolved_offsets: usize::default(),
+                resolved_offsets: 0,
                 starting_class_name: class_name,
                 starting_class: None,
                 nr_of_parents,
-                fields,
+                fields: named_fields,
                 depth: fields.len().min(CAP),
             }),
         }
@@ -130,7 +130,6 @@ impl<const CAP: usize> UnityPointer<CAP> {
             current_object =
                 process.read_pointer(current_object + current_offset, module.pointer_size)?;
         }
-
         Ok(())
     }
 
