@@ -1,6 +1,8 @@
 //! Support for attaching to Unity games that are using the standard Mono
 //! backend.
 
+#[cfg(feature = "alloc")]
+use crate::file_format::macho;
 use crate::{
     file_format::{elf, pe},
     future::retry,
@@ -49,18 +51,28 @@ impl Module {
     /// correct for this function to work. If you don't know the version in
     /// advance, use [`attach_auto_detect`](Self::attach_auto_detect) instead.
     pub fn attach(process: &Process, version: Version) -> Option<Self> {
-        let (mono_module, format) = [
+        let (module_range, format) = [
             ("mono.dll", BinaryFormat::PE),
             ("libmono.so", BinaryFormat::ELF),
+            #[cfg(feature = "alloc")]
+            ("libmono.0.dylib", BinaryFormat::MachO),
             ("mono-2.0-bdwgc.dll", BinaryFormat::PE),
             ("libmonobdwgc-2.0.so", BinaryFormat::ELF),
+            #[cfg(feature = "alloc")]
+            ("libmonobdwgc-2.0.dylib", BinaryFormat::MachO),
         ]
         .into_iter()
-        .find_map(|(name, format)| Some((process.get_module_address(name).ok()?, format)))?;
+        .find_map(|(name, format)| Some((process.get_module_range(name).ok()?, format)))?;
+
+        let (mono_module, _) = module_range;
 
         let pointer_size = match format {
             BinaryFormat::PE => pe::MachineType::read(process, mono_module)?.pointer_size()?,
             BinaryFormat::ELF => elf::pointer_size(process, mono_module)?,
+            #[cfg(feature = "alloc")]
+            BinaryFormat::MachO => macho::pointer_size(process, module_range)?,
+            #[allow(unreachable_patterns)]
+            _ => return None,
         };
 
         let offsets = MonoOffsets::new(version, pointer_size, format)?;
@@ -84,6 +96,18 @@ impl Module {
                     })?
                     .address
             }
+            #[cfg(feature = "alloc")]
+            BinaryFormat::MachO => {
+                macho::symbols(process, module_range)
+                    .find(|symbol| {
+                        symbol
+                            .get_name::<26>(process)
+                            .is_ok_and(|name| name.matches("_mono_assembly_foreach"))
+                    })?
+                    .address
+            }
+            #[allow(unreachable_patterns)]
+            _ => return None,
         };
 
         let assemblies: Address = match (pointer_size, format) {
@@ -100,6 +124,14 @@ impl Module {
                     .scan_process_range(process, (root_domain_function_address, 0x100))
                     .map(|addr| addr + 3)
                     .and_then(|addr| Some(addr + 0x4 + process.read::<i32>(addr).ok()?))?
+            }
+            #[cfg(feature = "alloc")]
+            (PointerSize::Bit64, BinaryFormat::MachO) => {
+                const SIG_MONO_64_MACHO: Signature<3> = Signature::new("48 8B 3D");
+                let scan_address: Address = SIG_MONO_64_MACHO
+                    .scan_process_range(process, (root_domain_function_address, 0x100))?
+                    + 3;
+                scan_address + 0x4 + process.read::<i32>(scan_address).ok()?
             }
             (PointerSize::Bit32, BinaryFormat::PE) => {
                 const SIG_32_1: Signature<2> = Signature::new("FF 35");

@@ -94,6 +94,7 @@ const CSTR: usize = 128;
 enum BinaryFormat {
     PE,
     ELF,
+    MachO,
 }
 
 /// If the field name is an auto-property, extract the backing field name.
