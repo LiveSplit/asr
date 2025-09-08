@@ -97,9 +97,23 @@ impl Class {
     ) -> Option<u32> {
         self.fields(process, module)
             .find(|field| {
-                field
-                    .get_name::<CSTR>(process, module)
-                    .is_ok_and(|name| name.matches(field_name))
+                field.get_name::<CSTR>(process, module).is_ok_and(|name| {
+                    // If the name matches, return immediately
+                    if name.matches(field_name) {
+                        return true;
+                    }
+
+                    // BackingField pattern: <FieldName>k__BackingField
+                    if let Ok(this_field_name) = name.validate_utf8() {
+                        if let Some(start) = this_field_name.find('<') {
+                            if let Some(end) = this_field_name[start + 1..].find('>') {
+                                return &this_field_name[start + 1..start + 1 + end] == field_name;
+                            }
+                        }
+                    }
+
+                    false
+                })
             })
             .and_then(|field| field.get_offset(process, module))
     }
