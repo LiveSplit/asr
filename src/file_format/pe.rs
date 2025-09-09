@@ -286,6 +286,7 @@ fn read_coff_header(process: &Process, module_address: Address) -> Option<(COFFH
 }
 
 /// A symbol exported into the current module.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Symbol {
     /// The address associated with the current symbol
     pub address: Address,
@@ -299,7 +300,7 @@ impl Symbol {
     pub fn iter(
         process: &Process,
         module_address: impl Into<Address>,
-    ) -> impl DoubleEndedIterator<Item = Symbol> + '_ {
+    ) -> impl DoubleEndedIterator<Item = Self> + '_ {
         let address: Address = module_address.into();
         let dos_header = process.read::<DOSHeader>(address);
 
@@ -331,7 +332,7 @@ impl Symbol {
         .unwrap_or_default();
 
         (0..symbols_def.number_of_functions).filter_map(move |i| {
-            Some(Symbol {
+            Some(Self {
                 address: address
                     + process
                         .read::<u32>(
@@ -379,7 +380,7 @@ impl FileVersion {
     /// Reads the numeric file version (major.minor.build.private) from the VERSIONINFO
     /// resource of the PE module starting at the specified memory address.
     /// Returns `None` if the module has no version resource or parsing fails.
-    pub fn read(process: &Process, module_address: impl Into<Address>) -> Option<FileVersion> {
+    pub fn read(process: &Process, module_address: impl Into<Address>) -> Option<Self> {
         #[repr(C)]
         #[derive(Debug, Copy, Clone, Zeroable, Pod, Default)]
         struct VsFixedFileInfo {
