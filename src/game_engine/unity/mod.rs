@@ -87,7 +87,6 @@ pub mod il2cpp;
 pub mod mono;
 pub mod scene_manager;
 
-
 const CSTR: usize = 128;
 
 #[derive(Copy, Clone, PartialEq, Hash, Debug)]
@@ -95,4 +94,11 @@ const CSTR: usize = 128;
 enum BinaryFormat {
     PE,
     ELF,
+}
+
+/// If the field name is an auto-property, extract the backing field name.
+fn get_backing_name(name: &str) -> Option<&str> {
+    let start = name.find('<')?;
+    let end = name[start + 1..].find('>')?;
+    Some(&name[start + 1..start + 1 + end])
 }

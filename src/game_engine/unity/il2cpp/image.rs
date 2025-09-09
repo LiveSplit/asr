@@ -66,10 +66,22 @@ impl Image {
 
     /// Tries to find the specified [.NET class](struct@Class) in the image.
     pub fn get_class(&self, process: &Process, module: &Module, class_name: &str) -> Option<Class> {
+        let name_space_index = class_name.rfind('.');
+
         self.classes(process, module).find(|class| {
-            class
-                .get_name::<CSTR>(process, module)
-                .is_ok_and(|name| name.matches(class_name))
+            class.get_name::<CSTR>(process, module).is_ok_and(|name| {
+                if let Some(name_space_index) = name_space_index {
+                    let class_name_space = &class_name[..name_space_index];
+                    let class_name = &class_name[name_space_index + 1..];
+
+                    name.matches(class_name)
+                        && class
+                            .get_name_space::<CSTR>(process, module)
+                            .is_ok_and(|name_space| name_space.matches(class_name_space))
+                } else {
+                    name.matches(class_name)
+                }
+            })
         })
     }
 
