@@ -1,11 +1,7 @@
-use core::iter;
-use core::iter::FusedIterator;
+use core::iter::{self, FusedIterator};
 
-use crate::future::retry;
-use crate::{string::ArrayCString, Address, Error, Process};
-
-use super::CSTR;
-use super::{Field, Module};
+use super::{super::get_backing_name, Field, Module, CSTR};
+use crate::{future::retry, string::ArrayCString, Address, Error, Process};
 
 #[cfg(feature = "derive")]
 pub use asr_derive::Il2cppClass as Class;
@@ -106,20 +102,13 @@ impl Class {
             .find(|field| {
                 field.get_name::<CSTR>(process, module).is_ok_and(|name| {
                     // If the name matches, return immediately
-                    if name.matches(field_name) {
-                        return true;
-                    }
+                    name.matches(field_name)
 
                     // BackingField pattern: <FieldName>k__BackingField
-                    if let Ok(this_field_name) = name.validate_utf8() {
-                        if let Some(start) = this_field_name.find('<') {
-                            if let Some(end) = this_field_name[start + 1..].find('>') {
-                                return &this_field_name[start + 1..start + 1 + end] == field_name;
-                            }
-                        }
-                    }
-
-                    false
+                    || name.validate_utf8()
+                        .ok()
+                        .and_then(|name| get_backing_name(name))
+                        .is_some_and(|name| name == field_name)
                 })
             })
             .and_then(|field| field.get_offset(process, module))
