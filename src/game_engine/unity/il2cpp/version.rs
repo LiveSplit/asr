@@ -24,7 +24,7 @@ impl Version {
             return Some(Self::Base);
         }
 
-        let file_version = pe::file_version_info(process, unity_module)?;
+        let file_version = pe::FileVersion::read(process, unity_module)?;
 
         return Some(
             if file_version.major_version > 2023

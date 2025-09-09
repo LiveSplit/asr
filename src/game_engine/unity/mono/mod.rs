@@ -67,7 +67,7 @@ impl Module {
 
         let root_domain_function_address = match format {
             BinaryFormat::PE => {
-                pe::symbols(process, mono_module)
+                pe::Symbol::iter(process, mono_module)
                     .find(|symbol| {
                         symbol
                             .get_name::<22>(process)

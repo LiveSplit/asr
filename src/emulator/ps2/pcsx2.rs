@@ -18,11 +18,12 @@ impl State {
         self.addr_base = if let Some(debug_symbol) =
             // Recent PCSX2 releases include a debug symbol that can be used to easily retrieve the address of the emulated RAM
             // Info: https://github.com/PCSX2/pcsx2/blob/0b6dccae5184b12e2dfc515a424d001cd38acb7c/pcsx2/Memory.cpp#L79
-            pe::symbols(game, main_module_range.0).find(|symbol| {
-                symbol
-                    .get_name::<6>(game)
-                    .is_ok_and(|name| name.matches(b"EEmem"))
-            }) {
+            pe::Symbol::iter(game, main_module_range.0)
+                .find(|symbol| {
+                    symbol
+                        .get_name::<6>(game)
+                        .is_ok_and(|name| name.matches(b"EEmem"))
+                }) {
             debug_symbol.address
         } else {
             // For older versions we rely on regular sigscanning.
