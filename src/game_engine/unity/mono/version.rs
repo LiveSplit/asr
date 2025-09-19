@@ -68,7 +68,7 @@ impl Version {
         //   We can read Unity’s FileVersionInfo directly from the PE header
         //   and infer the version from its major/minor numbers.
         if binary_format == BinaryFormat::PE {
-            let file_version = pe::file_version_info(process, unity_module.0)?;
+            let file_version = pe::FileVersion::read(process, unity_module.0)?;
             return Some(
                 if file_version.major_version > 2021
                     || (file_version.major_version == 2021 && file_version.minor_version >= 2)

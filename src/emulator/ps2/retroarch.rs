@@ -1,6 +1,6 @@
 use crate::{file_format::pe, signature::Signature, Address, PointerSize, Process};
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub struct State {
     core_base: Address,
 }
