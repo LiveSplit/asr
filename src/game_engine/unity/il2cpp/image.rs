@@ -38,15 +38,15 @@ impl Image {
             handle => process.read::<u32>(handle).unwrap_or_default(),
         };
 
-        let type_info_definition_table = match metadata_handle {
-            0 => Address::NULL,
+        let type_info_definition_table = match metadata_ptr {
+            Address::NULL => Address::NULL,
             _ => process
                 .read_pointer(module.type_info_definition_table, module.pointer_size)
                 .unwrap_or_default(),
         };
 
-        let ptr = match (metadata_handle, type_info_definition_table) {
-            (0, _) | (_, Address::NULL) => Address::NULL,
+        let ptr = match type_info_definition_table {
+            Address::NULL => Address::NULL,
             _ => {
                 type_info_definition_table + module.size_of_ptr().wrapping_mul(metadata_handle as _)
             }
