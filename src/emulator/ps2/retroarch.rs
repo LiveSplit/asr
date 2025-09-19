@@ -25,7 +25,7 @@ impl State {
             .iter()
             .find_map(|&m| Some((m, game.get_module_address(m).ok()?)))?;
 
-        let base_scan = pe::Symbol::iter(game, core_address)
+        let base_scan = pe::symbols(game, core_address)
             .find(|symbol| {
                 symbol
                     .get_name::<22>(game)

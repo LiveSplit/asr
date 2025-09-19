@@ -19,7 +19,7 @@ impl State {
 
         // Recent Duckstation releases include a debug symbol that can be used to easily retrieve the address of the emulated RAM
         // Info: https://github.com/stenzek/duckstation/commit/c98e0bd0969abdd82589bfc565aea52119fd0f19
-        if let Some(debug_symbol) = pe::Symbol::iter(game, main_module_range.0).find(|symbol| {
+        if let Some(debug_symbol) = pe::symbols(game, main_module_range.0).find(|symbol| {
             symbol
                 .get_name::<4>(game)
                 .is_ok_and(|name| name.matches(b"RAM"))

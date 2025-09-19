@@ -30,7 +30,7 @@ impl State {
 
         self.core_base = core_address;
 
-        let base_scan = pe::Symbol::iter(game, core_address)
+        let base_scan = pe::symbols(game, core_address)
             .find(|symbol| {
                 symbol
                     .get_name::<22>(game)

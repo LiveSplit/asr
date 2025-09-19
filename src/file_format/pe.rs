@@ -295,60 +295,6 @@ pub struct Symbol {
 }
 
 impl Symbol {
-    /// Recovers and iterates over the exported symbols for a given module.
-    /// Returns an empty iterator if no symbols are exported into the current module.
-    pub fn iter(
-        process: &Process,
-        module_address: impl Into<Address>,
-    ) -> impl DoubleEndedIterator<Item = Self> + '_ {
-        let address: Address = module_address.into();
-        let dos_header = process.read::<DOSHeader>(address);
-
-        let is_64_bit = match dos_header {
-            Ok(_) => matches!(
-                MachineType::read(process, address),
-                Some(MachineType::X86_64)
-            ),
-            _ => false,
-        };
-
-        let export_directory = match dos_header {
-            Ok(header) => process
-                .read::<u32>(address + header.e_lfanew + if is_64_bit { 0x88 } else { 0x78 })
-                .ok(),
-            _ => None,
-        };
-
-        let symbols_def = match dos_header {
-            Ok(_) => match export_directory {
-                Some(0) => None,
-                Some(export_dir) => process
-                    .read::<ExportedSymbolsTableDef>(address + export_dir)
-                    .ok(),
-                _ => None,
-            },
-            _ => None,
-        }
-        .unwrap_or_default();
-
-        (0..symbols_def.number_of_functions).filter_map(move |i| {
-            Some(Self {
-                address: address
-                    + process
-                        .read::<u32>(
-                            address + symbols_def.function_address_array_index + i.wrapping_mul(4),
-                        )
-                        .ok()?,
-                name_addr: address
-                    + process
-                        .read::<u32>(
-                            address + symbols_def.function_name_array_index + i.wrapping_mul(4),
-                        )
-                        .ok()?,
-            })
-        })
-    }
-
     /// Tries to retrieve the name of the current symbol
     pub fn get_name<const CAP: usize>(
         &self,
@@ -356,6 +302,60 @@ impl Symbol {
     ) -> Result<ArrayCString<CAP>, Error> {
         process.read(self.name_addr)
     }
+}
+
+/// Recovers and iterates over the exported symbols for a given module.
+/// Returns an empty iterator if no symbols are exported into the current module.
+pub fn symbols(
+    process: &Process,
+    module_address: impl Into<Address>,
+) -> impl DoubleEndedIterator<Item = Symbol> + '_ {
+    let address: Address = module_address.into();
+    let dos_header = process.read::<DOSHeader>(address);
+
+    let is_64_bit = match dos_header {
+        Ok(_) => matches!(
+            MachineType::read(process, address),
+            Some(MachineType::X86_64)
+        ),
+        _ => false,
+    };
+
+    let export_directory = match dos_header {
+        Ok(header) => process
+            .read::<u32>(address + header.e_lfanew + if is_64_bit { 0x88 } else { 0x78 })
+            .ok(),
+        _ => None,
+    };
+
+    let symbols_def = match dos_header {
+        Ok(_) => match export_directory {
+            Some(0) => None,
+            Some(export_dir) => process
+                .read::<ExportedSymbolsTableDef>(address + export_dir)
+                .ok(),
+            _ => None,
+        },
+        _ => None,
+    }
+    .unwrap_or_default();
+
+    (0..symbols_def.number_of_functions).filter_map(move |i| {
+        Some(Symbol {
+            address: address
+                + process
+                    .read::<u32>(
+                        address + symbols_def.function_address_array_index + i.wrapping_mul(4),
+                    )
+                    .ok()?,
+            name_addr: address
+                + process
+                    .read::<u32>(
+                        address + symbols_def.function_name_array_index + i.wrapping_mul(4),
+                    )
+                    .ok()?,
+        })
+    })
 }
 
 /// A definition of the version number encoded into a PE module.
