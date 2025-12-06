@@ -29,9 +29,9 @@ use super::{BinaryFormat, CSTR};
 /// Represents access to a Unity game that is using the standard Mono backend.
 pub struct Module {
     assemblies: Address,
-    version: Version,
+    pub version: Version,
     offsets: &'static MonoOffsets,
-    pointer_size: PointerSize,
+    pub pointer_size: PointerSize,
 }
 
 impl Module {

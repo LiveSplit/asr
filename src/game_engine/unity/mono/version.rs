@@ -1,5 +1,6 @@
+use alloc::format;
 use super::{BinaryFormat, Module};
-use crate::{file_format::pe, signature::Signature, Process};
+use crate::{file_format::pe, print_message, signature::Signature, Process};
 
 /// The version of Mono that was used for the game. These don't correlate to the
 /// Mono version numbers.
@@ -34,11 +35,15 @@ impl Version {
             // Reference: https://github.com/Voxelse/Voxif/blob/main/Voxif.Helpers/Voxif.Helpers.UnityHelper/UnityHelper.cs#L343-L344
             let module = Module::attach(process, Version::V1)?;
             let image = module.get_default_image(process)?;
+            // print_message(&format!("default image: {}", &image.image));
             let class = image.classes(process, &module).next()?;
+            // print_message(&format!("first class: {}", &class.class));
 
             let pointer_to_image = process
                 .read_pointer(class.class + module.offsets.class.name, module.pointer_size)
                 .ok()?;
+            // print_message(&format!("{} {}", pointer_to_image, &image.image));
+            // print_message(&format!("{}", class.class));
 
             return Some(if pointer_to_image.eq(&image.image) {
                 Version::V1Cattrs
