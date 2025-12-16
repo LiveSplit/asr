@@ -346,7 +346,6 @@ macro_rules! async_main {
         #[no_mangle]
         pub unsafe extern "C" fn update() {
             use core::{
-                cell::UnsafeCell,
                 future::Future,
                 pin::Pin,
                 ptr,
@@ -355,6 +354,7 @@ macro_rules! async_main {
             use $crate::sync::RacyCell;
             mod fut {
                 pub type MainFuture = impl core::future::Future<Output = ()>;
+                #[define_opaque(MainFuture)]
                 pub const fn main_type() -> MainFuture {
                     async {
                         super::main().await;
