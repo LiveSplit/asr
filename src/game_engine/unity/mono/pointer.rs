@@ -1,5 +1,5 @@
 use super::{Class, Image, Module};
-use crate::{print_message, Address, Error, Process};
+use crate::{Address, Error, Process};
 use bytemuck::CheckedBitPattern;
 use core::{array, cell::RefCell};
 

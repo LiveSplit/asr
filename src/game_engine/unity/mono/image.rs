@@ -4,7 +4,7 @@ use core::iter::{self, FusedIterator};
 use super::CSTR;
 use super::{Class, Module};
 use crate::future::retry;
-use crate::{print_message, Address, Process};
+use crate::{Address, Process};
 
 /// An image is a .NET DLL that is loaded by the game. The `Assembly-CSharp`
 /// image is the main game assembly, and contains all the game logic.
@@ -20,7 +20,6 @@ impl Image {
         process: &'a Process,
         module: &'a Module,
     ) -> impl FusedIterator<Item = Class> + 'a {
-        // print_message(&format!("image: {}", self.image));
         let class_cache_size = process
             .read::<i32>(
                 self.image + module.offsets.image.class_cache + module.offsets.hash_table.size,
@@ -36,7 +35,6 @@ impl Image {
                 )
                 .unwrap_or_default(),
         };
-        // print_message(&format!("table_addr: {}", table_addr));
 
         (0..class_cache_size).flat_map(move |i| {
             let mut table = match table_addr {
@@ -50,8 +48,6 @@ impl Image {
                     .ok()
                     .filter(|addr| !addr.is_null()),
             };
-
-            // print_message(&format!("table: {:?}", table));
 
             iter::from_fn(move || {
                 let class = table?;
@@ -74,9 +70,7 @@ impl Image {
         let name_space_index = class_name.rfind('.');
 
         self.classes(process, module).find(|class| {
-            // print_message(&format!("{} + 0x{:X}", class.class, module.offsets.class.name));
             class.get_name::<CSTR>(process, module).is_ok_and(|name| {
-                // print_message(&format!("{}", name.validate_utf8().unwrap()));
                 if let Some(name_space_index) = name_space_index {
                     let class_name_space = &class_name[..name_space_index];
                     let class_name = &class_name[name_space_index + 1..];
