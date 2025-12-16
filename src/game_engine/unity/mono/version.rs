@@ -17,9 +17,10 @@ pub enum Version {
 
 impl Version {
     pub(super) fn detect(process: &Process) -> Option<Version> {
-        // First, check if Mono is being used (mono.dll on Windows or libmono.so on Linux).
+        // First, check if Mono is being used (mono.dll on Windows, libmono.so on Linux, or libmono.0.dylib on Mac).
         if process.get_module_address("mono.dll").is_ok()
             || process.get_module_address("libmono.so").is_ok()
+            || process.get_module_address("libmono.0.dylib").is_ok()
         {
             // The mono.dll module is present -> could be either Version::V1 or Version::V1Cattrs.
             //
@@ -49,10 +50,12 @@ impl Version {
 
         // For more recent versions of Mono, we need the UnityPlayer module
         // - On Windows: UnityPlayer.dll
-        // - On Linux/macOS: UnityPlayer.so.
+        // - On Linux: UnityPlayer.so
+        // - On Mac: UnityPlayer.dylib
         let (unity_module, binary_format) = [
             ("UnityPlayer.dll", BinaryFormat::PE),
             ("UnityPlayer.so", BinaryFormat::ELF),
+            ("UnityPlayer.dylib", BinaryFormat::MachO),
         ]
         .into_iter()
         .find_map(|(name, format)| match format {
@@ -61,7 +64,7 @@ impl Version {
                 let range = pe::read_size_of_image(process, address)? as u64;
                 Some(((address, range), BinaryFormat::PE))
             }
-            BinaryFormat::ELF => Some((process.get_module_range(name).ok()?, BinaryFormat::ELF)),
+            format => Some((process.get_module_range(name).ok()?, format)),
         })?;
 
         // For Windows (PE):
@@ -80,13 +83,17 @@ impl Version {
             );
         }
 
-        // For ELF (Linux/macOS):
+        // For ELF/MachO (Linux/macOS):
         //   No FileVersionInfo is available, so we fall back to scanning memory.
-        //   Look for the ASCII signature "202?.", which appears in Unity’s version string.
+        //   Look for the ASCII signature "202?." or "6000.", which appears in Unity’s version string.
         // TODO: find the unity version programmatically
         const SIG_202X: Signature<6> = Signature::new("00 32 30 32 ?? 2E");
+        const SIG_6000: Signature<6> = Signature::new("00 36 30 30 30 2E");
 
-        let Some(addr) = SIG_202X.scan_process_range(process, unity_module) else {
+        let Some(addr) = SIG_202X
+            .scan_process_range(process, unity_module)
+            .or_else(|| SIG_6000.scan_process_range(process, unity_module))
+        else {
             return Some(Version::V2);
         };
 
