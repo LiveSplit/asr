@@ -122,6 +122,11 @@ impl Module {
         })
     }
 
+    /// Retrieve the [Mono version](Version) of the module.
+    pub fn get_version(&self) -> Version {
+        self.version
+    }
+
     fn assemblies<'a>(&'a self, process: &'a Process) -> impl FusedIterator<Item = Assembly> + 'a {
         let mut assembly = process
             .read_pointer(self.assemblies, self.pointer_size)
