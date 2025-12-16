@@ -1,4 +1,3 @@
-use alloc::format;
 use core::iter::{self, FusedIterator};
 
 use super::CSTR;
@@ -39,7 +38,6 @@ impl Image {
         (0..class_cache_size).flat_map(move |i| {
             let mut table = match table_addr {
                 Address::NULL => None,
-                // addr => Some(addr + module.size_of_ptr().wrapping_mul(i)),
                 addr => process
                     .read_pointer(
                         addr + module.size_of_ptr().wrapping_mul(i),

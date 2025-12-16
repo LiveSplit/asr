@@ -4,7 +4,7 @@ use core::array;
 
 use bytemuck::CheckedBitPattern;
 
-use crate::{print_message, Address, Error, PointerSize, Process};
+use crate::{Address, Error, PointerSize, Process};
 
 /// An abstraction of a pointer path, usable for easy dereferencing inside an autosplitter logic.
 ///
