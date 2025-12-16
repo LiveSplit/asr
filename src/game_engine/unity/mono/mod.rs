@@ -154,6 +154,16 @@ impl Module {
         })
     }
 
+    /// Retrieve the [Mono version](Version) of the module.
+    pub fn get_version(&self) -> Version {
+        self.version
+    }
+
+    /// Retrieve the [pointer size](PointerSize) of the process/module.
+    pub fn get_pointer_size(&self) -> PointerSize {
+        self.pointer_size
+    }
+
     fn assemblies<'a>(&'a self, process: &'a Process) -> impl FusedIterator<Item = Assembly> + 'a {
         let mut assembly = process
             .read_pointer(self.assemblies, self.pointer_size)

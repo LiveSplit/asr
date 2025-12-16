@@ -9,7 +9,7 @@
     missing_docs,
     rust_2018_idioms
 )]
-#![cfg_attr(doc_cfg, feature(doc_auto_cfg))]
+#![cfg_attr(doc_cfg, feature(doc_cfg))]
 
 //! Helper crate to write auto splitters for LiveSplit One's auto splitting
 //! runtime.

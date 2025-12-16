@@ -30,10 +30,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6
 
       - name: Install Rust
-        uses: hecrj/setup-rust-action@v1
+        uses: hecrj/setup-rust-action@v2
         with:
           components: rust-docs
           rust-version: nightly
@@ -43,7 +43,7 @@ jobs:
         run: RUSTDOCFLAGS="--cfg doc_cfg" cargo doc --all-features --target wasm32-wasip1
 
       - name: Setup Pages
-        uses: actions/configure-pages@v3
+        uses: actions/configure-pages@v5
 
       - name: Fix file permissions
         shell: sh
@@ -64,10 +64,10 @@ jobs:
           INPUT_PATH: target/wasm32-wasip1/doc
 
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v1
+        uses: actions/upload-pages-artifact@v4
         with:
           path: target/wasm32-wasip1/doc
 
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v2
+        uses: actions/deploy-pages@v4
