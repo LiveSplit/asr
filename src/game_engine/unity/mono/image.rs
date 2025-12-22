@@ -48,12 +48,10 @@ impl Image {
             };
 
             iter::from_fn(move || {
-                let this_table = table?;
-                let class = process.read_pointer(this_table, module.pointer_size).ok()?;
-
+                let class = table?;
                 table = process
                     .read_pointer(
-                        this_table + module.offsets.class.next_class_cache,
+                        class + module.offsets.class.next_class_cache,
                         module.pointer_size,
                     )
                     .ok()
