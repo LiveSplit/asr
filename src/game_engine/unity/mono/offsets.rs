@@ -241,7 +241,7 @@ impl MonoOffsets {
                 },
                 v_table: MonoVTableOffsets { vtable: 0x28 },
             }),
-            (BinaryFormat::ELF, Version::V3, PointerSize::Bit64) => Some(&Self {
+            (BinaryFormat::ELF | BinaryFormat::MachO, Version::V3, PointerSize::Bit64) => Some(&Self {
                 assembly: AssemblyOffsets {
                     aname: 0x10,
                     image: 0x60,
@@ -269,7 +269,7 @@ impl MonoOffsets {
                 },
                 v_table: MonoVTableOffsets { vtable: 0x48 },
             }),
-            (BinaryFormat::ELF, Version::V2, PointerSize::Bit64) => Some(&Self {
+            (BinaryFormat::ELF | BinaryFormat::MachO, Version::V2, PointerSize::Bit64) => Some(&Self {
                 assembly: AssemblyOffsets {
                     aname: 0x10,
                     image: 0x60,
@@ -297,7 +297,7 @@ impl MonoOffsets {
                 },
                 v_table: MonoVTableOffsets { vtable: 0x40 },
             }),
-            (BinaryFormat::ELF, Version::V1Cattrs, PointerSize::Bit64) => Some(&Self {
+            (BinaryFormat::ELF | BinaryFormat::MachO, Version::V1Cattrs, PointerSize::Bit64) => Some(&Self {
                 assembly: AssemblyOffsets {
                     aname: 0x10,
                     image: 0x58,
@@ -325,7 +325,7 @@ impl MonoOffsets {
                 },
                 v_table: MonoVTableOffsets { vtable: 0x48 },
             }),
-            (BinaryFormat::ELF, Version::V1, PointerSize::Bit64) => Some(&Self {
+            (BinaryFormat::ELF | BinaryFormat::MachO, Version::V1, PointerSize::Bit64) => Some(&Self {
                 assembly: AssemblyOffsets {
                     aname: 0x10,
                     image: 0x58,
