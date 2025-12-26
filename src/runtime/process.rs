@@ -339,11 +339,11 @@ impl Process {
     /// of a specific type. The buffer does not need to be initialized. After
     /// the slice successfully got filled, the initialized slice is returned.
     #[inline]
-    pub fn read_into_uninit_slice<T: CheckedBitPattern>(
+    pub fn read_into_uninit_slice<'buf, T: CheckedBitPattern>(
         &self,
         address: impl Into<Address>,
-        slice: &mut [MaybeUninit<T>],
-    ) -> Result<&mut [T], Error> {
+        slice: &'buf mut [MaybeUninit<T>],
+    ) -> Result<&'buf mut [T], Error> {
         // SAFETY: The process handle is guaranteed to be valid. We provide a
         // valid pointer and length to the buffer. We also do proper error
         // handling afterwards. The buffer is guaranteed to be initialized
