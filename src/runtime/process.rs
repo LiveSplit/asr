@@ -161,6 +161,20 @@ impl Process {
         }
     }
 
+    /// Gets the name of the process.
+    #[cfg(feature = "alloc")]
+    #[inline]
+    pub fn get_name(&self) -> Result<alloc::string::String, Error> {
+        let mut path = self.get_path()?;
+
+        // remove everything before the / on path to avoid an allocation
+        let (before, _) = path.rsplit_once('/').ok_or(Error {})?;
+        let index = before.len() + 1;
+        path.drain(..index);
+
+        Ok(path)
+    }
+
     /// Gets the address of a module in the process.
     #[inline]
     pub fn get_module_address(&self, name: &str) -> Result<Address, Error> {
@@ -245,6 +259,14 @@ impl Process {
             process: self,
             index,
         })
+    }
+
+    /// Get the address and size of the main module in the process.
+    #[cfg(feature = "alloc")]
+    #[inline]
+    pub fn get_main_module_range(&self) -> Result<(Address, u64), Error> {
+        let main_module_name = self.get_name()?;
+        self.get_module_range(&main_module_name)
     }
 
     /// Reads a value of the type specified from the process at the address
