@@ -165,8 +165,14 @@ impl Process {
     #[cfg(feature = "alloc")]
     #[inline]
     pub fn get_name(&self) -> Result<alloc::string::String, Error> {
-        let path = self.get_path()?;
-        Ok(path.split("/").last().ok_or(Error {})?.into())
+        let mut path = self.get_path()?;
+
+        // remove everything before the / on path to avoid an allocation
+        let (before, _) = path.rsplit_once('/').ok_or(Error {})?;
+        let index = before.len() + 1;
+        path.drain(..index);
+
+        Ok(path)
     }
 
     /// Gets the address of a module in the process.
