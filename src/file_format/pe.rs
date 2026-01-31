@@ -100,9 +100,10 @@ struct OptionalCOFFHeader {
 struct ExportedSymbolsTableDef {
     _unk: [u8; 0x14],
     number_of_functions: u32,
-    _unk_1: u32,
+    number_of_names: u32,
     function_address_array_index: u32,
     function_name_array_index: u32,
+    name_ordinals_array_index: u32,
 }
 
 /// The machine type (architecture) of a module in a process. An image file can
@@ -323,31 +324,43 @@ pub fn symbols(
 
     let export_directory = match dos_header {
         Ok(header) => process
-            .read::<u32>(address + header.e_lfanew + if is_64_bit { 0x88 } else { 0x78 })
+            .read::<[u32; 2]>(address + header.e_lfanew + if is_64_bit { 0x88 } else { 0x78 })
             .ok(),
         _ => None,
     };
 
-    let symbols_def = match dos_header {
+    let (symbols_def, export_rva, export_dir_size) = match dos_header {
         Ok(_) => match export_directory {
-            Some(0) => None,
-            Some(export_dir) => process
-                .read::<ExportedSymbolsTableDef>(address + export_dir)
-                .ok(),
+            Some([0, _]) => None,
+            Some([export_dir_rva, export_dir_size]) => process
+                .read::<ExportedSymbolsTableDef>(address + export_dir_rva)
+                .ok()
+                .map(|val| (val, export_dir_rva, export_dir_size)),
             _ => None,
         },
         _ => None,
     }
     .unwrap_or_default();
 
-    (0..symbols_def.number_of_functions).filter_map(move |i| {
+    (0..symbols_def.number_of_names).filter_map(move |i| {
+        let ordinal = process
+            .read::<u16>(address + symbols_def.name_ordinals_array_index + i.wrapping_mul(2))
+            .ok()
+            .map(|val| val as u32)
+            .filter(|&val| val < symbols_def.number_of_functions)?;
+
+        let func_rva = process
+            .read::<u32>(
+                address + symbols_def.function_address_array_index + ordinal.wrapping_mul(4),
+            )
+            .ok()?;
+
+        if func_rva >= export_rva && func_rva < export_rva + export_dir_size {
+            return None;
+        }
+
         Some(Symbol {
-            address: address
-                + process
-                    .read::<u32>(
-                        address + symbols_def.function_address_array_index + i.wrapping_mul(4),
-                    )
-                    .ok()?,
+            address: address + func_rva,
             name_addr: address
                 + process
                     .read::<u32>(
