@@ -20,8 +20,14 @@ pub enum Signature<const N: usize> {
         needle: [u8; N],
         /// The mask that indicates which bytes are wildcards.
         mask: [u8; N],
-        /// A lookup table of offsets to jump forward by when certain bytes are encountered.
-        skip_offsets: [Offset; 256],
+        /// Position of the primary exact-byte anchor (if any).
+        anchor_pos: Option<Offset>,
+        /// Byte value for the primary exact-byte anchor.
+        anchor_byte: u8,
+        /// Position of a secondary exact-byte check (if any).
+        check_pos: Option<Offset>,
+        /// Byte value for the secondary exact-byte check.
+        check_byte: u8,
     },
 }
 
@@ -110,41 +116,16 @@ impl<const N: usize> Signature<N> {
             }
             assert!(i == N); // Ensure we parsed the correct number of bytes
 
-            // Initialize skip_offsets with all zeros
-            let mut skip_offsets = [0; 256];
-
-            let mut unknown = 0;
-            let end = N - 1;
-            let mut i = 0;
-
-            while i < end {
-                let byte = needle[i];
-                let mask = mask[i];
-                if mask == 0xFF {
-                    skip_offsets[byte as usize] = (end - i) as Offset;
-                } else {
-                    unknown = (end - i) as Offset;
-                }
-                i += 1;
-            }
-
-            if unknown == 0 {
-                unknown = N as Offset;
-            }
-
-            // Set the skip offsets for any byte that wasn't explicitly set
-            i = 0;
-            while i < skip_offsets.len() {
-                if unknown < skip_offsets[i] || skip_offsets[i] == 0 {
-                    skip_offsets[i] = unknown;
-                }
-                i += 1;
-            }
+            let (anchor_pos, anchor_byte, check_pos, check_byte) =
+                find_anchor_and_check(&needle, &mask);
 
             Self::Complex {
                 needle,
                 mask,
-                skip_offsets,
+                anchor_pos,
+                anchor_byte,
+                check_pos,
+                check_byte,
             }
         } else {
             // If the provided string has no wildcards, treat as a Simple signature
@@ -173,120 +154,49 @@ impl<const N: usize> Signature<N> {
         let mut cursor = 0;
         let end = haystack.len().saturating_sub(N.saturating_sub(1));
 
-        iter::from_fn(move || 'outer: loop {
+        iter::from_fn(move || {
             if cursor >= end {
                 return None;
             }
 
-            match self {
+            let found = match self {
                 Signature::Simple(needle) => {
-                    match memchr::memmem::find(&haystack[cursor..], needle) {
-                        Some(offset) => {
-                            let current_cursor = cursor;
-                            cursor += offset + 1;
-                            return Some(offset + current_cursor);
-                        }
-                        None => return None,
-                    };
+                    let check_pos = if N > 1 { Some(N - 1) } else { None };
+                    let check_byte = check_pos.map_or(0, |i| needle[i]);
+                    find_signature_from(
+                        haystack,
+                        cursor,
+                        needle,
+                        None,
+                        Some(0),
+                        needle[0],
+                        check_pos,
+                        check_byte,
+                    )
                 }
                 Signature::Complex {
                     needle,
                     mask,
-                    skip_offsets,
-                } => {
-                    let mut i = 0;
+                    anchor_pos,
+                    anchor_byte,
+                    check_pos,
+                    check_byte,
+                } => find_signature_from(
+                    haystack,
+                    cursor,
+                    needle,
+                    Some(mask),
+                    anchor_pos.map(|v| v as usize),
+                    *anchor_byte,
+                    check_pos.map(|v| v as usize),
+                    *check_byte,
+                ),
+            };
 
-                    unsafe {
-                        let (scan, mut needle, mut mask) = (
-                            haystack.as_ptr().add(cursor),
-                            needle.as_ptr(),
-                            mask.as_ptr(),
-                        );
-
-                        #[cfg(target_feature = "simd128")]
-                        while i + 16 <= N {
-                            use core::arch::wasm32::{u8x16_ne, v128, v128_and, v128_any_true};
-
-                            if v128_any_true(u8x16_ne(
-                                v128_and(
-                                    scan.add(i).cast::<v128>().read_unaligned(),
-                                    mask.cast::<v128>().read_unaligned(),
-                                ),
-                                needle.cast::<v128>().read_unaligned(),
-                            )) {
-                                cursor +=
-                                    skip_offsets[*scan.add(N.saturating_sub(1)) as usize] as usize;
-                                continue 'outer;
-                            } else {
-                                mask = mask.add(16);
-                                needle = needle.add(16);
-                                i += 16;
-                            }
-                        }
-
-                        while i + 8 <= N {
-                            if scan.add(i).cast::<u64>().read_unaligned()
-                                & mask.cast::<u64>().read_unaligned()
-                                != needle.cast::<u64>().read_unaligned()
-                            {
-                                cursor +=
-                                    skip_offsets[*scan.add(N.saturating_sub(1)) as usize] as usize;
-                                continue 'outer;
-                            } else {
-                                mask = mask.add(8);
-                                needle = needle.add(8);
-                                i += 8;
-                            }
-                        }
-
-                        while i + 4 <= N {
-                            if scan.add(i).cast::<u32>().read_unaligned()
-                                & mask.cast::<u32>().read_unaligned()
-                                != needle.cast::<u32>().read_unaligned()
-                            {
-                                cursor +=
-                                    skip_offsets[*scan.add(N.saturating_sub(1)) as usize] as usize;
-                                continue 'outer;
-                            } else {
-                                mask = mask.add(4);
-                                needle = needle.add(4);
-                                i += 4;
-                            }
-                        }
-
-                        while i + 2 <= N {
-                            if scan.add(i).cast::<u16>().read_unaligned()
-                                & mask.cast::<u16>().read_unaligned()
-                                != needle.cast::<u16>().read_unaligned()
-                            {
-                                cursor +=
-                                    skip_offsets[*scan.add(N.saturating_sub(1)) as usize] as usize;
-                                continue 'outer;
-                            } else {
-                                mask = mask.add(2);
-                                needle = needle.add(2);
-                                i += 2;
-                            }
-                        }
-
-                        while i < N {
-                            if *scan.add(i) & *mask != *needle {
-                                cursor +=
-                                    skip_offsets[*scan.add(N.saturating_sub(1)) as usize] as usize;
-                                continue 'outer;
-                            } else {
-                                mask = mask.add(1);
-                                needle = needle.add(1);
-                                i += 1;
-                            }
-                        }
-
-                        let current_cursor = cursor;
-                        cursor = cursor + 1;
-                        return Some(current_cursor);
-                    }
-                }
-            }
+            found.map(|start| {
+                cursor = start + 1;
+                start
+            })
         })
         .fuse()
     }
@@ -418,4 +328,317 @@ impl<const N: usize> Signature<N> {
         })
         .flatten()
     }
+}
+
+fn find_signature_from<const N: usize>(
+    haystack: &[u8],
+    start: usize,
+    needle: &[u8; N],
+    mask: Option<&[u8; N]>,
+    anchor_pos: Option<usize>,
+    anchor_byte: u8,
+    check_pos: Option<usize>,
+    check_byte: u8,
+) -> Option<usize> {
+    if haystack.len() < N {
+        return None;
+    }
+
+    let max_start = haystack.len() - N;
+    if start > max_start {
+        return None;
+    }
+
+    if let Some(anchor_pos) = anchor_pos {
+        let max_anchor_hit = max_start + anchor_pos;
+        let mut search_from = start + anchor_pos;
+
+        if let Some(check_pos) = check_pos {
+            while let Some(anchor_hit) = find_byte_swar(haystack, anchor_byte, search_from) {
+                if anchor_hit > max_anchor_hit {
+                    break;
+                }
+
+                let match_start = anchor_hit - anchor_pos;
+                if haystack[match_start + check_pos] != check_byte {
+                    search_from = anchor_hit + 1;
+                    continue;
+                }
+
+                if signature_matches_at(haystack, match_start, needle, mask) {
+                    return Some(match_start);
+                }
+
+                search_from = anchor_hit + 1;
+            }
+        } else {
+            while let Some(anchor_hit) = find_byte_swar(haystack, anchor_byte, search_from) {
+                if anchor_hit > max_anchor_hit {
+                    break;
+                }
+
+                let match_start = anchor_hit - anchor_pos;
+                if signature_matches_at(haystack, match_start, needle, mask) {
+                    return Some(match_start);
+                }
+
+                search_from = anchor_hit + 1;
+            }
+        }
+
+        None
+    } else {
+        (start..=max_start)
+            .find(|&match_start| signature_matches_at(haystack, match_start, needle, mask))
+    }
+}
+
+const fn find_anchor_and_check<const N: usize>(
+    needle: &[u8; N],
+    mask: &[u8; N],
+) -> (Option<Offset>, u8, Option<Offset>, u8) {
+    let mut anchor_pos = None;
+    let mut anchor_byte = 0;
+
+    let mut i = 0;
+    while i < N {
+        if mask[i] == 0xFF {
+            anchor_pos = Some(i as Offset);
+            anchor_byte = needle[i];
+            break;
+        }
+        i += 1;
+    }
+
+    let mut check_pos = None;
+    let mut check_byte = 0;
+
+    if let Some(anchor) = anchor_pos {
+        let anchor = anchor as usize;
+        let mut farthest_distance = 0usize;
+        let mut j = 0;
+        while j < N {
+            if j != anchor && mask[j] == 0xFF {
+                let distance = if j > anchor { j - anchor } else { anchor - j };
+                if distance > farthest_distance {
+                    farthest_distance = distance;
+                    check_pos = Some(j as Offset);
+                    check_byte = needle[j];
+                }
+            }
+            j += 1;
+        }
+    }
+
+    (anchor_pos, anchor_byte, check_pos, check_byte)
+}
+
+#[inline]
+fn signature_matches_at<const N: usize>(
+    haystack: &[u8],
+    start: usize,
+    needle: &[u8; N],
+    mask: Option<&[u8; N]>,
+) -> bool {
+    unsafe {
+        let scan = haystack.as_ptr().add(start);
+        match mask {
+            None => exact_matches::<N>(scan, needle.as_ptr()),
+            Some(mask) => masked_matches::<N>(scan, needle.as_ptr(), mask.as_ptr()),
+        }
+    }
+}
+
+#[inline]
+unsafe fn exact_matches<const N: usize>(mut scan: *const u8, mut needle: *const u8) -> bool {
+    let mut i = 0;
+
+    #[cfg(target_feature = "simd128")]
+    while i + 16 <= N {
+        use core::arch::wasm32::{u8x16_ne, v128, v128_any_true};
+
+        if v128_any_true(u8x16_ne(
+            scan.cast::<v128>().read_unaligned(),
+            needle.cast::<v128>().read_unaligned(),
+        )) {
+            return false;
+        }
+
+        scan = scan.add(16);
+        needle = needle.add(16);
+        i += 16;
+    }
+
+    while i + 8 <= N {
+        if scan.cast::<u64>().read_unaligned() != needle.cast::<u64>().read_unaligned() {
+            return false;
+        }
+
+        scan = scan.add(8);
+        needle = needle.add(8);
+        i += 8;
+    }
+
+    while i + 4 <= N {
+        if scan.cast::<u32>().read_unaligned() != needle.cast::<u32>().read_unaligned() {
+            return false;
+        }
+
+        scan = scan.add(4);
+        needle = needle.add(4);
+        i += 4;
+    }
+
+    while i + 2 <= N {
+        if scan.cast::<u16>().read_unaligned() != needle.cast::<u16>().read_unaligned() {
+            return false;
+        }
+
+        scan = scan.add(2);
+        needle = needle.add(2);
+        i += 2;
+    }
+
+    while i < N {
+        if *scan != *needle {
+            return false;
+        }
+
+        scan = scan.add(1);
+        needle = needle.add(1);
+        i += 1;
+    }
+
+    true
+}
+
+#[inline]
+unsafe fn masked_matches<const N: usize>(
+    mut scan: *const u8,
+    mut needle: *const u8,
+    mut mask: *const u8,
+) -> bool {
+    let mut i = 0;
+
+    #[cfg(target_feature = "simd128")]
+    while i + 16 <= N {
+        use core::arch::wasm32::{u8x16_ne, v128, v128_and, v128_any_true};
+
+        if v128_any_true(u8x16_ne(
+            v128_and(
+                scan.cast::<v128>().read_unaligned(),
+                mask.cast::<v128>().read_unaligned(),
+            ),
+            needle.cast::<v128>().read_unaligned(),
+        )) {
+            return false;
+        }
+
+        scan = scan.add(16);
+        needle = needle.add(16);
+        mask = mask.add(16);
+        i += 16;
+    }
+
+    while i + 8 <= N {
+        if scan.cast::<u64>().read_unaligned() & mask.cast::<u64>().read_unaligned()
+            != needle.cast::<u64>().read_unaligned()
+        {
+            return false;
+        }
+
+        scan = scan.add(8);
+        needle = needle.add(8);
+        mask = mask.add(8);
+        i += 8;
+    }
+
+    while i + 4 <= N {
+        if scan.cast::<u32>().read_unaligned() & mask.cast::<u32>().read_unaligned()
+            != needle.cast::<u32>().read_unaligned()
+        {
+            return false;
+        }
+
+        scan = scan.add(4);
+        needle = needle.add(4);
+        mask = mask.add(4);
+        i += 4;
+    }
+
+    while i + 2 <= N {
+        if scan.cast::<u16>().read_unaligned() & mask.cast::<u16>().read_unaligned()
+            != needle.cast::<u16>().read_unaligned()
+        {
+            return false;
+        }
+
+        scan = scan.add(2);
+        needle = needle.add(2);
+        mask = mask.add(2);
+        i += 2;
+    }
+
+    while i < N {
+        if *scan & *mask != *needle {
+            return false;
+        }
+
+        scan = scan.add(1);
+        needle = needle.add(1);
+        mask = mask.add(1);
+        i += 1;
+    }
+
+    true
+}
+
+#[inline]
+fn find_byte_swar(haystack: &[u8], needle: u8, mut start: usize) -> Option<usize> {
+    if start >= haystack.len() {
+        return None;
+    }
+
+    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+    {
+        use core::arch::wasm32::{u8x16_bitmask, u8x16_eq, u8x16_splat, v128_any_true, v128_load};
+
+        let needle_vec = u8x16_splat(needle);
+        let ptr = haystack.as_ptr();
+
+        while start + 16 <= haystack.len() {
+            let chunk = unsafe { v128_load(ptr.add(start).cast()) };
+            let eq = u8x16_eq(chunk, needle_vec);
+            if v128_any_true(eq) {
+                let mask = u8x16_bitmask(eq);
+                return Some(start + mask.trailing_zeros() as usize);
+            }
+            start += 16;
+        }
+    }
+
+    const ONES: u64 = 0x0101_0101_0101_0101;
+    const HIGHS: u64 = 0x8080_8080_8080_8080;
+    let repeated = (needle as u64) * ONES;
+
+    let ptr = haystack.as_ptr();
+    while start + 8 <= haystack.len() {
+        let word = unsafe { ptr.add(start).cast::<u64>().read_unaligned() };
+        let x = word ^ repeated;
+        let eq = x.wrapping_sub(ONES) & !x & HIGHS;
+        if eq != 0 {
+            let index = (eq.trailing_zeros() / 8) as usize;
+            return Some(start + index);
+        }
+        start += 8;
+    }
+
+    while start < haystack.len() {
+        if haystack[start] == needle {
+            return Some(start);
+        }
+        start += 1;
+    }
+
+    None
 }
