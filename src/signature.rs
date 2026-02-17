@@ -194,7 +194,7 @@ impl<const N: usize> Signature<N> {
             };
 
             found.map(|start| {
-                cursor = start.saturating_add(1);
+                cursor = start + 1;
                 start
             })
         })
@@ -344,36 +344,51 @@ fn find_signature_from<const N: usize>(
         return None;
     }
 
-    if start > haystack.len().saturating_sub(N) {
+    let max_start = haystack.len() - N;
+    if start > max_start {
         return None;
     }
 
     if let Some(anchor_pos) = anchor_pos {
-        let mut search_from = start.saturating_add(anchor_pos);
+        let max_anchor_hit = max_start + anchor_pos;
+        let mut search_from = start + anchor_pos;
 
-        while let Some(anchor_hit) = find_byte_swar(haystack, anchor_byte, search_from) {
-            let match_start = anchor_hit.saturating_sub(anchor_pos);
-            if match_start + N > haystack.len() {
-                break;
-            }
+        if let Some(check_pos) = check_pos {
+            while let Some(anchor_hit) = find_byte_swar(haystack, anchor_byte, search_from) {
+                if anchor_hit > max_anchor_hit {
+                    break;
+                }
 
-            if let Some(check_pos) = check_pos {
+                let match_start = anchor_hit - anchor_pos;
                 if haystack[match_start + check_pos] != check_byte {
-                    search_from = anchor_hit.saturating_add(1);
+                    search_from = anchor_hit + 1;
                     continue;
                 }
-            }
 
-            if signature_matches_at(haystack, match_start, needle, mask) {
-                return Some(match_start);
-            }
+                if signature_matches_at(haystack, match_start, needle, mask) {
+                    return Some(match_start);
+                }
 
-            search_from = anchor_hit.saturating_add(1);
+                search_from = anchor_hit + 1;
+            }
+        } else {
+            while let Some(anchor_hit) = find_byte_swar(haystack, anchor_byte, search_from) {
+                if anchor_hit > max_anchor_hit {
+                    break;
+                }
+
+                let match_start = anchor_hit - anchor_pos;
+                if signature_matches_at(haystack, match_start, needle, mask) {
+                    return Some(match_start);
+                }
+
+                search_from = anchor_hit + 1;
+            }
         }
 
         None
     } else {
-        (start..=haystack.len() - N)
+        (start..=max_start)
             .find(|&match_start| signature_matches_at(haystack, match_start, needle, mask))
     }
 }
@@ -582,6 +597,24 @@ unsafe fn masked_matches<const N: usize>(
 fn find_byte_swar(haystack: &[u8], needle: u8, mut start: usize) -> Option<usize> {
     if start >= haystack.len() {
         return None;
+    }
+
+    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+    {
+        use core::arch::wasm32::{u8x16_bitmask, u8x16_eq, u8x16_splat, v128_any_true, v128_load};
+
+        let needle_vec = u8x16_splat(needle);
+        let ptr = haystack.as_ptr();
+
+        while start + 16 <= haystack.len() {
+            let chunk = unsafe { v128_load(ptr.add(start).cast()) };
+            let eq = u8x16_eq(chunk, needle_vec);
+            if v128_any_true(eq) {
+                let mask = u8x16_bitmask(eq);
+                return Some(start + mask.trailing_zeros() as usize);
+            }
+            start += 16;
+        }
     }
 
     const ONES: u64 = 0x0101_0101_0101_0101;
