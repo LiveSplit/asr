@@ -127,11 +127,24 @@ impl Module {
             }
             #[cfg(feature = "alloc")]
             (PointerSize::Bit64, BinaryFormat::MachO) => {
-                const SIG_MONO_64_MACHO: Signature<3> = Signature::new("48 8B 3D");
-                let scan_address: Address = SIG_MONO_64_MACHO
-                    .scan_process_range(process, (root_domain_function_address, 0x100))?
-                    + 3;
-                scan_address + 0x4 + process.read::<i32>(scan_address).ok()?
+                const SIG_MONO_X86_64_MACHO: Signature<3> = Signature::new("48 8B 3D");
+                // 57 0f 00 d0   adrp  x23,(page + 0x1ea000)
+                // e0 da 47 f9   ldr   x0,[x23, #0xfb0]=>(page + 0x1eafb0)
+                const SIG_MONO_ARM_64_MACHO: Signature<8> =
+                    Signature::new("57 0F 00 D0 E0 DA 47 F9");
+                if let Some(scan_address) = SIG_MONO_X86_64_MACHO
+                    .scan_process_range(process, (root_domain_function_address, 0x100))
+                    .map(|a| a + 3)
+                {
+                    scan_address + 0x4 + process.read::<i32>(scan_address).ok()?
+                } else if let Some(scan_address) = SIG_MONO_ARM_64_MACHO
+                    .scan_process_range(process, (root_domain_function_address, 0x100))
+                {
+                    let page = scan_address.value() & 0xfffffffffffff000;
+                    (page + 0x1eafb0).into()
+                } else {
+                    return None;
+                }
             }
             (PointerSize::Bit32, BinaryFormat::PE) => {
                 const SIG_32_1: Signature<2> = Signature::new("FF 35");
