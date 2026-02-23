@@ -112,6 +112,38 @@ pub fn state() -> TimerState {
     }
 }
 
+/// Accesses the index of the split the attempt is currently on.
+/// If there's no attempt in progress, `None` is returned instead.
+/// This returns an index that is equal to the amount of segments
+/// when the attempt is finished, but has not been reset.
+/// So you need to be careful when using this value for indexing.
+/// Same index does not imply same split on undo and then split.
+pub fn current_split_index() -> Option<u64> {
+    // SAFETY: It is always safe to call this function.
+    let i = unsafe { sys::timer_current_split_index() };
+    if i.is_negative() {
+        return None;
+    }
+    Some(i as u64)
+}
+
+/// Whether the segment at `idx` was splitted this attempt.
+/// Returns `Some(true)` if the segment was splitted,
+/// or `Some(false)` if skipped.
+/// If `idx` is greater than or equal to the current split index,
+/// `None` is returned instead.
+pub fn segment_splitted(idx: u64) -> Option<bool> {
+    // SAFETY: It is always safe to call this function.
+    // Even when `idx` is out of bounds,
+    // timer_segment_splitted returns `-1`,
+    // and then segment_splitted returns `None`.
+    match unsafe { sys::timer_segment_splitted(idx) } {
+        1 => Some(true),
+        0 => Some(false),
+        _ => None,
+    }
+}
+
 /// Sets the game time.
 #[inline]
 pub fn set_game_time(time: time::Duration) {
