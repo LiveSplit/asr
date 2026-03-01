@@ -599,24 +599,6 @@ fn find_byte_swar(haystack: &[u8], needle: u8, mut start: usize) -> Option<usize
         return None;
     }
 
-    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
-    {
-        use core::arch::wasm32::{u8x16_bitmask, u8x16_eq, u8x16_splat, v128_any_true, v128_load};
-
-        let needle_vec = u8x16_splat(needle);
-        let ptr = haystack.as_ptr();
-
-        while start + 16 <= haystack.len() {
-            let chunk = unsafe { v128_load(ptr.add(start).cast()) };
-            let eq = u8x16_eq(chunk, needle_vec);
-            if v128_any_true(eq) {
-                let mask = u8x16_bitmask(eq);
-                return Some(start + mask.trailing_zeros() as usize);
-            }
-            start += 16;
-        }
-    }
-
     const ONES: u64 = 0x0101_0101_0101_0101;
     const HIGHS: u64 = 0x8080_8080_8080_8080;
     let repeated = (needle as u64) * ONES;
