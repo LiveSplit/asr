@@ -36,6 +36,38 @@ impl Class {
             .and_then(|addr| process.read(addr))
     }
 
+    fn field_count(&self, process: &Process, module: &Module) -> Result<i32, Error> {
+        match module.version {
+            Version::V1 | Version::V1Cattrs => {
+                process.read::<i32>(self.class + module.offsets.class.field_count)
+            }
+            Version::V3 => {
+                // https://github.com/mono/mono/blob/0f53e9e151d92944cacab3e24ac359410c606df6/mono/metadata/class-accessors.c#L216
+                let class_kind =
+                    process.read::<u8>(self.class + module.offsets.class.class_kind)?;
+
+                match class_kind {
+                    1 | 2 => process.read::<i32>(self.class + module.offsets.class.field_count),
+                    // Handle generic class types
+                    3 => {
+                        let generic_class = process.read_pointer(
+                            self.class + module.offsets.class.generic_class,
+                            module.get_pointer_size(),
+                        )?;
+                        let container_class = Class {
+                            class: process
+                                .read_pointer(generic_class + 0x0, module.get_pointer_size())?,
+                        };
+
+                        container_class.field_count(process, module)
+                    }
+                    _ => Err(Error {}),
+                }
+            }
+            _ => Err(Error {}),
+        }
+    }
+
     fn fields<'a>(
         &'a self,
         process: &'a Process,
@@ -61,8 +93,8 @@ impl Class {
             // Prepare for next iteration
             this_class = class.get_parent(process, module);
 
-            let field_count = process
-                .read::<i32>(class.class + module.offsets.class.field_count)
+            let field_count = class
+                .field_count(process, module)
                 .ok()
                 .filter(|&val| val > 0)
                 .unwrap_or_default();
