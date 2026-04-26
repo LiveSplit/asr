@@ -127,11 +127,49 @@ impl Module {
             }
             #[cfg(feature = "alloc")]
             (PointerSize::Bit64, BinaryFormat::MachO) => {
-                const SIG_MONO_64_MACHO: Signature<3> = Signature::new("48 8B 3D");
-                let scan_address: Address = SIG_MONO_64_MACHO
-                    .scan_process_range(process, (root_domain_function_address, 0x100))?
-                    + 3;
-                scan_address + 0x4 + process.read::<i32>(scan_address).ok()?
+                const SIG_MONO_X86_64_MACHO: Signature<3> = Signature::new("48 8B 3D");
+                // 57 0f 00 d0   adrp  x23,(page + 0x1ea000)
+                // e0 da 47 f9   ldr   x0,[x23, #0xfb0]=>(page + 0x1eafb0)
+                // adrp                                ldr
+                // 57       0f       00       d0       e0       da       47       f9
+                // ???10111 ???????? ???????? 1??10000 11100000 ??????10 01?????? 11111001
+                // hi0      hi1      hi2       lo               i0         i1
+                const SIG_MONO_ARM_64_MACHO: Signature<8> = Signature::Complex {
+                    needle: [
+                        0b00010111, 0, 0, 0b10010000, 0xE0, 0b00000010, 0b01000000, 0xF9,
+                    ],
+                    mask: [
+                        0b00011111, 0, 0, 0b10011111, 0xFF, 0b00000011, 0b11000000, 0xFF,
+                    ],
+                    anchor_pos: Some(4),
+                    anchor_byte: 0xE0,
+                    check_pos: Some(7),
+                    check_byte: 0xF9,
+                };
+                if let Some(scan_address) = SIG_MONO_X86_64_MACHO
+                    .scan_process_range(process, (root_domain_function_address, 0x100))
+                    .map(|a| a + 3)
+                {
+                    scan_address + 0x4 + process.read::<i32>(scan_address).ok()?
+                } else if let Some(scan_address) = SIG_MONO_ARM_64_MACHO
+                    .scan_process_range(process, (root_domain_function_address, 0x100))
+                {
+                    let page = scan_address.value() & 0xfffffffffffff000;
+                    let bs = process.read::<[u8; 8]>(scan_address).ok()?;
+                    // adrp
+                    let lo = ((bs[3] >> 5) & 0b11) as u64;
+                    let hi0 = (bs[0] >> 5) as u64;
+                    let hi1 = bs[1] as u64;
+                    let hi2 = bs[2] as u64;
+                    let adrp = (lo << 12) | (hi0 << 14) | (hi1 << 17) | (hi2 << 25);
+                    // ldr
+                    let i0 = (bs[5] >> 2) as u64;
+                    let i1 = (bs[6] & 0b111111) as u64;
+                    let ldr = (i0 << 3) | (i1 << 9);
+                    (page + adrp + ldr).into()
+                } else {
+                    return None;
+                }
             }
             (PointerSize::Bit32, BinaryFormat::PE) => {
                 const SIG_32_1: Signature<2> = Signature::new("FF 35");
