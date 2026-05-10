@@ -64,7 +64,7 @@ impl Class {
 
     fn class_kind(&self, process: &Process, module: &Module) -> Result<MonoTypeKind, Error> {
         match module.version {
-            // https://github.com/mono/mono/blob/337052f86112fc0dc8435c5c4a2de43b399a14bb/mono/metadata/class-internals.h#L327            Version::V3 => process.read::<u8>(self.class + module.offsets.class.class_kind),
+            // See https://github.com/mono/mono/blob/337052f86112fc0dc8435c5c4a2de43b399a14bb/mono/metadata/class-internals.h#L327
             Version::V2 => {
                 // TODO I feel like I'm doing this very poorly
 
@@ -80,7 +80,7 @@ impl Class {
 
                 Ok(kind)
             }
-            // https://github.com/mono/mono/blob/0f53e9e151d92944cacab3e24ac359410c606df6/mono/metadata/class-private-definition.h#L28_ => Err(Error {}),
+            // See https://github.com/mono/mono/blob/0f53e9e151d92944cacab3e24ac359410c606df6/mono/metadata/class-private-definition.h#L28
             Version::V3 => {
                 print_message(&format!("class: {}", self.class));
                 process.read::<MonoTypeKind>(self.class + module.offsets.class.class_kind)
@@ -98,7 +98,7 @@ impl Class {
                 let class_kind = self.class_kind(process, module)?;
                 print_message(&format!("ck {:?} (class: {})", class_kind, self.class));
 
-                // https://github.com/mono/mono/blob/0f53e9e151d92944cacab3e24ac359410c606df6/mono/metadata/class-accessors.c#L216
+                // See https://github.com/mono/mono/blob/0f53e9e151d92944cacab3e24ac359410c606df6/mono/metadata/class-accessors.c#L216
                 match class_kind {
                     MonoTypeKind::DEF | MonoTypeKind::GTD => {
                         process.read::<i32>(self.class + module.offsets.class.field_count)
