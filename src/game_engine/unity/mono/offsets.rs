@@ -67,7 +67,6 @@ impl MonoOffsets {
                     runtime_info: 0x7C,
                     field_count: 0x9C,
                     next_class_cache: 0xA0,
-                    // TODO
                     class_kind: 0xF,
                     generic_class: 0x70,
                 },
