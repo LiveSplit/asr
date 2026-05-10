@@ -82,6 +82,7 @@ impl Class {
             }
             // https://github.com/mono/mono/blob/0f53e9e151d92944cacab3e24ac359410c606df6/mono/metadata/class-private-definition.h#L28_ => Err(Error {}),
             Version::V3 => {
+                print_message(&format!("class: {}", self.class));
                 process.read::<MonoTypeKind>(self.class + module.offsets.class.class_kind)
             }
             _ => Err(Error {}),
@@ -151,7 +152,6 @@ impl Class {
                 .ok()
                 .filter(|&val| val > 0)
                 .unwrap_or_default();
-            print_message(&format!("fc {:?}", field_count));
 
             let fields = match field_count {
                 0 => None,

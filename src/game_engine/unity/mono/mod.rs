@@ -5,8 +5,8 @@
 use crate::file_format::macho;
 use crate::{
     file_format::{elf, pe},
-    future::retry,
-    print_message,
+    future::retry
+    ,
     signature::Signature,
     Address, Address32, Address64, PointerSize, Process,
 };
@@ -111,8 +111,6 @@ impl Module {
             _ => return None,
         };
 
-        print_message("a");
-
         let assemblies: Address = match (pointer_size, format) {
             (PointerSize::Bit64, BinaryFormat::PE) => {
                 const SIG_MONO_64: Signature<3> = Signature::new("48 8B 0D");
@@ -149,18 +147,15 @@ impl Module {
                     check_pos: Some(7),
                     check_byte: 0xF9,
                 };
-                print_message("b");
 
                 if let Some(scan_address) = SIG_MONO_X86_64_MACHO
                     .scan_process_range(process, (root_domain_function_address, 0x100))
                     .map(|a| a + 3)
                 {
-                    print_message("c");
                     scan_address + 0x4 + process.read::<i32>(scan_address).ok()?
                 } else if let Some(scan_address) = SIG_MONO_ARM_64_MACHO
                     .scan_process_range(process, (root_domain_function_address, 0x100))
                 {
-                    print_message("d");
                     let page = scan_address.value() & 0xfffffffffffff000;
                     let bs = process.read::<[u8; 8]>(scan_address).ok()?;
                     // adrp
@@ -190,7 +185,6 @@ impl Module {
             }
             _ => return None,
         };
-        print_message("e");
 
         Some(Self {
             assemblies,
