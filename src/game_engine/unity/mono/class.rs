@@ -1,7 +1,8 @@
+use alloc::format;
 use core::iter::{self, FusedIterator};
 
 use super::{super::get_backing_name, Field, Module, Version, CSTR};
-use crate::{future::retry, string::ArrayCString, Address, Error, Process};
+use crate::{future::retry, print_message, string::ArrayCString, Address, Error, Process};
 
 #[cfg(feature = "derive")]
 pub use asr_derive::MonoClass as Class;
@@ -94,6 +95,7 @@ impl Class {
             }
             Version::V2 | Version::V3 => {
                 let class_kind = self.class_kind(process, module)?;
+                print_message(&format!("ck {:?} (class: {})", class_kind, self.class));
 
                 // https://github.com/mono/mono/blob/0f53e9e151d92944cacab3e24ac359410c606df6/mono/metadata/class-accessors.c#L216
                 match class_kind {
@@ -149,6 +151,7 @@ impl Class {
                 .ok()
                 .filter(|&val| val > 0)
                 .unwrap_or_default();
+            print_message(&format!("fc {:?}", field_count));
 
             let fields = match field_count {
                 0 => None,

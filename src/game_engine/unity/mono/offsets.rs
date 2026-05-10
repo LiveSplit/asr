@@ -313,7 +313,7 @@ impl MonoOffsets {
                         field_count: 0xF8,
                         next_class_cache: 0x100,
                         // TODO
-                        class_kind: 0x2A,
+                        class_kind: 0x24,
                         generic_class: 0xF0,
                     },
                     field: FieldInfoOffsets {
