@@ -115,7 +115,6 @@ impl Class {
                     _ => Ok(0),
                 }
             }
-            _ => Err(Error {}),
         }
     }
 

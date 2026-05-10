@@ -5,8 +5,7 @@
 use crate::file_format::macho;
 use crate::{
     file_format::{elf, pe},
-    future::retry
-    ,
+    future::retry,
     signature::Signature,
     Address, Address32, Address64, PointerSize, Process,
 };
