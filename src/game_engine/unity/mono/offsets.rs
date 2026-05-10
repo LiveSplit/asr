@@ -128,7 +128,6 @@ impl MonoOffsets {
                     runtime_info: 0x84,
                     field_count: 0xA4,
                     next_class_cache: 0xA8,
-                    // TODO Test
                     class_kind: 0x1E,
                     generic_class: 0x94,
                 },
@@ -159,6 +158,7 @@ impl MonoOffsets {
                     runtime_info: 0x100,
                     field_count: 0x9C,
                     next_class_cache: 0x108,
+                    // Not a thing in V1/V1Cattrs
                     class_kind: 0x0,
                     generic_class: 0x0,
                 },
@@ -189,6 +189,7 @@ impl MonoOffsets {
                     runtime_info: 0xA8,
                     field_count: 0x68,
                     next_class_cache: 0xAC,
+                    // Not a thing in V1/V1Cattrs
                     class_kind: 0x0,
                     generic_class: 0x0,
                 },
@@ -219,6 +220,7 @@ impl MonoOffsets {
                     runtime_info: 0xF8,
                     field_count: 0x94,
                     next_class_cache: 0x100,
+                    // Not a thing in V1/V1Cattrs
                     class_kind: 0x0,
                     generic_class: 0x0,
                 },
@@ -249,6 +251,7 @@ impl MonoOffsets {
                     runtime_info: 0xA4,
                     field_count: 0x64,
                     next_class_cache: 0xA8,
+                    // Not a thing in V1/V1Cattrs
                     class_kind: 0x0,
                     generic_class: 0x0,
                 },
