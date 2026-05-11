@@ -154,7 +154,7 @@ impl GameObject {
 
     /// Returns whether the game object is considered "active" by itself (irrespective of any of its
     /// parents)
-    pub fn is_active_in_self(
+    pub fn is_active_self(
         &self,
         process: &Process,
         scene_manager: &SceneManager,
