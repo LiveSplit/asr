@@ -14,8 +14,6 @@ use crate::{
     Address, Address32, Error, PointerSize, Process,
 };
 
-mod game_objects;
-
 mod offsets;
 
 mod transform;
@@ -23,7 +21,11 @@ pub use transform::Transform;
 
 use offsets::Offsets;
 
+mod game_object;
+pub use game_object::GameObject;
+
 mod scene;
+
 pub use scene::Scene;
 
 use super::{BinaryFormat, CSTR};
