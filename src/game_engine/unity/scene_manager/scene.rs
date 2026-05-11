@@ -90,7 +90,6 @@ impl Scene {
         let mut current_list = list_first;
 
         iter::from_fn(move || {
-            // TODO check if this is correct on other games
             let [_prev, next, current]: [Address; 3] = match scene_manager.pointer_size {
                 PointerSize::Bit64 => process
                     .read::<[Address64; 3]>(current_list?)

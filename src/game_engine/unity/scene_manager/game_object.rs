@@ -94,8 +94,6 @@ impl GameObject {
         }))
     }
 
-    // TODO it's really dumb i have to split this by mono/il2cpp
-
     /// Tries to find the base address of a class in the current `GameObject` by name.
     ///
     /// Mono only.
