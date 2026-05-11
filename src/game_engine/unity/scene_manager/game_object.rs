@@ -3,18 +3,15 @@ use crate::{string::ArrayCString, Address, Address32, Address64, Error, PointerS
 use core::array;
 use core::mem::MaybeUninit;
 
-/// Representing a GameObject.
-///
-/// This contains the information about attached Components and other internals like activeSelf.
-///
-/// If you have an instance of a C# game object (which you might get via following a path from a
-/// static field), the C++ game object is at + pointer_size * 2 (0x8 on 32 bit, 0x10 on 64 bit).
+/// Representing a GameObject. From a GameObject, you can get the attached components (includes the
+/// C# scripts).
 #[derive(Clone, Debug)]
 pub struct GameObject {
     pub(super) address: Address,
 }
 
 impl GameObject {
+    /// Traverse the Components attached to this game object.
     pub fn components<'a>(
         &'a self,
         process: &'a Process,
@@ -78,8 +75,9 @@ impl GameObject {
         }))
     }
 
-    /// Tries to find the base address of a class in the current `GameObject`.
-    pub fn get_class(
+    /// Tries to find the base address of a component in the current `GameObject` by the name of it's
+    /// class.
+    pub fn get_component(
         &self,
         process: &Process,
         scene_manager: &SceneManager,
@@ -105,11 +103,23 @@ impl GameObject {
             .ok_or(Error {})
     }
 
+    /// Returns whether the game object is considered "active" by the scene (if it or any of its
+    /// parents are inactive, then the game object is inactive)
     pub fn is_active_in_hierarchy(
         &self,
         process: &Process,
         scene_manager: &SceneManager,
     ) -> Result<bool, Error> {
         process.read::<bool>(self.address + scene_manager.offsets.game_object_activeinhierarchy)
+    }
+
+    /// Returns whether the game object is considered "active" by itself (irrespective of any of its
+    /// parents)
+    pub fn is_active_in_self(
+        &self,
+        process: &Process,
+        scene_manager: &SceneManager,
+    ) -> Result<bool, Error> {
+        process.read::<bool>(self.address + scene_manager.offsets.game_object_activeself)
     }
 }
