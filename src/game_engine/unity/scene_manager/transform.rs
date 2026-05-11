@@ -10,21 +10,14 @@ pub struct Transform {
 }
 
 impl Transform {
-    /// Tries to return the name of the current `Transform`.
+    /// Get the name of the [`GameObject`] associated with this `Transform`.
     pub fn get_name<const N: usize>(
         &self,
         process: &Process,
         scene_manager: &SceneManager,
     ) -> Result<ArrayCString<N>, Error> {
-        process.read_pointer_path(
-            self.address,
-            scene_manager.pointer_size,
-            &[
-                scene_manager.offsets.game_object as u64,
-                scene_manager.offsets.game_object_name as u64,
-                0x0,
-            ],
-        )
+        self.get_game_object(process, scene_manager)
+            .and_then(|obj| obj.get_name(process, scene_manager))
     }
 
     /// Get the game object attached to this `Transform`, if any

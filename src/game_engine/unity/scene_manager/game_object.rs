@@ -1,5 +1,7 @@
 use super::{SceneManager, CSTR};
-use crate::{string::ArrayCString, Address, Address32, Address64, Error, PointerSize, Process};
+use crate::game_engine::unity::{il2cpp, mono};
+use crate::string::ArrayCString;
+use crate::{Address, Address32, Address64, Error, PointerSize, Process};
 use core::array;
 use core::mem::MaybeUninit;
 
@@ -11,25 +13,38 @@ pub struct GameObject {
 }
 
 impl GameObject {
-    /// Traverse the Components attached to this game object.
-    pub fn components<'a>(
+    /// Get the name of the GameObject.
+    pub fn get_name<const N: usize>(
+        &self,
+        process: &Process,
+        scene_manager: &SceneManager,
+    ) -> Result<ArrayCString<N>, Error> {
+        process.read_pointer_path(
+            self.address,
+            scene_manager.pointer_size,
+            &[scene_manager.offsets.game_object_name as u64, 0x0],
+        )
+    }
+
+    /// Traverse the classes associated with the Components attached to this game object.
+    pub fn classes<'a>(
         &'a self,
         process: &'a Process,
         scene_manager: &'a SceneManager,
     ) -> Result<impl Iterator<Item = Address> + 'a, Error> {
-        let (number_of_components, main_object): (usize, Address) = match scene_manager.pointer_size
-        {
-            PointerSize::Bit64 => {
-                let array = process
-                    .read::<[Address64; 3]>(self.address + scene_manager.offsets.game_object)?;
-                (array[2].value() as usize, array[0].into())
-            }
-            _ => {
-                let array = process
-                    .read::<[Address32; 3]>(self.address + scene_manager.offsets.game_object)?;
-                (array[2].value() as usize, array[0].into())
-            }
-        };
+        let (number_of_components, component_pair_array): (usize, Address) =
+            match scene_manager.pointer_size {
+                PointerSize::Bit64 => {
+                    let array = process
+                        .read::<[Address64; 3]>(self.address + scene_manager.offsets.game_object)?;
+                    (array[2].value() as usize, array[0].into())
+                }
+                _ => {
+                    let array = process
+                        .read::<[Address32; 3]>(self.address + scene_manager.offsets.game_object)?;
+                    (array[2].value() as usize, array[0].into())
+                }
+            };
 
         if number_of_components == 0 {
             return Err(Error {});
@@ -40,8 +55,10 @@ impl GameObject {
         let components: [Address; ARRAY_SIZE] = match scene_manager.pointer_size {
             PointerSize::Bit64 => {
                 let mut buf = [MaybeUninit::<[Address64; 2]>::uninit(); ARRAY_SIZE];
-                let slice = process
-                    .read_into_uninit_slice(main_object, &mut buf[..number_of_components])?;
+                let slice = process.read_into_uninit_slice(
+                    component_pair_array,
+                    &mut buf[..number_of_components],
+                )?;
 
                 let mut iter = slice.iter_mut();
                 array::from_fn(|_| {
@@ -52,8 +69,10 @@ impl GameObject {
             }
             _ => {
                 let mut buf = [MaybeUninit::<[Address32; 2]>::uninit(); ARRAY_SIZE];
-                let slice = process
-                    .read_into_uninit_slice(main_object, &mut buf[..number_of_components])?;
+                let slice = process.read_into_uninit_slice(
+                    component_pair_array,
+                    &mut buf[..number_of_components],
+                )?;
 
                 let mut iter = slice.iter_mut();
                 array::from_fn(|_| {
@@ -75,28 +94,50 @@ impl GameObject {
         }))
     }
 
-    /// Tries to find the base address of a component in the current `GameObject` by the name of it's
-    /// class.
-    pub fn get_component(
+    // TODO it's really dumb i have to split this by mono/il2cpp
+
+    /// Tries to find the base address of a class in the current `GameObject` by name.
+    ///
+    /// Mono only.
+    pub fn get_class_mono(
         &self,
         process: &Process,
         scene_manager: &SceneManager,
+        module: &mono::Module,
         name: &str,
     ) -> Result<Address, Error> {
-        self.components(process, scene_manager)?
+        if scene_manager.is_il2cpp {
+            return Err(Error {});
+        }
+
+        self.classes(process, scene_manager)?
             .find(|&addr| {
-                let val: Result<ArrayCString<CSTR>, Error> = match scene_manager.is_il2cpp {
-                    true => process.read_pointer_path(
-                        addr,
-                        scene_manager.pointer_size,
-                        &[0x0, scene_manager.size_of_ptr().wrapping_mul(2), 0x0],
-                    ),
-                    false => process.read_pointer_path(
-                        addr,
-                        scene_manager.pointer_size,
-                        &[0x0, 0x0, scene_manager.offsets.klass_name as u64, 0x0],
-                    ),
-                };
+                let val = mono::Class::get_from_component(process, module, addr)
+                    .and_then(|c| c.get_name::<CSTR>(process, module));
+
+                val.is_ok_and(|class_name| class_name.matches(name))
+            })
+            .ok_or(Error {})
+    }
+
+    /// Tries to find the base address of a class in the current `GameObject` by name.
+    ///
+    /// IL2CPP only.
+    pub fn get_class_il2cpp(
+        &self,
+        process: &Process,
+        scene_manager: &SceneManager,
+        module: &il2cpp::Module,
+        name: &str,
+    ) -> Result<Address, Error> {
+        if !scene_manager.is_il2cpp {
+            return Err(Error {});
+        }
+
+        self.classes(process, scene_manager)?
+            .find(|&addr| {
+                let val = il2cpp::Class::get_from_component(process, module, addr)
+                    .and_then(|c| c.get_name::<CSTR>(process, module));
 
                 val.is_ok_and(|class_name| class_name.matches(name))
             })

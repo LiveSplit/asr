@@ -12,7 +12,6 @@ pub(super) struct Offsets {
     pub(super) game_object_activeself: u8,
     pub(super) game_object_activeinhierarchy: u8,
     pub(super) klass: u8,
-    pub(super) klass_name: u8,
     pub(super) children_pointer: u8,
 }
 
@@ -31,7 +30,6 @@ impl Offsets {
                 game_object_activeself: 0x5E,
                 game_object_activeinhierarchy: 0x5F,
                 klass: 0x28,
-                klass_name: 0x48,
                 children_pointer: 0x70,
             }),
             PointerSize::Bit32 => Some(&Self {
@@ -46,7 +44,6 @@ impl Offsets {
                 game_object_activeself: 0x32,
                 game_object_activeinhierarchy: 0x33,
                 klass: 0x18,
-                klass_name: 0x2C,
                 children_pointer: 0x50,
             }),
             _ => None,
