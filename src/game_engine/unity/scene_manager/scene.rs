@@ -110,14 +110,12 @@ impl Scene {
                 current_list = Some(next);
             }
 
-            Some(
-                crate::game_engine::unity::scene_manager::transform::Transform { address: current },
-            )
+            Some(Transform { address: current })
         })
         .fuse()
     }
 
-    /// Tries to find the specified root [`crate::game_engine::unity::scene_manager::transform::Transform`] from the currently
+    /// Tries to find the specified root [`Transform`] from the currently
     /// active Unity scene.
     pub fn get_root_game_object(
         &self,
