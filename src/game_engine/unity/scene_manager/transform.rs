@@ -1,4 +1,4 @@
-use super::{SceneManager, CSTR};
+use super::{GameObject, SceneManager, CSTR};
 use crate::{string::ArrayCString, Address, Address32, Address64, Error, PointerSize, Process};
 use core::{array, mem::MaybeUninit};
 
@@ -10,117 +10,34 @@ pub struct Transform {
 }
 
 impl Transform {
-    /// Tries to return the name of the current `Transform`.
+    /// Get the name of the [`GameObject`] associated with this `Transform`.
     pub fn get_name<const N: usize>(
         &self,
         process: &Process,
         scene_manager: &SceneManager,
     ) -> Result<ArrayCString<N>, Error> {
-        process.read_pointer_path(
-            self.address,
-            scene_manager.pointer_size,
-            &[
-                scene_manager.offsets.game_object as u64,
-                scene_manager.offsets.game_object_name as u64,
-                0x0,
-            ],
-        )
+        self.get_game_object(process, scene_manager)
+            .and_then(|obj| obj.get_name(process, scene_manager))
     }
 
-    /// Iterates over the classes referred to in the current `Transform`.
-    pub fn classes<'a>(
-        &'a self,
-        process: &'a Process,
-        scene_manager: &'a SceneManager,
-    ) -> Result<impl Iterator<Item = Address> + 'a, Error> {
+    /// Get the game object attached to this `Transform`, if any
+    pub fn get_game_object(
+        &self,
+        process: &Process,
+        scene_manager: &SceneManager,
+    ) -> Result<GameObject, Error> {
         let game_object = process.read_pointer(
             self.address + scene_manager.offsets.game_object,
             scene_manager.pointer_size,
         )?;
 
-        let (number_of_components, main_object): (usize, Address) = match scene_manager.pointer_size
-        {
-            PointerSize::Bit64 => {
-                let array = process
-                    .read::<[Address64; 3]>(game_object + scene_manager.offsets.game_object)?;
-                (array[2].value() as usize, array[0].into())
-            }
-            _ => {
-                let array = process
-                    .read::<[Address32; 3]>(game_object + scene_manager.offsets.game_object)?;
-                (array[2].value() as usize, array[0].into())
-            }
-        };
-
-        if number_of_components == 0 {
+        if game_object.is_null() {
             return Err(Error {});
         }
 
-        const ARRAY_SIZE: usize = 128;
-
-        let components: [Address; ARRAY_SIZE] = match scene_manager.pointer_size {
-            PointerSize::Bit64 => {
-                let mut buf = [MaybeUninit::<[Address64; 2]>::uninit(); ARRAY_SIZE];
-                let slice = process
-                    .read_into_uninit_slice(main_object, &mut buf[..number_of_components])?;
-
-                let mut iter = slice.iter_mut();
-                array::from_fn(|_| {
-                    iter.next()
-                        .map(|&mut [_, second]| second.into())
-                        .unwrap_or_default()
-                })
-            }
-            _ => {
-                let mut buf = [MaybeUninit::<[Address32; 2]>::uninit(); ARRAY_SIZE];
-                let slice = process
-                    .read_into_uninit_slice(main_object, &mut buf[..number_of_components])?;
-
-                let mut iter = slice.iter_mut();
-                array::from_fn(|_| {
-                    iter.next()
-                        .map(|&mut [_, second]| second.into())
-                        .unwrap_or_default()
-                })
-            }
-        };
-
-        Ok((1..number_of_components).filter_map(move |m| {
-            process
-                .read_pointer(
-                    components[m] + scene_manager.offsets.klass,
-                    scene_manager.pointer_size,
-                )
-                .ok()
-                .filter(|val| !val.is_null())
-        }))
-    }
-
-    /// Tries to find the base address of a class in the current `GameObject`.
-    pub fn get_class(
-        &self,
-        process: &Process,
-        scene_manager: &SceneManager,
-        name: &str,
-    ) -> Result<Address, Error> {
-        self.classes(process, scene_manager)?
-            .find(|&addr| {
-                let val: Result<ArrayCString<CSTR>, Error> = match scene_manager.is_il2cpp {
-                    true => process.read_pointer_path(
-                        addr,
-                        scene_manager.pointer_size,
-                        &[0x0, scene_manager.size_of_ptr().wrapping_mul(2), 0x0],
-                    ),
-                    false => process.read_pointer_path(
-                        addr,
-                        scene_manager.pointer_size,
-                        &[0x0, 0x0, scene_manager.offsets.klass_name as u64, 0x0],
-                    ),
-                };
-
-                val.is_ok_and(|class_name| class_name.matches(name))
-            })
-            .ok_or(Error {})
+        Ok(GameObject {
+            address: game_object,
+        })
     }
 
     /// Iterates over children `Transform`s referred by the current one

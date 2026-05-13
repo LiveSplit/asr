@@ -13,7 +13,22 @@ pub struct Class {
 }
 
 impl Class {
-    pub(super) fn get_name<const N: usize>(
+    pub fn get_from_component(
+        process: &Process,
+        module: &Module,
+        component: Address,
+    ) -> Result<Self, Error> {
+        process
+            .read_pointer(component, module.pointer_size)
+            .ok()
+            .filter(|val| !val.is_null())
+            .and_then(|addr| process.read_pointer(addr, module.pointer_size).ok())
+            .filter(|val| !val.is_null())
+            .map(|class| Class { class })
+            .ok_or(Error {})
+    }
+
+    pub fn get_name<const N: usize>(
         &self,
         process: &Process,
         module: &Module,
