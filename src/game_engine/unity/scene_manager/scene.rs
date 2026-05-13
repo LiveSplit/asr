@@ -26,9 +26,7 @@ impl Scene {
         process.read(self.address + scene_manager.offsets.build_index)
     }
 
-    /// Returns the full path to the [scene](Scene).
-    ///
-    /// Usually looks something like `Assets/..path../scene.unity`.
+    /// Returns the full path to the scene.
     pub fn path<const N: usize>(
         &self,
         process: &Process,
@@ -40,30 +38,6 @@ impl Scene {
                 scene_manager.pointer_size,
             )
             .and_then(|addr| process.read(addr))
-    }
-
-    /// Returns the full path to the [scene](Scene), as a [String](alloc::string::String).
-    pub fn path_as_string(
-        &self,
-        process: &Process,
-        scene_manager: &SceneManager,
-    ) -> Result<alloc::string::String, Error> {
-        let path = self.path::<CSTR>(process, scene_manager)?;
-        let str = path.validate_utf8().map_err(|_| Error {})?;
-
-        Ok(str.into())
-    }
-
-    /// Returns the name of the [scene](Scene), as a [String](alloc::string::String).
-    pub fn name(
-        &self,
-        process: &Process,
-        scene_manager: &SceneManager,
-    ) -> Result<alloc::string::String, Error> {
-        // The name is also stored in memory, but it's just easier to interpret on the path
-        let path = self.path_as_string(process, scene_manager)?;
-        let cs = path.rsplit_once('/').unwrap_or(("", &path)).1;
-        Ok(cs.split_once('.').unwrap_or((cs, "")).0.into())
     }
 
     /// Iterates over all root [`Transform`]s declared for the
