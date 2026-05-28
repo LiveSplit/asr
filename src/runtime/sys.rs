@@ -65,6 +65,7 @@ impl SettingValueType {
     pub const STRING: Self = Self(6);
 }
 
+#[link(wasm_import_module = "env")]
 extern "C" {
     /// Gets the state that the timer currently is in.
     pub fn timer_get_state() -> TimerState;
