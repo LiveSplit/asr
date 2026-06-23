@@ -37,7 +37,7 @@ impl<const N: usize> ArrayCString<N> {
     /// use the length information of the parameter.
     pub fn matches(&self, text: impl AsRef<[u8]>) -> bool {
         let bytes = text.as_ref();
-        !self.0.get(bytes.len()).is_some_and(|&b| b != 0)
+        self.0.get(bytes.len()).is_none_or(|&b| b == 0)
             && self.0.get(..bytes.len()).is_some_and(|s| s == bytes)
     }
 
@@ -117,7 +117,7 @@ impl<const N: usize> ArrayWString<N> {
     /// use the length information of the parameter.
     pub fn matches(&self, text: impl AsRef<[u16]>) -> bool {
         let chars = text.as_ref();
-        !self.0.get(chars.len()).is_some_and(|&b| b != 0)
+        self.0.get(chars.len()).is_none_or(|&b| b == 0)
             && self.0.get(..chars.len()).is_some_and(|s| s == chars)
     }
 

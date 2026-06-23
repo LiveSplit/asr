@@ -12,7 +12,10 @@ pub use super::sys::ProcessId;
 
 /// A process that the auto splitter is attached to.
 #[repr(transparent)]
-pub struct Process(pub(super) sys::Process);
+pub struct Process(
+    pub(super) sys::Process,
+    #[cfg(not(target_family = "wasm"))] core::marker::PhantomData<core::cell::Cell<()>>,
+);
 
 impl Drop for Process {
     #[inline]
@@ -33,7 +36,13 @@ impl Process {
         // is guaranteed to be valid UTF-8. We also do proper error handling
         // afterwards.
         let id = unsafe { sys::process_attach(name.as_ptr(), name.len()) };
-        id.map(Self)
+        id.map(|id| {
+            Self(
+                id,
+                #[cfg(not(target_family = "wasm"))]
+                core::marker::PhantomData,
+            )
+        })
     }
 
     /// Attaches to a process based on its process id.
@@ -41,7 +50,13 @@ impl Process {
     pub fn attach_by_pid(pid: ProcessId) -> Option<Self> {
         // SAFETY: We do proper error handling afterwards.
         let id = unsafe { sys::process_attach_by_pid(pid) };
-        id.map(Self)
+        id.map(|id| {
+            Self(
+                id,
+                #[cfg(not(target_family = "wasm"))]
+                core::marker::PhantomData,
+            )
+        })
     }
 
     /// Lists processes based on their name. The processes are not in any
@@ -90,7 +105,7 @@ impl Process {
     /// specific order. Returns [`None`] if listing the processes failed. A
     /// vector is returned that is filled with the process ids of the processes
     /// that were found.
-    #[cfg(feature = "alloc")]
+    #[cfg(any(feature = "alloc", not(target_family = "wasm")))]
     pub fn list_by_name(name: &str) -> Option<alloc::vec::Vec<ProcessId>> {
         // SAFETY: We provide a valid pointer and length to the name. The name
         // is guaranteed to be valid UTF-8. We call `process_list_by_name` with
@@ -138,10 +153,10 @@ impl Process {
         unsafe { sys::process_is_open(self.0) }
     }
 
-    /// Gets the path of the executable in the file system. The path is a path
-    /// that is accessible through the WASI file system, so a Windows path of
-    /// `C:\foo\bar.exe` would be returned as `/mnt/c/foo/bar.exe`.
-    #[cfg(feature = "alloc")]
+    /// Gets the path of the executable in the file system. WebAssembly builds
+    /// return a path accessible through the WASI file system. Native builds
+    /// return the native platform path.
+    #[cfg(any(feature = "alloc", not(target_family = "wasm")))]
     #[inline]
     pub fn get_path(&self) -> Result<alloc::string::String, Error> {
         // SAFETY: Calling `process_get_path` with a null pointer and 0 length
@@ -207,10 +222,10 @@ impl Process {
         }
     }
 
-    /// Gets the path of a module in the file system. The path is a path that is
-    /// accessible through the WASI file system, so a Windows path of
-    /// `C:\foo\bar.dll` would be returned as `/mnt/c/foo/bar.dll`.
-    #[cfg(feature = "alloc")]
+    /// Gets the path of a module in the file system. WebAssembly builds return
+    /// a path accessible through the WASI file system. Native builds return
+    /// the native platform path.
+    #[cfg(any(feature = "alloc", not(target_family = "wasm")))]
     #[inline]
     pub fn get_module_path(&self, name: &str) -> Result<alloc::string::String, Error> {
         // SAFETY: Calling `process_get_module_path` with a null pointer and 0
@@ -391,7 +406,7 @@ impl Process {
     /// into the `Vec` provided. The `Vec` is not cleared, all elements are
     /// appended to the end of the `Vec`. You may want to manually clear it
     /// beforehand.
-    #[cfg(feature = "alloc")]
+    #[cfg(any(feature = "alloc", not(target_family = "wasm")))]
     pub fn append_to_vec<T: CheckedBitPattern>(
         &self,
         address: impl Into<Address>,
@@ -424,7 +439,7 @@ impl Process {
     /// array or [`read_into_slice`](Self::read_into_slice) if possible. If
     /// neither of these are possible it is recommend to at least reuse the
     /// `Vec` with [`append_to_vec`](Self::append_to_vec) if that's possible.
-    #[cfg(feature = "alloc")]
+    #[cfg(any(feature = "alloc", not(target_family = "wasm")))]
     #[inline]
     pub fn read_vec<T: CheckedBitPattern>(
         &self,

@@ -6,6 +6,26 @@ runtime.
 
 [API Documentation](https://livesplit.org/asr/asr/)
 
+Auto splitters can be compiled either to WebAssembly for sandboxed execution or
+as native programs. WebAssembly builds use the runtime's import API. Native
+builds interact with processes directly and receive timer integration through
+the `asr::Runtime` trait.
+
+## Native Execution
+
+On non-WebAssembly targets, create an `asr::Runner` with an implementation of
+`asr::Runtime` and run the auto splitter's asynchronous main function:
+
+```rust
+let mut runner = asr::Runner::new(my_runtime);
+runner.run(auto_splitter());
+```
+
+The runner owns settings and tick scheduling. The runtime implementation
+connects timer operations and logging to the embedding application. Existing
+auto splitter code can continue using `Process`, `asr::timer`, `asr::settings`,
+and the asynchronous helpers without being generic over the runtime.
+
 There are two ways of defining an auto splitter.
 
 ## Defining an `update` function

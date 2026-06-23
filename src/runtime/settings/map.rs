@@ -20,9 +20,9 @@ pub struct Map(pub(super) sys::SettingsMap);
 
 impl fmt::Debug for Map {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        #[cfg(feature = "alloc")]
+        #[cfg(any(feature = "alloc", not(target_family = "wasm")))]
         let entries = self.iter();
-        #[cfg(not(feature = "alloc"))]
+        #[cfg(all(not(feature = "alloc"), target_family = "wasm"))]
         let entries = self.iter_array_string::<128>();
         f.debug_map().entries(entries).finish()
     }
@@ -126,7 +126,7 @@ impl Map {
 
     /// Returns the key at the given index. Returns [`None`] if the index is out
     /// of bounds.
-    #[cfg(feature = "alloc")]
+    #[cfg(any(feature = "alloc", not(target_family = "wasm")))]
     #[inline]
     pub fn get_key_by_index(&self, index: u64) -> Option<alloc::string::String> {
         // SAFETY: The handle is valid. We provide a null pointer and 0 as the
@@ -200,7 +200,7 @@ impl Map {
     /// it's not recommended to do so, as the iterator might skip pairs or
     /// return duplicates. In that case it's better to clone the map before and
     /// iterate over the clone.
-    #[cfg(feature = "alloc")]
+    #[cfg(any(feature = "alloc", not(target_family = "wasm")))]
     #[inline]
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = (alloc::string::String, Value)> + '_ {
         (0..self.len()).flat_map(|i| Some((self.get_key_by_index(i)?, self.get_value_by_index(i)?)))
@@ -231,7 +231,7 @@ impl Map {
     /// possible to modify the map while iterating over it, it's not recommended
     /// to do so, as the iterator might skip keys or return duplicates. In that
     /// case it's better to clone the map before and iterate over the clone.s
-    #[cfg(feature = "alloc")]
+    #[cfg(any(feature = "alloc", not(target_family = "wasm")))]
     #[inline]
     pub fn keys(&self) -> impl DoubleEndedIterator<Item = alloc::string::String> + '_ {
         (0..self.len()).flat_map(|i| self.get_key_by_index(i))

@@ -18,6 +18,15 @@ time = { version = "0.3.5", default-features = false }
 libm = { version = "0.2.7", optional = true }
 wasi = { version = "0.11.0+wasi-snapshot-preview1", default-features = false }
 
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+indexmap = "2.0.2"
+proc-maps = { version = "0.4.0", default-features = false }
+read-process-memory = { version = "0.1.4", default-features = false }
+sysinfo = { version = "0.39.3", default-features = false, features = [
+  "multithread",
+  "system",
+] }
+
 [features]
 alloc = []
 derive = ["asr-derive"]

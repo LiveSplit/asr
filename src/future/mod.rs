@@ -118,9 +118,9 @@ mod time;
 #[cfg(target_os = "wasi")]
 pub use self::time::*;
 
-#[cfg(feature = "alloc")]
+#[cfg(any(feature = "alloc", not(target_family = "wasm")))]
 mod task;
-#[cfg(feature = "alloc")]
+#[cfg(any(feature = "alloc", not(target_family = "wasm")))]
 pub use self::task::*;
 
 /// A future that yields back to the runtime and continues on the next tick. It's
