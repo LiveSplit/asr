@@ -146,6 +146,7 @@ impl Module {
                     check_pos: Some(7),
                     check_byte: 0xF9,
                 };
+
                 if let Some(scan_address) = SIG_MONO_X86_64_MACHO
                     .scan_process_range(process, (root_domain_function_address, 0x100))
                     .map(|a| a + 3)

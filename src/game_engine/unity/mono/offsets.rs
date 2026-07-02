@@ -37,6 +37,8 @@ impl MonoOffsets {
                     runtime_info: 0xD0,
                     field_count: 0x100,
                     next_class_cache: 0x108,
+                    class_kind: 0x1B,
+                    generic_class: 0xF0,
                 },
                 field: FieldInfoOffsets {
                     name: 0x8,
@@ -65,6 +67,8 @@ impl MonoOffsets {
                     runtime_info: 0x7C,
                     field_count: 0x9C,
                     next_class_cache: 0xA0,
+                    class_kind: 0xF,
+                    generic_class: 0x70,
                 },
                 field: FieldInfoOffsets {
                     name: 0x4,
@@ -93,6 +97,8 @@ impl MonoOffsets {
                     runtime_info: 0xD0,
                     field_count: 0x100,
                     next_class_cache: 0x108,
+                    class_kind: 0x2A,
+                    generic_class: 0xF0,
                 },
                 field: FieldInfoOffsets {
                     name: 0x8,
@@ -121,6 +127,8 @@ impl MonoOffsets {
                     runtime_info: 0x84,
                     field_count: 0xA4,
                     next_class_cache: 0xA8,
+                    class_kind: 0x1E,
+                    generic_class: 0x94,
                 },
                 field: FieldInfoOffsets {
                     name: 0x4,
@@ -149,6 +157,9 @@ impl MonoOffsets {
                     runtime_info: 0x100,
                     field_count: 0x9C,
                     next_class_cache: 0x108,
+                    // Not a thing in V1/V1Cattrs
+                    class_kind: 0x0,
+                    generic_class: 0x0,
                 },
                 field: FieldInfoOffsets {
                     name: 0x8,
@@ -177,6 +188,9 @@ impl MonoOffsets {
                     runtime_info: 0xA8,
                     field_count: 0x68,
                     next_class_cache: 0xAC,
+                    // Not a thing in V1/V1Cattrs
+                    class_kind: 0x0,
+                    generic_class: 0x0,
                 },
                 field: FieldInfoOffsets {
                     name: 0x4,
@@ -205,6 +219,9 @@ impl MonoOffsets {
                     runtime_info: 0xF8,
                     field_count: 0x94,
                     next_class_cache: 0x100,
+                    // Not a thing in V1/V1Cattrs
+                    class_kind: 0x0,
+                    generic_class: 0x0,
                 },
                 field: FieldInfoOffsets {
                     name: 0x8,
@@ -233,6 +250,9 @@ impl MonoOffsets {
                     runtime_info: 0xA4,
                     field_count: 0x64,
                     next_class_cache: 0xA8,
+                    // Not a thing in V1/V1Cattrs
+                    class_kind: 0x0,
+                    generic_class: 0x0,
                 },
                 field: FieldInfoOffsets {
                     name: 0x4,
@@ -262,6 +282,8 @@ impl MonoOffsets {
                         runtime_info: 0xC8,
                         field_count: 0xF8,
                         next_class_cache: 0x100,
+                        class_kind: 0x1B,
+                        generic_class: 0xB0,
                     },
                     field: FieldInfoOffsets {
                         name: 0x8,
@@ -292,6 +314,8 @@ impl MonoOffsets {
                         runtime_info: 0xC8,
                         field_count: 0xF8,
                         next_class_cache: 0x100,
+                        class_kind: 0x24,
+                        generic_class: 0xF0,
                     },
                     field: FieldInfoOffsets {
                         name: 0x8,
@@ -322,6 +346,8 @@ impl MonoOffsets {
                         runtime_info: 0xF8,
                         field_count: 0x94,
                         next_class_cache: 0x100,
+                        class_kind: 0x0,
+                        generic_class: 0x0,
                     },
                     field: FieldInfoOffsets {
                         name: 0x8,
@@ -352,6 +378,8 @@ impl MonoOffsets {
                         runtime_info: 0xF0,
                         field_count: 0x8C,
                         next_class_cache: 0xF8,
+                        class_kind: 0x0,
+                        generic_class: 0x0,
                     },
                     field: FieldInfoOffsets {
                         name: 0x8,
@@ -389,7 +417,9 @@ pub(super) struct ClassOffsets {
     pub(super) vtable_size: u8, // On mono V1 and V1_cattrs, this offset represents MonoVTable.data
     pub(super) fields: u8,
     pub(super) runtime_info: u16,
+    pub(super) class_kind: u8,
     pub(super) field_count: u16,
+    pub(super) generic_class: u8,
     pub(super) next_class_cache: u16,
 }
 
