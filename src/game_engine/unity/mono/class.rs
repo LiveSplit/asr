@@ -5,6 +5,32 @@ use crate::{future::retry, string::ArrayCString, Address, Error, Process};
 
 #[cfg(feature = "derive")]
 pub use asr_derive::MonoClass as Class;
+use bytemuck::CheckedBitPattern;
+
+/// The kind of MonoClass.
+/// See https://github.com/mono/mono/blob/0f53e9e151d92944cacab3e24ac359410c606df6/mono/metadata/class-internals.h#L267
+#[derive(CheckedBitPattern, Copy, Clone, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+#[allow(unused)]
+enum MonoTypeKind {
+    /// Non-generic type
+    Def = 1,
+    /// Generic type definition
+    Gtd = 2,
+    /// Generic instantiation
+    GInst = 3,
+    /// Generic parameter
+    GParam = 4,
+    /// vector or array
+    Array = 5,
+    /// pointer or function pointer
+    Pointer = 6,
+    /// Not a real class kind, internal to Mono
+    GcFiller = 0xAC,
+
+    #[default]
+    Unknown,
+}
 
 /// A .NET class that is part of an [`Image`](Image).
 #[derive(Copy, Clone)]
@@ -36,6 +62,61 @@ impl Class {
             .and_then(|addr| process.read(addr))
     }
 
+    fn class_kind(&self, process: &Process, module: &Module) -> Result<MonoTypeKind, Error> {
+        match module.version {
+            // See https://github.com/mono/mono/blob/337052f86112fc0dc8435c5c4a2de43b399a14bb/mono/metadata/class-internals.h#L327
+            Version::V2 => {
+                let byte =
+                    process.read::<u8>(self.class + module.offsets.class.class_kind)? & 0x7u8;
+
+                if !MonoTypeKind::is_valid_bit_pattern(&byte) {
+                    return Err(Error {});
+                }
+
+                // SAFETY: We just checked if this was valid
+                let kind: MonoTypeKind = unsafe { (&raw const byte).cast::<MonoTypeKind>().read() };
+
+                Ok(kind)
+            }
+            // See https://github.com/mono/mono/blob/0f53e9e151d92944cacab3e24ac359410c606df6/mono/metadata/class-private-definition.h#L28
+            Version::V3 => {
+                process.read::<MonoTypeKind>(self.class + module.offsets.class.class_kind)
+            }
+            _ => Err(Error {}),
+        }
+    }
+
+    fn field_count(&self, process: &Process, module: &Module) -> Result<i32, Error> {
+        match module.version {
+            Version::V1 | Version::V1Cattrs => {
+                process.read::<i32>(self.class + module.offsets.class.field_count)
+            }
+            Version::V2 | Version::V3 => {
+                let class_kind = self.class_kind(process, module)?;
+
+                // See https://github.com/mono/mono/blob/0f53e9e151d92944cacab3e24ac359410c606df6/mono/metadata/class-accessors.c#L216
+                match class_kind {
+                    MonoTypeKind::Def | MonoTypeKind::Gtd => {
+                        process.read::<i32>(self.class + module.offsets.class.field_count)
+                    }
+                    MonoTypeKind::GInst => {
+                        let generic_class = process.read_pointer(
+                            self.class + module.offsets.class.generic_class,
+                            module.get_pointer_size(),
+                        )?;
+                        let container_class = Class {
+                            class: process
+                                .read_pointer(generic_class + 0x0, module.get_pointer_size())?,
+                        };
+
+                        container_class.field_count(process, module)
+                    }
+                    _ => Ok(0),
+                }
+            }
+        }
+    }
+
     fn fields<'a>(
         &'a self,
         process: &'a Process,
@@ -61,8 +142,8 @@ impl Class {
             // Prepare for next iteration
             this_class = class.get_parent(process, module);
 
-            let field_count = process
-                .read::<i32>(class.class + module.offsets.class.field_count)
+            let field_count = class
+                .field_count(process, module)
                 .ok()
                 .filter(|&val| val > 0)
                 .unwrap_or_default();
