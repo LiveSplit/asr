@@ -33,6 +33,27 @@ extern "C" fn process_attach(_name_ptr: *const u8, _name_len: usize) -> Option<N
 extern "C" fn process_detach(_process: u64) {}
 
 #[no_mangle]
+extern "C" fn process_get_memory_range_count(_process: u64) -> Option<NonZeroU64> {
+    MEMORY.with(|memory| NonZeroU64::new(memory.borrow().len() as u64))
+}
+
+#[no_mangle]
+extern "C" fn process_get_memory_range_address(_process: u64, idx: u64) -> Option<NonZeroU64> {
+    MEMORY.with(|memory| {
+        let memory = memory.borrow();
+        NonZeroU64::new(memory.get(idx as usize)?.0)
+    })
+}
+
+#[no_mangle]
+extern "C" fn process_get_memory_range_size(_process: u64, idx: u64) -> Option<NonZeroU64> {
+    MEMORY.with(|memory| {
+        let memory = memory.borrow();
+        NonZeroU64::new(memory.get(idx as usize)?.1.len() as u64)
+    })
+}
+
+#[no_mangle]
 extern "C" fn process_read(_process: u64, address: u64, buf_ptr: *mut u8, buf_len: usize) -> bool {
     MEMORY.with(|memory| {
         memory.borrow().iter().any(|(start, bytes)| {
@@ -61,6 +82,21 @@ extern "C" fn process_read(_process: u64, address: u64, buf_ptr: *mut u8, buf_le
 #[cfg(test)]
 mod tests {
     use super::with_process;
+    use crate::Address;
+
+    #[test]
+    fn ranges_mirror_the_regions() {
+        with_process(&[(0x1000, &[1, 2]), (0x4000, &[3, 4, 5])], |process| {
+            let mut ranges = process.memory_ranges();
+            let range = ranges.next().unwrap();
+            assert_eq!(range.address().unwrap(), Address::new(0x1000));
+            assert_eq!(range.size().unwrap(), 2);
+            let range = ranges.next().unwrap();
+            assert_eq!(range.address().unwrap(), Address::new(0x4000));
+            assert_eq!(range.size().unwrap(), 3);
+            assert!(ranges.next().is_none());
+        });
+    }
 
     #[test]
     fn reads_come_from_the_regions() {
