@@ -1,9 +1,13 @@
 //! Support for attaching to Unity games that are using the IL2CPP backend.
 
-use crate::{file_format::pe, future::retry, signature::Signature, Address, PointerSize, Process};
+use crate::{
+    file_format::pe, future::retry, print_limited, signature::Signature, Address, PointerSize,
+    Process,
+};
 
 mod assembly;
 use assembly::Assembly;
+mod builds;
 mod image;
 pub use image::Image;
 mod class;
@@ -29,13 +33,49 @@ pub struct Module {
 }
 
 impl Module {
-    /// Tries attaching to a Unity game that is using the IL2CPP backend. This
-    /// function automatically detects the [IL2CPP version](Version). If you
-    /// know the version in advance or it fails detecting it, use
-    /// [`attach`](Self::attach) instead.
+    /// Tries attaching to a Unity game that is using the IL2CPP backend. If
+    /// the game's metadata and Unity versions name a known build, its measured
+    /// offsets are used directly. Otherwise this function automatically
+    /// detects the [IL2CPP version](Version). If you know the version in
+    /// advance or it fails detecting it, use [`attach`](Self::attach) instead.
     pub fn attach_auto_detect(process: &Process) -> Option<Self> {
+        let il2cpp_module = Self::find_runtime_module(process)?;
+        let pointer_size = pe::MachineType::read(process, il2cpp_module.0)?.pointer_size()?;
+
+        let identity = Self::identity(process);
+
+        if let Some((metadata, unity)) = identity {
+            if let Some(build) = builds::find(metadata, unity, pointer_size) {
+                if let Some(module) = Self::attach_with(
+                    process,
+                    il2cpp_module,
+                    pointer_size,
+                    build.version,
+                    &build.offsets,
+                ) {
+                    print_limited::<128>(&format_args!(
+                        "known il2cpp build: metadata {metadata}, unity {}.{}",
+                        unity.0, unity.1,
+                    ));
+                    return Some(module);
+                }
+            }
+        }
+
         let version = Version::detect(process)?;
-        Self::attach(process, version)
+        let module = Self::attach(process, version)?;
+
+        match identity {
+            Some((metadata, unity)) if builds::find(metadata, unity, pointer_size).is_none() => {
+                print_limited::<128>(&format_args!(
+                    "unknown il2cpp build: metadata {metadata}, unity {}.{}",
+                    unity.0, unity.1,
+                ));
+            }
+            _ => {}
+        }
+
+        Some(module)
     }
 
     /// Tries attaching to a Unity game that is using the IL2CPP backend with
@@ -43,15 +83,51 @@ impl Module {
     /// correct for this function to work. If you don't know the version in
     /// advance, use [`attach_auto_detect`](Self::attach_auto_detect) instead.
     pub fn attach(process: &Process, version: Version) -> Option<Self> {
-        let il2cpp_module = {
-            let address = process.get_module_address("GameAssembly.dll").ok()?;
-            let size = pe::read_size_of_image(process, address)? as u64;
-            (address, size)
-        };
-
+        let il2cpp_module = Self::find_runtime_module(process)?;
         let pointer_size = pe::MachineType::read(process, il2cpp_module.0)?.pointer_size()?;
         let offsets = IL2CPPOffsets::new(version, pointer_size)?;
 
+        Self::attach_with(process, il2cpp_module, pointer_size, version, offsets)
+    }
+
+    fn find_runtime_module(process: &Process) -> Option<(Address, u64)> {
+        let address = process.get_module_address("GameAssembly.dll").ok()?;
+        let size = pe::read_size_of_image(process, address)? as u64;
+        Some((address, size))
+    }
+
+    /// What identifies the game's IL2CPP layout: the version of its mapped
+    /// `global-metadata.dat` and the Unity version stamped on the player.
+    fn identity(process: &Process) -> Option<(u32, (u16, u16))> {
+        let metadata = Self::metadata_version(process)?;
+
+        let unity_player = process.get_module_address("UnityPlayer.dll").ok()?;
+        let file_version = pe::FileVersion::read(process, unity_player)?;
+
+        Some((
+            metadata,
+            (file_version.major_version, file_version.minor_version),
+        ))
+    }
+
+    /// Reads the version of the game's metadata. The mapped
+    /// `global-metadata.dat` starts with a sanity value, then the version.
+    fn metadata_version(process: &Process) -> Option<u32> {
+        process.memory_ranges().find_map(|range| {
+            let [sanity, version] = process.read::<[u32; 2]>(range.address().ok()?).ok()?;
+            // Versions are small numbers. Unity 6 renumbered them and reaches
+            // the low hundreds.
+            (sanity == 0xFAB1_1BAF && (16..=999).contains(&version)).then_some(version)
+        })
+    }
+
+    fn attach_with(
+        process: &Process,
+        il2cpp_module: (Address, u64),
+        pointer_size: PointerSize,
+        version: Version,
+        offsets: &'static IL2CPPOffsets,
+    ) -> Option<Self> {
         let assemblies: Address = {
             const ASSEMBLIES: Signature<12> = Signature::new("75 ?? 48 8B 1D ?? ?? ?? ?? 48 3B 1D");
             ASSEMBLIES
@@ -203,5 +279,26 @@ impl Module {
     #[inline]
     const fn size_of_ptr(&self) -> u64 {
         self.pointer_size as u64
+    }
+}
+
+#[cfg(all(test, not(target_family = "wasm")))]
+mod tests {
+    use super::Module;
+    use crate::runtime::mock::with_process;
+
+    #[test]
+    fn reads_the_metadata_version_off_the_mapped_file() {
+        let mapped = [0xAF_u8, 0x1B, 0xB1, 0xFA, 39, 0, 0, 0];
+        // The sanity value with nothing sane behind it must not answer.
+        let stray = [0xAF_u8, 0x1B, 0xB1, 0xFA, 0, 0, 0, 0];
+
+        with_process(&[(0x10000, &stray), (0x20000, &mapped)], |process| {
+            assert_eq!(Module::metadata_version(process), Some(39));
+        });
+
+        with_process(&[(0x10000, &stray)], |process| {
+            assert!(Module::metadata_version(process).is_none());
+        });
     }
 }
