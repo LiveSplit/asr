@@ -27,7 +27,7 @@ impl Version {
         let file_version = pe::FileVersion::read(process, unity_module)?;
 
         return Some(
-            if file_version.major_version > 2023
+            if file_version.major_version > 2022
                 || (file_version.major_version == 2022 && file_version.minor_version >= 2)
             {
                 Self::V2022
