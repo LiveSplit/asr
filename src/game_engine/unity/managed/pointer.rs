@@ -68,8 +68,25 @@ impl<const CAP: usize> PointerPath<CAP> {
             }
         };
 
-        if inner.base_address.is_null() {
-            inner.base_address = walk.static_table(process, starting_class).ok_or(Error {})?;
+        let parse = |field: &str| match field.strip_prefix("0x") {
+            Some(rem) => u32::from_str_radix(rem, 16).ok(),
+            _ => field.parse().ok(),
+        };
+
+        // The root field and the base table resolve together: the root's
+        // offset measures into the static table of whichever class declares
+        // it, which a climb may find on a parent.
+        if inner.resolved_offsets == 0 {
+            let (declaring, offset) = match parse(inner.fields[0]) {
+                Some(offset) => (starting_class, offset),
+                _ => walk
+                    .find_field_offset(process, starting_class, inner.fields[0])
+                    .ok_or(Error {})?,
+            };
+
+            inner.base_address = walk.static_table(process, declaring).ok_or(Error {})?;
+            inner.offsets[0] = offset;
+            inner.resolved_offsets = 1;
         }
 
         // Whatever resolved already is walked again from the base, which is
@@ -83,18 +100,11 @@ impl<const CAP: usize> PointerPath<CAP> {
         };
 
         for i in inner.resolved_offsets..inner.depth {
-            let offset_from_string = match inner.fields[i].strip_prefix("0x") {
-                Some(rem) => u32::from_str_radix(rem, 16).ok(),
-                _ => inner.fields[i].parse().ok(),
-            };
-
-            let current_offset = match offset_from_string {
+            let current_offset = match parse(inner.fields[i]) {
                 Some(offset) => offset,
                 _ => {
-                    let current_class = match i {
-                        0 => starting_class,
-                        _ => walk.object_class(process, current_object).ok_or(Error {})?,
-                    };
+                    let current_class =
+                        walk.object_class(process, current_object).ok_or(Error {})?;
 
                     walk.find_field_offset(process, current_class, inner.fields[i])
                         .ok_or(Error {})?

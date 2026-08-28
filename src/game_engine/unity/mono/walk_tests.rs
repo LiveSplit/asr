@@ -9,8 +9,10 @@ use super::offsets::{
 };
 use super::{builds, BinaryFormat, Module, MonoOffsets, UnityPointer, Version};
 use crate::file_format::pe::DebugId;
-use crate::runtime::mock::with_process;
+use crate::runtime::mock::{poll_once, with_process};
 use crate::{Address, PointerSize, Process};
+
+use core::task::Poll;
 
 use std::vec;
 use std::vec::Vec;
@@ -28,7 +30,7 @@ fn ptr(image: &mut [u8], at: u64, target: u64) {
 
 // The target's structures, hand-laid. Two assemblies whose GList the walk
 // follows, a class cache of two buckets with one chained class, a parent chain
-// reaching a UnityEngine class, a static table reachable through the vtable,
+// reaching a UnityEngine class, static tables reachable through the vtables,
 // and a live object carrying its class through its vtable.
 fn image() -> Vec<u8> {
     let mut i = vec![0; 0x4000];
@@ -51,6 +53,7 @@ fn image() -> Vec<u8> {
         (0x2680, "instance"),
         (0x2700, "Outer"),
         (0x2780, "Inner"),
+        (0x2800, "spawner"),
         (0x2B00, "Inventory"),
         (0x2B80, "items"),
     ];
@@ -106,22 +109,29 @@ fn image() -> Vec<u8> {
     ptr(&mut i, 0x1440 + 0x8, BASE + 0x2280); // <Health>k__BackingField
     put(&mut i, 0x1440 + 0x18, &0x24_i32.to_le_bytes());
 
-    // Enemy, with one field and Boss chained behind it in the bucket.
+    // Enemy, with an instance field and a static slot, and Boss chained
+    // behind it in the bucket.
     let enemy = 0xE00;
     ptr(&mut i, enemy + 0x48, BASE + 0x2300);
     ptr(&mut i, enemy + 0x50, BASE + 0x2180);
+    put(&mut i, enemy + 0x5C, &1_i32.to_le_bytes());
     ptr(&mut i, enemy + 0x98, BASE + 0x1500);
-    put(&mut i, enemy + 0x100, &1_i32.to_le_bytes());
+    ptr(&mut i, enemy + 0xD0, BASE + 0x1620);
+    put(&mut i, enemy + 0x100, &2_i32.to_le_bytes());
     ptr(&mut i, enemy + 0x108, BASE + 0x1000);
     ptr(&mut i, 0x1500 + 0x8, BASE + 0x2380); // hp
     put(&mut i, 0x1500 + 0x18, &0x10_i32.to_le_bytes());
+    ptr(&mut i, 0x1520 + 0x8, BASE + 0x2800); // spawner
+    put(&mut i, 0x1520 + 0x18, &0x8_i32.to_le_bytes());
 
     // Boss, deriving from Enemy, with one field of its own.
     let boss = 0x1000;
     ptr(&mut i, boss + 0x30, BASE + enemy);
     ptr(&mut i, boss + 0x48, BASE + 0x2400);
     ptr(&mut i, boss + 0x50, BASE + 0x2180);
+    put(&mut i, boss + 0x5C, &2_i32.to_le_bytes());
     ptr(&mut i, boss + 0x98, BASE + 0x1540);
+    ptr(&mut i, boss + 0xD0, BASE + 0x1650);
     put(&mut i, boss + 0x100, &1_i32.to_le_bytes());
     ptr(&mut i, 0x1540 + 0x8, BASE + 0x2480); // phase
     put(&mut i, 0x1540 + 0x18, &0x18_i32.to_le_bytes());
@@ -169,6 +179,15 @@ fn image() -> Vec<u8> {
     ptr(&mut i, 0x1600 + 0x8, BASE + 0x1700);
     ptr(&mut i, 0x1700 + 0x40 + 8 * 5, BASE + 0x1800);
     ptr(&mut i, 0x1800, BASE + 0x1900);
+
+    // Enemy's statics, holding the spawner instance. Boss carries a table of
+    // its own, empty at that offset, so only the declaring class's table
+    // answers.
+    ptr(&mut i, 0x1620 + 0x8, BASE + 0x1780);
+    ptr(&mut i, 0x1780 + 0x40 + 8, BASE + 0x1880);
+    ptr(&mut i, 0x1880 + 0x8, BASE + 0x1980);
+    ptr(&mut i, 0x1650 + 0x8, BASE + 0x1A40);
+    ptr(&mut i, 0x1A40 + 0x40 + 8 * 2, BASE + 0x1AC0);
 
     // The instance object: its vtable heads it, and the vtable's own head is
     // the class. The points field holds a recognizable value.
@@ -366,8 +385,28 @@ fn statics_resolve_through_the_vtable() {
             Some(Address::new(BASE + 0x1800)),
         );
 
+        let outer = image.get_class(process, module, "Game.Outer").unwrap();
+        assert!(outer.get_static_table(process, module).is_none());
+    });
+}
+
+// A static field found on a parent measures into the parent's own static
+// table, not the table of the class the lookup started at.
+#[test]
+fn static_instances_resolve_through_the_declaring_class() {
+    on_fixture(era(), |process, module| {
+        let image = module.get_default_image(process).unwrap();
         let boss = image.get_class(process, module, "Boss").unwrap();
-        assert!(boss.get_static_table(process, module).is_none());
+        assert_eq!(
+            poll_once(boss.wait_get_static_instance(process, module, "spawner")),
+            Poll::Ready(Address::new(BASE + 0x1980)),
+        );
+
+        let pointer = UnityPointer::<1>::new("Boss", 0, &["spawner"]);
+        assert_eq!(
+            pointer.deref::<u64>(process, module, &image).unwrap(),
+            BASE + 0x1980,
+        );
     });
 }
 

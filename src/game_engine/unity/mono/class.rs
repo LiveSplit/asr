@@ -35,15 +35,16 @@ impl Class {
         module: &Module,
         field_name: &str,
     ) -> Address {
-        let static_table = self.wait_get_static_table(process, module).await;
-        let field_offset = self
-            .wait_get_field_offset(process, module, field_name)
-            .await;
-        let singleton_location = static_table + field_offset;
-
+        // The field's offset measures into the static table of whichever
+        // class declares it, which a climb may find on a parent.
         retry(|| {
+            let walk = module.walk();
+            let (class, offset) =
+                walk.find_field_offset(process, ClassRef::new(self.class), field_name)?;
+            let static_table = walk.static_table(process, class)?;
+
             process
-                .read_pointer(singleton_location, module.pointer_size)
+                .read_pointer(static_table + offset, module.pointer_size)
                 .ok()
                 .filter(|addr| !addr.is_null())
         })

@@ -5,8 +5,10 @@
 //! so the walk is checked against the layout rather than against itself.
 
 use super::{IL2CPPOffsets, Module, UnityPointer, Version};
-use crate::runtime::mock::with_process;
+use crate::runtime::mock::{poll_once, with_process};
 use crate::{Address, PointerSize, Process};
+
+use core::task::Poll;
 
 use std::vec;
 use std::vec::Vec;
@@ -476,6 +478,7 @@ fn image(version: Version) -> Vec<u8> {
         (0x2600, "instance"),
         (0x2700, "Outer"),
         (0x2780, "Inner"),
+        (0x2800, "spawner"),
     ];
     for (at, text) in strings {
         put(&mut i, at, text.as_bytes());
@@ -530,20 +533,25 @@ fn image(version: Version) -> Vec<u8> {
     ptr(&mut i, 0xE20, BASE + 0x2200); // points
     put(&mut i, 0xE20 + 0x18, &0x20_i32.to_le_bytes());
 
-    // Enemy, and Boss deriving from it.
+    // Enemy with an instance field and a static slot, and Boss deriving from
+    // it.
     let enemy = 0x800;
     ptr(&mut i, enemy + 0x10, BASE + 0x2280);
     ptr(&mut i, enemy + 0x18, BASE + 0x2180);
     ptr(&mut i, enemy + 0x80, BASE + 0xE80);
-    put(&mut i, enemy + field_count_at, &1_u16.to_le_bytes());
+    ptr(&mut i, enemy + 0xB8, BASE + 0xFC0);
+    put(&mut i, enemy + field_count_at, &2_u16.to_le_bytes());
     ptr(&mut i, 0xE80, BASE + 0x2300); // hp
     put(&mut i, 0xE80 + 0x18, &0x10_i32.to_le_bytes());
+    ptr(&mut i, 0xEA0, BASE + 0x2800); // spawner
+    put(&mut i, 0xEA0 + 0x18, &0x8_i32.to_le_bytes());
 
     let boss = 0xA00;
     ptr(&mut i, boss + 0x10, BASE + 0x2380);
     ptr(&mut i, boss + 0x18, BASE + 0x2180);
     ptr(&mut i, boss + 0x58, BASE + enemy);
     ptr(&mut i, boss + 0x80, BASE + 0xEC0);
+    ptr(&mut i, boss + 0xB8, BASE + 0x1000);
     put(&mut i, boss + field_count_at, &1_u16.to_le_bytes());
     ptr(&mut i, 0xEC0, BASE + 0x2400); // phase
     put(&mut i, 0xEC0 + 0x18, &0x18_i32.to_le_bytes());
@@ -577,6 +585,10 @@ fn image(version: Version) -> Vec<u8> {
     ptr(&mut i, 0xF40, BASE + 0xF80);
     ptr(&mut i, 0xF80, BASE + game_manager);
     put(&mut i, 0xF80 + 0x20, &888_u32.to_le_bytes());
+
+    // Enemy's statics hold the spawner instance. Boss carries a table of its
+    // own, empty at that offset, so only the declaring class's table answers.
+    ptr(&mut i, 0xFC0 + 0x8, BASE + 0x1080);
 
     i
 }
@@ -692,6 +704,26 @@ fn statics_resolve_from_the_class() {
         assert_eq!(
             game_manager.get_static_table(process, module),
             Some(Address::new(BASE + 0xF40)),
+        );
+    });
+}
+
+// A static field found on a parent measures into the parent's own static
+// table, not the table of the class the lookup started at.
+#[test]
+fn static_instances_resolve_through_the_declaring_class() {
+    on_fixture(Version::V2022, |process, module| {
+        let image = module.get_default_image(process).unwrap();
+        let boss = image.get_class(process, module, "Boss").unwrap();
+        assert_eq!(
+            poll_once(boss.wait_get_static_instance(process, module, "spawner")),
+            Poll::Ready(Address::new(BASE + 0x1080)),
+        );
+
+        let pointer = UnityPointer::<1>::new("Boss", 0, &["spawner"]);
+        assert_eq!(
+            pointer.deref::<u64>(process, module, &image).unwrap(),
+            BASE + 0x1080,
         );
     });
 }
