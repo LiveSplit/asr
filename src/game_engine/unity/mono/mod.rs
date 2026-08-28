@@ -27,6 +27,8 @@ mod pointer;
 pub use pointer::UnityPointer;
 mod offsets;
 use offsets::MonoOffsets;
+#[cfg(all(test, not(target_family = "wasm")))]
+mod walk_tests;
 
 use super::{BinaryFormat, CSTR};
 
