@@ -18,7 +18,7 @@ impl IL2CPPOffsets {
                     },
                     image: ImageOffsets {
                         type_count: 0x18,
-                        matadata_handle: 0x28,
+                        metadata_handle: 0x28,
                     },
                     class: ClassOffsets {
                         name: 0x10,
@@ -41,7 +41,7 @@ impl IL2CPPOffsets {
                     },
                     image: ImageOffsets {
                         type_count: 0x18,
-                        matadata_handle: 0x28,
+                        metadata_handle: 0x28,
                     },
                     class: ClassOffsets {
                         name: 0x10,
@@ -64,7 +64,7 @@ impl IL2CPPOffsets {
                     },
                     image: ImageOffsets {
                         type_count: 0x1C,
-                        matadata_handle: 0x18,
+                        metadata_handle: 0x18,
                     },
                     class: ClassOffsets {
                         name: 0x10,
@@ -87,7 +87,7 @@ impl IL2CPPOffsets {
                     },
                     image: ImageOffsets {
                         type_count: 0x1C,
-                        matadata_handle: 0x18,
+                        metadata_handle: 0x18,
                     },
                     class: ClassOffsets {
                         name: 0x10,
@@ -116,7 +116,7 @@ pub(super) struct AssemblyOffsets {
 
 pub(super) struct ImageOffsets {
     pub(super) type_count: u8,
-    pub(super) matadata_handle: u8,
+    pub(super) metadata_handle: u8,
 }
 
 pub(super) struct ClassOffsets {

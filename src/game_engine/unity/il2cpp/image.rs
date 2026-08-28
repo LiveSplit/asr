@@ -23,11 +23,11 @@ impl Image {
         let metadata_ptr = match (type_count, module.version) {
             (0, _) => Address::NULL,
             (_, Version::Base | Version::V2019) => {
-                self.image + module.offsets.image.matadata_handle
+                self.image + module.offsets.image.metadata_handle
             }
             (_, _) => process
                 .read_pointer(
-                    self.image + module.offsets.image.matadata_handle,
+                    self.image + module.offsets.image.metadata_handle,
                     module.pointer_size,
                 )
                 .unwrap_or_default(),
