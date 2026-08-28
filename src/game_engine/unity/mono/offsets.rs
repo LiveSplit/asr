@@ -29,7 +29,6 @@ impl MonoOffsets {
                 },
                 class: ClassOffsets {
                     parent: 0x30,
-                    image: 0x40,
                     name: 0x48,
                     namespace: 0x50,
                     vtable_size: 0x5C,
@@ -57,7 +56,6 @@ impl MonoOffsets {
                 },
                 class: ClassOffsets {
                     parent: 0x20,
-                    image: 0x28,
                     name: 0x2C,
                     namespace: 0x30,
                     vtable_size: 0x38,
@@ -85,7 +83,6 @@ impl MonoOffsets {
                 },
                 class: ClassOffsets {
                     parent: 0x30,
-                    image: 0x40,
                     name: 0x48,
                     namespace: 0x50,
                     vtable_size: 0x5C,
@@ -113,7 +110,6 @@ impl MonoOffsets {
                 },
                 class: ClassOffsets {
                     parent: 0x20,
-                    image: 0x28,
                     name: 0x2C,
                     namespace: 0x30,
                     vtable_size: 0x38,
@@ -141,7 +137,6 @@ impl MonoOffsets {
                 },
                 class: ClassOffsets {
                     parent: 0x30,
-                    image: 0x48,
                     name: 0x50,
                     namespace: 0x58,
                     vtable_size: 0x18,
@@ -169,7 +164,6 @@ impl MonoOffsets {
                 },
                 class: ClassOffsets {
                     parent: 0x24,
-                    image: 0x30,
                     name: 0x34,
                     namespace: 0x38,
                     vtable_size: 0xC,
@@ -197,7 +191,6 @@ impl MonoOffsets {
                 },
                 class: ClassOffsets {
                     parent: 0x30,
-                    image: 0x40,
                     name: 0x48,
                     namespace: 0x50,
                     vtable_size: 0x18,
@@ -225,7 +218,6 @@ impl MonoOffsets {
                 },
                 class: ClassOffsets {
                     parent: 0x24,
-                    image: 0x2C,
                     name: 0x30,
                     namespace: 0x34,
                     vtable_size: 0xC,
@@ -253,7 +245,6 @@ impl MonoOffsets {
                 },
                 class: ClassOffsets {
                     parent: 0x28,
-                    image: 0x38,
                     name: 0x40,
                     namespace: 0x48,
                     vtable_size: 0x54,
@@ -281,7 +272,6 @@ impl MonoOffsets {
                 },
                 class: ClassOffsets {
                     parent: 0x28,
-                    image: 0x38,
                     name: 0x40,
                     namespace: 0x48,
                     vtable_size: 0x54,
@@ -309,7 +299,6 @@ impl MonoOffsets {
                 },
                 class: ClassOffsets {
                     parent: 0x28,
-                    image: 0x40,
                     name: 0x48,
                     namespace: 0x50,
                     vtable_size: 0x18,
@@ -337,7 +326,6 @@ impl MonoOffsets {
                 },
                 class: ClassOffsets {
                     parent: 0x28,
-                    image: 0x38,
                     name: 0x40,
                     namespace: 0x48,
                     vtable_size: 0x18,
@@ -374,8 +362,6 @@ pub(super) struct HashTableOffsets {
 
 pub(super) struct ClassOffsets {
     pub(super) parent: u8,
-    #[allow(unused)]
-    pub(super) image: u8, // Unused for now, kept in the struct for future use
     pub(super) name: u8,
     pub(super) namespace: u8,
     pub(super) vtable_size: u8, // On mono V1 and V1_cattrs, this offset represents MonoVTable.data
