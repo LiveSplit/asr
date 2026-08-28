@@ -6,12 +6,14 @@ use crate::file_format::macho;
 use crate::{
     file_format::{elf, pe},
     future::retry,
+    print_limited,
     signature::Signature,
     Address, Address32, Address64, PointerSize, Process,
 };
 use core::iter::{self, FusedIterator};
 
 mod assembly;
+mod builds;
 use assembly::Assembly;
 mod image;
 pub use image::Image;
@@ -38,12 +40,47 @@ pub struct Module {
 
 impl Module {
     /// Tries attaching to a Unity game that is using the standard Mono backend.
-    /// This function automatically detects the [Mono version](Version). If you
-    /// know the version in advance or it fails detecting it, use
+    /// If the mono runtime is a known build, this function uses the offsets
+    /// from its PDB. Otherwise this function detects the [Mono version](Version).
+    /// If you know the version in advance or it fails detecting it, use
     /// [`attach`](Self::attach) instead.
     pub fn attach_auto_detect(process: &Process) -> Option<Self> {
+        let (module_range, format) = Self::find_runtime_module(process)?;
+        let pointer_size = Self::pointer_size(process, module_range, format)?;
+
+        let debug_id = match format {
+            BinaryFormat::PE => pe::DebugId::read(process, module_range.0),
+            _ => None,
+        };
+
+        if let Some(debug_id) = &debug_id {
+            if let Some(build) =
+                builds::find(debug_id).filter(|build| build.pointer_size == pointer_size)
+            {
+                if let Some(module) = Self::attach_with(
+                    process,
+                    module_range,
+                    format,
+                    pointer_size,
+                    build.version,
+                    &build.offsets,
+                ) {
+                    print_limited::<128>(&format_args!("known mono build: {debug_id:?}"));
+                    return Some(module);
+                }
+            }
+        }
+
         let version = Version::detect(process)?;
-        Self::attach(process, version)
+        let module = Self::attach(process, version)?;
+
+        if let Some(debug_id) = debug_id {
+            if builds::find(&debug_id).is_none() {
+                print_limited::<128>(&format_args!("unknown mono build: {debug_id:?}"));
+            }
+        }
+
+        Some(module)
     }
 
     /// Tries attaching to a Unity game that is using the standard Mono backend
@@ -51,7 +88,22 @@ impl Module {
     /// correct for this function to work. If you don't know the version in
     /// advance, use [`attach_auto_detect`](Self::attach_auto_detect) instead.
     pub fn attach(process: &Process, version: Version) -> Option<Self> {
-        let (module_range, format) = [
+        let (module_range, format) = Self::find_runtime_module(process)?;
+        let pointer_size = Self::pointer_size(process, module_range, format)?;
+        let offsets = MonoOffsets::new(version, pointer_size, format)?;
+
+        Self::attach_with(
+            process,
+            module_range,
+            format,
+            pointer_size,
+            version,
+            offsets,
+        )
+    }
+
+    fn find_runtime_module(process: &Process) -> Option<((Address, u64), BinaryFormat)> {
+        [
             ("mono.dll", BinaryFormat::PE),
             ("libmono.so", BinaryFormat::ELF),
             #[cfg(feature = "alloc")]
@@ -62,20 +114,33 @@ impl Module {
             ("libmonobdwgc-2.0.dylib", BinaryFormat::MachO),
         ]
         .into_iter()
-        .find_map(|(name, format)| Some((process.get_module_range(name).ok()?, format)))?;
+        .find_map(|(name, format)| Some((process.get_module_range(name).ok()?, format)))
+    }
 
-        let (mono_module, _) = module_range;
-
-        let pointer_size = match format {
-            BinaryFormat::PE => pe::MachineType::read(process, mono_module)?.pointer_size()?,
-            BinaryFormat::ELF => elf::pointer_size(process, mono_module)?,
+    fn pointer_size(
+        process: &Process,
+        module_range: (Address, u64),
+        format: BinaryFormat,
+    ) -> Option<PointerSize> {
+        match format {
+            BinaryFormat::PE => pe::MachineType::read(process, module_range.0)?.pointer_size(),
+            BinaryFormat::ELF => elf::pointer_size(process, module_range.0),
             #[cfg(feature = "alloc")]
-            BinaryFormat::MachO => macho::pointer_size(process, module_range)?,
+            BinaryFormat::MachO => macho::pointer_size(process, module_range),
             #[allow(unreachable_patterns)]
-            _ => return None,
-        };
+            _ => None,
+        }
+    }
 
-        let offsets = MonoOffsets::new(version, pointer_size, format)?;
+    fn attach_with(
+        process: &Process,
+        module_range: (Address, u64),
+        format: BinaryFormat,
+        pointer_size: PointerSize,
+        version: Version,
+        offsets: &'static MonoOffsets,
+    ) -> Option<Self> {
+        let (mono_module, _) = module_range;
 
         let root_domain_function_address = match format {
             BinaryFormat::PE => {
