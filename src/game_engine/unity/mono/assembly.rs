@@ -12,11 +12,19 @@ impl Assembly {
         process: &Process,
         module: &Module,
     ) -> Result<ArrayCString<N>, Error> {
+        let name = match (
+            module.offsets.image.assembly_name,
+            module.offsets.assembly.aname,
+        ) {
+            (Some(assembly_name), _) => {
+                self.get_image(process, module).ok_or(Error {})?.image + assembly_name
+            }
+            (_, Some(aname)) => self.assembly + aname,
+            _ => return Err(Error {}),
+        };
+
         process
-            .read_pointer(
-                self.assembly + module.offsets.assembly.aname,
-                module.pointer_size,
-            )
+            .read_pointer(name, module.pointer_size)
             .and_then(|addr| process.read(addr))
     }
 
