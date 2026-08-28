@@ -454,6 +454,7 @@ fn ptr(image: &mut [u8], at: u64, target: u64) {
 fn image(version: Version) -> Vec<u8> {
     let (type_count_at, handle_at, field_count_at) = match version {
         Version::V2019 => (0x1C, 0x18, 0x11C),
+        Version::V2020 => (0x18, 0x28, 0x120),
         _ => (0x18, 0x28, 0x124),
     };
 
@@ -473,6 +474,8 @@ fn image(version: Version) -> Vec<u8> {
         (0x2500, "UnityEngine"),
         (0x2580, "hidden"),
         (0x2600, "instance"),
+        (0x2700, "Outer"),
+        (0x2780, "Inner"),
     ];
     for (at, text) in strings {
         put(&mut i, at, text.as_bytes());
@@ -492,7 +495,7 @@ fn image(version: Version) -> Vec<u8> {
 
     // The default image: three classes, reached through the handle. The older
     // lineage stores the handle inline where the newer one points at it.
-    put(&mut i, 0x300 + type_count_at, &3_u32.to_le_bytes());
+    put(&mut i, 0x300 + type_count_at, &5_u32.to_le_bytes());
     match version {
         Version::V2019 => put(&mut i, 0x300 + handle_at, &5_u32.to_le_bytes()),
         _ => {
@@ -506,6 +509,8 @@ fn image(version: Version) -> Vec<u8> {
     ptr(&mut i, 0x480 + 8 * 5, BASE + 0x600);
     ptr(&mut i, 0x480 + 8 * 6, BASE + 0x800);
     ptr(&mut i, 0x480 + 8 * 7, BASE + 0xA00);
+    ptr(&mut i, 0x480 + 8 * 8, BASE + 0x1200);
+    ptr(&mut i, 0x480 + 8 * 9, BASE + 0x1400);
 
     // Il2CppClass: name 0x10, namespace 0x18, parent 0x58, fields 0x80,
     // static_fields 0xB8, field_count where the lineage keeps it. Field
@@ -557,6 +562,16 @@ fn image(version: Version) -> Vec<u8> {
     ptr(&mut i, 0xF00, BASE + 0x2580); // hidden
     put(&mut i, 0xF00 + 0x18, &0x30_i32.to_le_bytes());
 
+    // Outer in Game, enclosing Inner, whose own namespace is empty and whose
+    // declaring type points back out.
+    let outer = 0x1200;
+    ptr(&mut i, outer + 0x10, BASE + 0x2700);
+    ptr(&mut i, outer + 0x18, BASE + 0x2180);
+    let inner = 0x1400;
+    ptr(&mut i, inner + 0x10, BASE + 0x2780);
+    ptr(&mut i, inner + 0x18, BASE + 0x27F0);
+    ptr(&mut i, inner + 0x50, BASE + outer);
+
     // GameManager's statics hold the live instance, which heads with its
     // class.
     ptr(&mut i, 0xF40, BASE + 0xF80);
@@ -602,7 +617,7 @@ fn classes_resolve_by_name_and_namespace() {
             assert!(image.get_class(process, module, "Game.Boss").is_some());
             assert!(image.get_class(process, module, "Wrong.Boss").is_none());
             assert!(image.get_class(process, module, "Nothing").is_none());
-            assert_eq!(image.classes(process, module).count(), 3);
+            assert_eq!(image.classes(process, module).count(), 5);
         });
     }
 }
@@ -620,6 +635,39 @@ fn field_offsets_resolve_declared_and_inherited() {
         let boss = image.get_class(process, module, "Boss").unwrap();
         assert_eq!(boss.get_field_offset(process, module, "phase"), Some(0x18));
         assert_eq!(boss.get_field_offset(process, module, "hp"), Some(0x10));
+    });
+}
+
+#[test]
+fn nested_classes_resolve_by_their_written_name() {
+    on_fixture(Version::V2022, |process, module| {
+        let image = module.get_default_image(process).unwrap();
+        assert!(image
+            .get_class(process, module, "Game.Outer+Inner")
+            .is_some());
+        assert!(image
+            .get_class(process, module, "Game.Outer+Missing")
+            .is_none());
+        assert!(image
+            .get_class(process, module, "Wrong.Outer+Inner")
+            .is_none());
+        assert!(image
+            .get_class(process, module, "Game.Enemy+Inner")
+            .is_none());
+    });
+}
+
+// V2020's table never measured where a class keeps its declaring type, so a
+// nested lookup on it must miss cleanly rather than answer with whichever
+// class carries the leaf name.
+#[test]
+fn nested_lookups_without_a_measured_offset_answer_nothing() {
+    on_fixture(Version::V2020, |process, module| {
+        let image = module.get_default_image(process).unwrap();
+        assert!(image
+            .get_class(process, module, "Game.Outer+Inner")
+            .is_none());
+        assert!(image.get_class(process, module, "GameManager").is_some());
     });
 }
 

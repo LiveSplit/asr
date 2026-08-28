@@ -79,13 +79,39 @@ impl Walk {
     }
 
     /// Resolves a class by name, with the namespace split off at the last dot
-    /// when one is written.
+    /// when one is written. A nested class is written the way .NET writes it,
+    /// `Outer+Inner`: the runtime stores the innermost name bare, so the leaf
+    /// is what the lookup matches on, and the written enclosure is checked by
+    /// climbing.
     pub fn find_class(
         &self,
         process: &Process,
         image: ImageRef,
         class_name: &str,
     ) -> Option<ClassRef> {
+        if let Some(plus) = class_name.find('+') {
+            let name_space_index = class_name[..plus].rfind('.');
+            let (name_space, nested) = match name_space_index {
+                Some(index) => (&class_name[..index], &class_name[index + 1..]),
+                None => ("", class_name),
+            };
+
+            // Never measured where a class keeps its enclosing class means the
+            // written enclosure cannot be checked, and an unchecked leaf match
+            // would be a guess.
+            let declaring = self.offsets.class.declaring?;
+            let leaf = nested.rsplit('+').next()?;
+
+            return self
+                .runtime
+                .classes(process, self.pointer_size, image)
+                .find(|&class| {
+                    self.class_name::<CSTR>(process, class)
+                        .is_some_and(|name| name.matches(leaf))
+                        && self.encloses(process, class, nested, name_space, declaring)
+                });
+        }
+
         let name_space_index = class_name.rfind('.');
 
         self.runtime
@@ -105,6 +131,47 @@ impl Walk {
                     }
                 })
             })
+    }
+
+    // Whether a class whose own name matched the leaf is the one the written
+    // name meant: each step out has to be the part written before it, the
+    // outermost has to be enclosed by nothing, and the namespace belongs to
+    // the outermost, the leaf's own being empty when nested.
+    fn encloses(
+        &self,
+        process: &Process,
+        class: ClassRef,
+        nested: &str,
+        name_space: &str,
+        declaring: u16,
+    ) -> bool {
+        let enclosing = |class: ClassRef| {
+            process
+                .read_pointer(class.address + declaring, self.pointer_size)
+                .ok()
+        };
+
+        let mut outer = class;
+        for part in nested.rsplit('+').skip(1) {
+            let Some(address) = enclosing(outer).filter(|address| !address.is_null()) else {
+                return false;
+            };
+            outer = ClassRef::new(address);
+
+            if !self
+                .class_name::<CSTR>(process, outer)
+                .is_some_and(|name| name.matches(part))
+            {
+                return false;
+            }
+        }
+
+        if !enclosing(outer).is_some_and(|address| address.is_null()) {
+            return false;
+        }
+
+        self.class_namespace::<CSTR>(process, outer)
+            .is_some_and(|read| read.matches(name_space))
     }
 
     /// Resolves the parent class.

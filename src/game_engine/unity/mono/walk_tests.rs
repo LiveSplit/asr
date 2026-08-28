@@ -3,6 +3,10 @@
 //! 2019.4 x64 runtime, copied by hand, so the walk is checked against the
 //! layout rather than against itself.
 
+use super::offsets::{
+    AssemblyOffsets, ClassOffsets, FieldInfoOffsets, HashTableOffsets, ImageOffsets,
+    MonoVTableOffsets,
+};
 use super::{builds, BinaryFormat, Module, MonoOffsets, UnityPointer, Version};
 use crate::file_format::pe::DebugId;
 use crate::runtime::mock::with_process;
@@ -45,6 +49,8 @@ fn image() -> Vec<u8> {
         (0x2580, "UnityEngine"),
         (0x2600, "hidden"),
         (0x2680, "instance"),
+        (0x2700, "Outer"),
+        (0x2780, "Inner"),
     ];
     for (at, text) in strings {
         put(&mut i, at, text.as_bytes());
@@ -90,6 +96,7 @@ fn image() -> Vec<u8> {
     ptr(&mut i, game_manager + 0x98, BASE + 0x1400);
     ptr(&mut i, game_manager + 0xD0, BASE + 0x1600);
     put(&mut i, game_manager + 0x100, &3_i32.to_le_bytes());
+    ptr(&mut i, game_manager + 0x108, BASE + 0x1B00);
     ptr(&mut i, 0x1400 + 0x8, BASE + 0x2680); // instance
     put(&mut i, 0x1400 + 0x18, &0_i32.to_le_bytes());
     ptr(&mut i, 0x1420 + 0x8, BASE + 0x2200); // points
@@ -126,6 +133,17 @@ fn image() -> Vec<u8> {
     put(&mut i, mono_behaviour + 0x100, &1_i32.to_le_bytes());
     ptr(&mut i, 0x1580 + 0x8, BASE + 0x2600); // hidden
     put(&mut i, 0x1580 + 0x18, &0x30_i32.to_le_bytes());
+
+    // Outer in Game, enclosing Inner, whose own namespace is empty and whose
+    // nested_in points back out.
+    let outer = 0x1B00;
+    ptr(&mut i, outer + 0x48, BASE + 0x2700);
+    ptr(&mut i, outer + 0x50, BASE + 0x2180);
+    ptr(&mut i, outer + 0x108, BASE + 0x1D00);
+    let inner = 0x1D00;
+    ptr(&mut i, inner + 0x48, BASE + 0x2780);
+    ptr(&mut i, inner + 0x50, BASE + 0x27F0);
+    ptr(&mut i, inner + 0x38, BASE + outer);
 
     // GameManager's statics: runtime_info to the domain vtable, whose static
     // slot sits past five method pointers, holding the static table. The
@@ -195,7 +213,7 @@ fn classes_resolve_by_name_and_namespace() {
         assert!(image.get_class(process, module, "Game.Boss").is_some());
         assert!(image.get_class(process, module, "Wrong.Boss").is_none());
         assert!(image.get_class(process, module, "Nothing").is_none());
-        assert_eq!(image.classes(process, module).count(), 3);
+        assert_eq!(image.classes(process, module).count(), 5);
     });
 }
 
@@ -216,6 +234,70 @@ fn field_offsets_resolve_declared_inherited_and_backing() {
         let boss = image.get_class(process, module, "Boss").unwrap();
         assert_eq!(boss.get_field_offset(process, module, "phase"), Some(0x18));
         assert_eq!(boss.get_field_offset(process, module, "hp"), Some(0x10));
+    });
+}
+
+#[test]
+fn nested_classes_resolve_by_their_written_name() {
+    on_fixture(era(), |process, module| {
+        let image = module.get_default_image(process).unwrap();
+        assert!(image
+            .get_class(process, module, "Game.Outer+Inner")
+            .is_some());
+        assert!(image
+            .get_class(process, module, "Game.Outer+Missing")
+            .is_none());
+        assert!(image
+            .get_class(process, module, "Wrong.Outer+Inner")
+            .is_none());
+        assert!(image
+            .get_class(process, module, "Game.Enemy+Inner")
+            .is_none());
+    });
+}
+
+// Offsets that never measured where a class keeps its enclosing class must
+// miss cleanly rather than answer with whichever class carries the leaf name.
+#[test]
+fn nested_lookups_without_a_measured_offset_answer_nothing() {
+    static UNMEASURED: MonoOffsets = MonoOffsets {
+        assembly: AssemblyOffsets {
+            aname: Some(0x10),
+            image: 0x60,
+        },
+        image: ImageOffsets {
+            assembly_name: None,
+            class_cache: 0x4C0,
+        },
+        hash_table: HashTableOffsets {
+            size: 0x18,
+            table: 0x20,
+        },
+        class: ClassOffsets {
+            parent: 0x30,
+            nested_in: None,
+            name: 0x48,
+            namespace: 0x50,
+            vtable_size: 0x5C,
+            fields: 0x98,
+            runtime_info: 0xD0,
+            field_count: 0x100,
+            next_class_cache: 0x108,
+        },
+        field: FieldInfoOffsets {
+            name: 0x8,
+            offset: 0x18,
+            alignment: 0x20,
+        },
+        v_table: MonoVTableOffsets { vtable: 0x40 },
+    };
+
+    on_fixture(&UNMEASURED, |process, module| {
+        let image = module.get_default_image(process).unwrap();
+        assert!(image
+            .get_class(process, module, "Game.Outer+Inner")
+            .is_none());
+        assert!(image.get_class(process, module, "GameManager").is_some());
     });
 }
 

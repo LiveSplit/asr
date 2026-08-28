@@ -32,6 +32,7 @@ impl MonoOffsets {
                 },
                 class: ClassOffsets {
                     parent: 0x30,
+                    nested_in: Some(0x38), // 2021.3 through 6000.7
                     name: 0x48,
                     namespace: 0x50,
                     vtable_size: 0x5C,
@@ -62,6 +63,7 @@ impl MonoOffsets {
                 },
                 class: ClassOffsets {
                     parent: 0x20,
+                    nested_in: Some(0x24), // 2021.3 through 6000.7
                     name: 0x2C,
                     namespace: 0x30,
                     vtable_size: 0x38,
@@ -92,6 +94,7 @@ impl MonoOffsets {
                 },
                 class: ClassOffsets {
                     parent: 0x30,
+                    nested_in: Some(0x38), // 2017.4 through 2020.1
                     name: 0x48,
                     namespace: 0x50,
                     vtable_size: 0x5C,
@@ -122,6 +125,7 @@ impl MonoOffsets {
                 },
                 class: ClassOffsets {
                     parent: 0x20,
+                    nested_in: Some(0x24), // 2017.4 through 2020.1
                     name: 0x2C,
                     namespace: 0x30,
                     vtable_size: 0x38,
@@ -152,6 +156,7 @@ impl MonoOffsets {
                 },
                 class: ClassOffsets {
                     parent: 0x30,
+                    nested_in: None,
                     name: 0x50,
                     namespace: 0x58,
                     vtable_size: 0x18,
@@ -182,6 +187,7 @@ impl MonoOffsets {
                 },
                 class: ClassOffsets {
                     parent: 0x24,
+                    nested_in: None,
                     name: 0x34,
                     namespace: 0x38,
                     vtable_size: 0xC,
@@ -212,6 +218,7 @@ impl MonoOffsets {
                 },
                 class: ClassOffsets {
                     parent: 0x30,
+                    nested_in: Some(0x38), // 5.6 through 2018.4
                     name: 0x48,
                     namespace: 0x50,
                     vtable_size: 0x18,
@@ -242,6 +249,7 @@ impl MonoOffsets {
                 },
                 class: ClassOffsets {
                     parent: 0x24,
+                    nested_in: Some(0x28), // 5.6 through 2018.4
                     name: 0x30,
                     namespace: 0x34,
                     vtable_size: 0xC,
@@ -273,6 +281,7 @@ impl MonoOffsets {
                     },
                     class: ClassOffsets {
                         parent: 0x28,
+                        nested_in: None,
                         name: 0x40,
                         namespace: 0x48,
                         vtable_size: 0x54,
@@ -305,6 +314,7 @@ impl MonoOffsets {
                     },
                     class: ClassOffsets {
                         parent: 0x28,
+                        nested_in: None,
                         name: 0x40,
                         namespace: 0x48,
                         vtable_size: 0x54,
@@ -337,6 +347,7 @@ impl MonoOffsets {
                     },
                     class: ClassOffsets {
                         parent: 0x28,
+                        nested_in: None,
                         name: 0x48,
                         namespace: 0x50,
                         vtable_size: 0x18,
@@ -369,6 +380,7 @@ impl MonoOffsets {
                     },
                     class: ClassOffsets {
                         parent: 0x28,
+                        nested_in: None,
                         name: 0x40,
                         namespace: 0x48,
                         vtable_size: 0x18,
@@ -409,6 +421,7 @@ pub(super) struct HashTableOffsets {
 
 pub(super) struct ClassOffsets {
     pub(super) parent: u8,
+    pub(super) nested_in: Option<u16>, // Where a class keeps the one it is nested in
     pub(super) name: u8,
     pub(super) namespace: u8,
     pub(super) vtable_size: u8, // On mono V1 and V1_cattrs, this offset represents MonoVTable.data

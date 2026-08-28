@@ -102,6 +102,7 @@ static BUILDS: &[Build] = &[
             },
             class: ClassOffsets {
                 parent: 0x20,
+                nested_in: Some(0x24),
                 name: 0x2c,
                 namespace: 0x30,
                 vtable_size: 0x38,
@@ -138,6 +139,7 @@ static BUILDS: &[Build] = &[
             },
             class: ClassOffsets {
                 parent: 0x20,
+                nested_in: Some(0x24),
                 name: 0x2c,
                 namespace: 0x30,
                 vtable_size: 0x38,
@@ -176,6 +178,7 @@ static BUILDS: &[Build] = &[
             },
             class: ClassOffsets {
                 parent: 0x30,
+                nested_in: Some(0x38),
                 name: 0x48,
                 namespace: 0x50,
                 vtable_size: 0x5c,
@@ -212,6 +215,7 @@ static BUILDS: &[Build] = &[
             },
             class: ClassOffsets {
                 parent: 0x30,
+                nested_in: Some(0x38),
                 name: 0x48,
                 namespace: 0x50,
                 vtable_size: 0x5c,
@@ -248,6 +252,7 @@ static BUILDS: &[Build] = &[
             },
             class: ClassOffsets {
                 parent: 0x30,
+                nested_in: Some(0x38),
                 name: 0x48,
                 namespace: 0x50,
                 vtable_size: 0x5c,
@@ -284,6 +289,7 @@ static BUILDS: &[Build] = &[
             },
             class: ClassOffsets {
                 parent: 0x30,
+                nested_in: Some(0x38),
                 name: 0x50,
                 namespace: 0x58,
                 vtable_size: 0x18,
@@ -320,6 +326,7 @@ static BUILDS: &[Build] = &[
             },
             class: ClassOffsets {
                 parent: 0x30,
+                nested_in: Some(0x38),
                 name: 0x48,
                 namespace: 0x50,
                 vtable_size: 0x5c,
@@ -356,6 +363,7 @@ static BUILDS: &[Build] = &[
             },
             class: ClassOffsets {
                 parent: 0x30,
+                nested_in: Some(0x38),
                 name: 0x48,
                 namespace: 0x50,
                 vtable_size: 0x5c,
@@ -392,6 +400,7 @@ static BUILDS: &[Build] = &[
             },
             class: ClassOffsets {
                 parent: 0x30,
+                nested_in: Some(0x38),
                 name: 0x48,
                 namespace: 0x50,
                 vtable_size: 0x5c,
@@ -428,6 +437,7 @@ static BUILDS: &[Build] = &[
             },
             class: ClassOffsets {
                 parent: 0x30,
+                nested_in: Some(0x38),
                 name: 0x48,
                 namespace: 0x50,
                 vtable_size: 0x5c,
@@ -464,6 +474,7 @@ static BUILDS: &[Build] = &[
             },
             class: ClassOffsets {
                 parent: 0x24,
+                nested_in: Some(0x28),
                 name: 0x34,
                 namespace: 0x38,
                 vtable_size: 0xc,
@@ -502,6 +513,7 @@ static BUILDS: &[Build] = &[
             },
             class: ClassOffsets {
                 parent: 0x30,
+                nested_in: Some(0x38),
                 name: 0x48,
                 namespace: 0x50,
                 vtable_size: 0x18,
@@ -538,6 +550,7 @@ static BUILDS: &[Build] = &[
             },
             class: ClassOffsets {
                 parent: 0x20,
+                nested_in: Some(0x24),
                 name: 0x2c,
                 namespace: 0x30,
                 vtable_size: 0x38,
@@ -574,6 +587,7 @@ static BUILDS: &[Build] = &[
             },
             class: ClassOffsets {
                 parent: 0x30,
+                nested_in: Some(0x38),
                 name: 0x48,
                 namespace: 0x50,
                 vtable_size: 0x5c,
@@ -610,6 +624,7 @@ static BUILDS: &[Build] = &[
             },
             class: ClassOffsets {
                 parent: 0x30,
+                nested_in: Some(0x38),
                 name: 0x50,
                 namespace: 0x58,
                 vtable_size: 0x18,
@@ -646,6 +661,7 @@ static BUILDS: &[Build] = &[
             },
             class: ClassOffsets {
                 parent: 0x20,
+                nested_in: Some(0x24),
                 name: 0x2c,
                 namespace: 0x30,
                 vtable_size: 0x38,
@@ -682,6 +698,7 @@ static BUILDS: &[Build] = &[
             },
             class: ClassOffsets {
                 parent: 0x24,
+                nested_in: Some(0x28),
                 name: 0x34,
                 namespace: 0x38,
                 vtable_size: 0xc,
@@ -718,6 +735,7 @@ static BUILDS: &[Build] = &[
             },
             class: ClassOffsets {
                 parent: 0x20,
+                nested_in: Some(0x24),
                 name: 0x2c,
                 namespace: 0x30,
                 vtable_size: 0x38,
@@ -754,6 +772,7 @@ static BUILDS: &[Build] = &[
             },
             class: ClassOffsets {
                 parent: 0x30,
+                nested_in: Some(0x38),
                 name: 0x48,
                 namespace: 0x50,
                 vtable_size: 0x5c,
@@ -790,6 +809,7 @@ static BUILDS: &[Build] = &[
             },
             class: ClassOffsets {
                 parent: 0x30,
+                nested_in: Some(0x38),
                 name: 0x48,
                 namespace: 0x50,
                 vtable_size: 0x5c,
@@ -826,6 +846,7 @@ static BUILDS: &[Build] = &[
             },
             class: ClassOffsets {
                 parent: 0x20,
+                nested_in: Some(0x24),
                 name: 0x2c,
                 namespace: 0x30,
                 vtable_size: 0x38,
@@ -864,6 +885,7 @@ static BUILDS: &[Build] = &[
             },
             class: ClassOffsets {
                 parent: 0x24,
+                nested_in: Some(0x28),
                 name: 0x30,
                 namespace: 0x34,
                 vtable_size: 0xc,
@@ -900,6 +922,7 @@ static BUILDS: &[Build] = &[
             },
             class: ClassOffsets {
                 parent: 0x20,
+                nested_in: Some(0x24),
                 name: 0x2c,
                 namespace: 0x30,
                 vtable_size: 0x38,
@@ -936,6 +959,7 @@ static BUILDS: &[Build] = &[
             },
             class: ClassOffsets {
                 parent: 0x20,
+                nested_in: Some(0x24),
                 name: 0x2c,
                 namespace: 0x30,
                 vtable_size: 0x38,
@@ -972,6 +996,7 @@ static BUILDS: &[Build] = &[
             },
             class: ClassOffsets {
                 parent: 0x20,
+                nested_in: Some(0x24),
                 name: 0x2c,
                 namespace: 0x30,
                 vtable_size: 0x38,
@@ -1008,6 +1033,7 @@ static BUILDS: &[Build] = &[
             },
             class: ClassOffsets {
                 parent: 0x20,
+                nested_in: Some(0x24),
                 name: 0x2c,
                 namespace: 0x30,
                 vtable_size: 0x38,
@@ -1077,6 +1103,22 @@ mod tests {
             age: 2,
         })
         .is_none());
+    }
+
+    // A version table's value for where a class keeps its enclosing class
+    // must match every measured build it stands in for, or say nothing.
+    #[test]
+    fn version_tables_never_contradict_a_measured_build_on_nesting() {
+        for build in BUILDS {
+            let Some(table) = MonoOffsets::new(build.version, build.pointer_size, BinaryFormat::PE)
+            else {
+                continue;
+            };
+            assert!(
+                table.class.nested_in.is_none()
+                    || table.class.nested_in == build.offsets.class.nested_in
+            );
+        }
     }
 
     // Every build has the layout its version table describes. The one

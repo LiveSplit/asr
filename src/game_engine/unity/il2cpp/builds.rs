@@ -63,6 +63,7 @@ static BUILDS: &[Build] = &[
                 name: 0x10,
                 namespace: 0x18,
                 parent: 0x58,
+                declaring_type: Some(0x50),
                 fields: 0x80,
                 static_fields: 0xb8,
                 field_count: 0x114,
@@ -95,6 +96,7 @@ static BUILDS: &[Build] = &[
                 name: 0x8,
                 namespace: 0xc,
                 parent: 0x2c,
+                declaring_type: Some(0x28),
                 fields: 0x40,
                 static_fields: 0x5c,
                 field_count: 0xac,
@@ -127,6 +129,7 @@ static BUILDS: &[Build] = &[
                 name: 0x10,
                 namespace: 0x18,
                 parent: 0x58,
+                declaring_type: Some(0x50),
                 fields: 0x80,
                 static_fields: 0xb8,
                 field_count: 0x11c,
@@ -159,6 +162,7 @@ static BUILDS: &[Build] = &[
                 name: 0x8,
                 namespace: 0xc,
                 parent: 0x2c,
+                declaring_type: Some(0x28),
                 fields: 0x40,
                 static_fields: 0x5c,
                 field_count: 0xa8,
@@ -191,6 +195,7 @@ static BUILDS: &[Build] = &[
                 name: 0x10,
                 namespace: 0x18,
                 parent: 0x58,
+                declaring_type: Some(0x50),
                 fields: 0x80,
                 static_fields: 0xb8,
                 field_count: 0x11c,
@@ -223,6 +228,7 @@ static BUILDS: &[Build] = &[
                 name: 0x8,
                 namespace: 0xc,
                 parent: 0x2c,
+                declaring_type: Some(0x28),
                 fields: 0x40,
                 static_fields: 0x5c,
                 field_count: 0xa8,
@@ -255,6 +261,7 @@ static BUILDS: &[Build] = &[
                 name: 0x10,
                 namespace: 0x18,
                 parent: 0x58,
+                declaring_type: Some(0x50),
                 fields: 0x80,
                 static_fields: 0xb8,
                 field_count: 0x120,
@@ -287,6 +294,7 @@ static BUILDS: &[Build] = &[
                 name: 0x8,
                 namespace: 0xc,
                 parent: 0x2c,
+                declaring_type: Some(0x28),
                 fields: 0x40,
                 static_fields: 0x5c,
                 field_count: 0xa8,
@@ -319,6 +327,7 @@ static BUILDS: &[Build] = &[
                 name: 0x10,
                 namespace: 0x18,
                 parent: 0x58,
+                declaring_type: Some(0x50),
                 fields: 0x80,
                 static_fields: 0xb8,
                 field_count: 0x124,
@@ -351,6 +360,7 @@ static BUILDS: &[Build] = &[
                 name: 0x8,
                 namespace: 0xc,
                 parent: 0x2c,
+                declaring_type: Some(0x28),
                 fields: 0x40,
                 static_fields: 0x5c,
                 field_count: 0xac,
@@ -383,6 +393,7 @@ static BUILDS: &[Build] = &[
                 name: 0x10,
                 namespace: 0x18,
                 parent: 0x58,
+                declaring_type: Some(0x50),
                 fields: 0x80,
                 static_fields: 0xb8,
                 field_count: 0x124,
@@ -415,6 +426,7 @@ static BUILDS: &[Build] = &[
                 name: 0x8,
                 namespace: 0xc,
                 parent: 0x2c,
+                declaring_type: Some(0x28),
                 fields: 0x40,
                 static_fields: 0x5c,
                 field_count: 0xac,
@@ -447,6 +459,7 @@ static BUILDS: &[Build] = &[
                 name: 0x10,
                 namespace: 0x18,
                 parent: 0x58,
+                declaring_type: Some(0x50),
                 fields: 0x80,
                 static_fields: 0xb8,
                 field_count: 0x124,
@@ -479,6 +492,7 @@ static BUILDS: &[Build] = &[
                 name: 0x8,
                 namespace: 0xc,
                 parent: 0x2c,
+                declaring_type: Some(0x28),
                 fields: 0x40,
                 static_fields: 0x5c,
                 field_count: 0xac,
@@ -511,6 +525,7 @@ static BUILDS: &[Build] = &[
                 name: 0x10,
                 namespace: 0x18,
                 parent: 0x58,
+                declaring_type: Some(0x50),
                 fields: 0x80,
                 static_fields: 0xb8,
                 field_count: 0x124,
@@ -543,6 +558,7 @@ static BUILDS: &[Build] = &[
                 name: 0x8,
                 namespace: 0xc,
                 parent: 0x2c,
+                declaring_type: Some(0x28),
                 fields: 0x40,
                 static_fields: 0x5c,
                 field_count: 0xac,
@@ -575,6 +591,7 @@ static BUILDS: &[Build] = &[
                 name: 0x10,
                 namespace: 0x18,
                 parent: 0x58,
+                declaring_type: Some(0x50),
                 fields: 0x80,
                 static_fields: 0xb8,
                 field_count: 0x124,
@@ -607,6 +624,7 @@ static BUILDS: &[Build] = &[
                 name: 0x8,
                 namespace: 0xc,
                 parent: 0x2c,
+                declaring_type: Some(0x28),
                 fields: 0x40,
                 static_fields: 0x5c,
                 field_count: 0xac,
@@ -639,6 +657,7 @@ static BUILDS: &[Build] = &[
                 name: 0x10,
                 namespace: 0x18,
                 parent: 0x58,
+                declaring_type: Some(0x50),
                 fields: 0x80,
                 static_fields: 0xa0,
                 field_count: 0x124,
@@ -671,6 +690,7 @@ static BUILDS: &[Build] = &[
                 name: 0x8,
                 namespace: 0xc,
                 parent: 0x2c,
+                declaring_type: Some(0x28),
                 fields: 0x40,
                 static_fields: 0x50,
                 field_count: 0xac,
@@ -703,6 +723,7 @@ static BUILDS: &[Build] = &[
                 name: 0x10,
                 namespace: 0x18,
                 parent: 0x58,
+                declaring_type: Some(0x50),
                 fields: 0x80,
                 static_fields: 0x98,
                 field_count: 0x11c,
@@ -735,6 +756,7 @@ static BUILDS: &[Build] = &[
                 name: 0x8,
                 namespace: 0xc,
                 parent: 0x2c,
+                declaring_type: Some(0x28),
                 fields: 0x40,
                 static_fields: 0x4c,
                 field_count: 0xac,
@@ -803,6 +825,21 @@ mod tests {
         assert!(find(39, (major, minor + 1, patch, build), PointerSize::Bit64).is_none());
         assert!(find(200, (7000, 0, 0, 0), PointerSize::Bit64).is_none());
         assert!(find(16, (5, 6, 7, 0), PointerSize::Bit64).is_none());
+    }
+
+    // A version table's value for where a class keeps its declaring type
+    // must match every measured build it stands in for, or say nothing.
+    #[test]
+    fn version_tables_never_contradict_a_measured_build_on_nesting() {
+        for build in BUILDS {
+            let Some(table) = IL2CPPOffsets::new(build.version, build.pointer_size) else {
+                continue;
+            };
+            assert!(
+                table.class.declaring_type.is_none()
+                    || table.class.declaring_type == build.offsets.class.declaring_type
+            );
+        }
     }
 
     // The version table for 6000.5 and 6000.7 puts static_fields where 2022.3
