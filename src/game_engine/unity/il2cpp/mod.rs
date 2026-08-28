@@ -20,6 +20,8 @@ mod pointer;
 pub use pointer::UnityPointer;
 mod offsets;
 use offsets::IL2CPPOffsets;
+#[cfg(all(test, not(target_family = "wasm")))]
+mod walk_tests;
 
 use super::CSTR;
 
@@ -178,13 +180,17 @@ impl Module {
         process: &'a Process,
     ) -> impl DoubleEndedIterator<Item = Assembly> + 'a {
         let (assemblies, nr_of_assemblies): (Address, u64) = {
-            let [first, limit] = process
-                .read::<[u64; 2]>(self.assemblies)
+            let first = process
+                .read_pointer(self.assemblies, self.pointer_size)
+                .unwrap_or_default();
+            let limit = process
+                .read_pointer(self.assemblies + self.size_of_ptr(), self.pointer_size)
                 .unwrap_or_default();
             let count = limit
-                .saturating_sub(first)
+                .value()
+                .saturating_sub(first.value())
                 .saturating_div(self.size_of_ptr());
-            (Address::new(first), count)
+            (first, count)
         };
 
         (0..nr_of_assemblies).filter_map(move |i| {
