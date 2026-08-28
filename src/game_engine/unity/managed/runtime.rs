@@ -9,6 +9,11 @@ pub enum Runtime {
     Il2Cpp(Il2CppRuntime),
 }
 
+/// The low bits of the class kind byte, whose value 3 marks a generic
+/// instance.
+const CLASS_KIND_MASK: u8 = 0x7;
+const GENERIC_INSTANCE_KIND: u8 = 3;
+
 /// Mono keeps its assemblies in a glib list, its classes in each image's hash
 /// table, and its statics behind the class's vtable.
 pub struct MonoRuntime {
@@ -18,6 +23,9 @@ pub struct MonoRuntime {
     pub hash_table_table: u16,
     pub next_class_cache: u16,
     pub field_count: u16,
+    pub class_kind: Option<u16>,
+    pub generic_class: Option<u16>,
+    pub container_class: Option<u16>,
     pub runtime_info: u16,
     pub vtable_size: u16,
     pub vtable: u16,
@@ -38,6 +46,43 @@ pub struct Il2CppRuntime {
     pub handle_is_inline: bool,
     pub field_count: u16,
     pub static_fields: u16,
+}
+
+impl MonoRuntime {
+    // The class whose count slot holds this class's count: a generic instance
+    // carries the inflated fields itself but no count, so the definition it
+    // was made from answers, reached through the instantiation descriptor.
+    fn counted_class(
+        &self,
+        process: &Process,
+        pointer_size: PointerSize,
+        class: ClassRef,
+    ) -> ClassRef {
+        let (Some(class_kind), Some(generic_class), Some(container_class)) =
+            (self.class_kind, self.generic_class, self.container_class)
+        else {
+            return class;
+        };
+
+        let kind = process
+            .read::<u8>(class.address + class_kind)
+            .unwrap_or_default();
+        if kind & CLASS_KIND_MASK != GENERIC_INSTANCE_KIND {
+            return class;
+        }
+
+        process
+            .read_pointer(class.address + generic_class, pointer_size)
+            .ok()
+            .filter(|address| !address.is_null())
+            .and_then(|descriptor| {
+                process
+                    .read_pointer(descriptor + container_class, pointer_size)
+                    .ok()
+            })
+            .filter(|address| !address.is_null())
+            .map_or(class, ClassRef::new)
+    }
 }
 
 impl Runtime {
@@ -67,10 +112,17 @@ impl Runtime {
     }
 
     /// Reads how many fields a class declares.
-    pub fn field_count(&self, process: &Process, class: ClassRef) -> u64 {
+    pub fn field_count(
+        &self,
+        process: &Process,
+        pointer_size: PointerSize,
+        class: ClassRef,
+    ) -> u64 {
         match self {
             Self::Mono(mono) => process
-                .read::<i32>(class.address + mono.field_count)
+                .read::<i32>(
+                    mono.counted_class(process, pointer_size, class).address + mono.field_count,
+                )
                 .ok()
                 .filter(|&count| count > 0)
                 .unwrap_or_default() as u64,

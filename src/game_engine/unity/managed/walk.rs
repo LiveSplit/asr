@@ -210,7 +210,7 @@ impl Walk {
 
             this_class = self.parent(process, class);
 
-            let field_count = self.runtime.field_count(process, class);
+            let field_count = self.runtime.field_count(process, self.pointer_size, class);
 
             let fields = match field_count {
                 0 => None,

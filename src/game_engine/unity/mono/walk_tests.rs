@@ -4,8 +4,8 @@
 //! layout rather than against itself.
 
 use super::offsets::{
-    AssemblyOffsets, ClassOffsets, FieldInfoOffsets, HashTableOffsets, ImageOffsets,
-    MonoVTableOffsets,
+    AssemblyOffsets, ClassOffsets, FieldInfoOffsets, GenericOffsets, HashTableOffsets,
+    ImageOffsets, MonoVTableOffsets,
 };
 use super::{builds, BinaryFormat, Module, MonoOffsets, UnityPointer, Version};
 use crate::file_format::pe::DebugId;
@@ -51,6 +51,8 @@ fn image() -> Vec<u8> {
         (0x2680, "instance"),
         (0x2700, "Outer"),
         (0x2780, "Inner"),
+        (0x2B00, "Inventory"),
+        (0x2B80, "items"),
     ];
     for (at, text) in strings {
         put(&mut i, at, text.as_bytes());
@@ -144,6 +146,22 @@ fn image() -> Vec<u8> {
     ptr(&mut i, inner + 0x48, BASE + 0x2780);
     ptr(&mut i, inner + 0x50, BASE + 0x27F0);
     ptr(&mut i, inner + 0x38, BASE + outer);
+    ptr(&mut i, inner + 0x108, BASE + 0x2D00);
+
+    // Inventory, a generic instance: its class kind's low bits read 3, its own
+    // field count slot holds nothing, and the count lives on the definition
+    // reached through the instantiation descriptor. The inflated field array
+    // is the instance's own.
+    let inventory = 0x2D00;
+    ptr(&mut i, inventory + 0x48, BASE + 0x2B00);
+    ptr(&mut i, inventory + 0x50, BASE + 0x2180);
+    put(&mut i, inventory + 0x2A, &3_u8.to_le_bytes());
+    ptr(&mut i, inventory + 0x98, BASE + 0x3400);
+    ptr(&mut i, inventory + 0xF0, BASE + 0x3000);
+    ptr(&mut i, 0x3000, BASE + 0x3100); // descriptor: container_class at 0x0
+    put(&mut i, 0x3100 + 0x100, &1_i32.to_le_bytes()); // the definition's count
+    ptr(&mut i, 0x3400 + 0x8, BASE + 0x2B80); // items
+    put(&mut i, 0x3400 + 0x18, &0x28_i32.to_le_bytes());
 
     // GameManager's statics: runtime_info to the domain vtable, whose static
     // slot sits past five method pointers, holding the static table. The
@@ -213,7 +231,7 @@ fn classes_resolve_by_name_and_namespace() {
         assert!(image.get_class(process, module, "Game.Boss").is_some());
         assert!(image.get_class(process, module, "Wrong.Boss").is_none());
         assert!(image.get_class(process, module, "Nothing").is_none());
-        assert_eq!(image.classes(process, module).count(), 5);
+        assert_eq!(image.classes(process, module).count(), 6);
     });
 }
 
@@ -274,6 +292,7 @@ fn nested_lookups_without_a_measured_offset_answer_nothing() {
             table: 0x20,
         },
         class: ClassOffsets {
+            class_kind: None,
             parent: 0x30,
             nested_in: None,
             name: 0x48,
@@ -283,6 +302,10 @@ fn nested_lookups_without_a_measured_offset_answer_nothing() {
             runtime_info: 0xD0,
             field_count: 0x100,
             next_class_cache: 0x108,
+        },
+        generic: GenericOffsets {
+            generic_class: None,
+            container_class: None,
         },
         field: FieldInfoOffsets {
             name: 0x8,
@@ -298,6 +321,25 @@ fn nested_lookups_without_a_measured_offset_answer_nothing() {
             .get_class(process, module, "Game.Outer+Inner")
             .is_none());
         assert!(image.get_class(process, module, "GameManager").is_some());
+
+        let inventory = image.get_class(process, module, "Inventory").unwrap();
+        assert!(inventory
+            .get_field_offset(process, module, "items")
+            .is_none());
+    });
+}
+
+// A generic instance declares no count of its own; the definition it was made
+// from holds it, and the inflated fields are the instance's.
+#[test]
+fn generic_field_counts_resolve_through_the_definition() {
+    on_fixture(era(), |process, module| {
+        let image = module.get_default_image(process).unwrap();
+        let inventory = image.get_class(process, module, "Inventory").unwrap();
+        assert_eq!(
+            inventory.get_field_offset(process, module, "items"),
+            Some(0x28),
+        );
     });
 }
 

@@ -830,7 +830,7 @@ mod tests {
     // A version table's value for where a class keeps its declaring type
     // must match every measured build it stands in for, or say nothing.
     #[test]
-    fn version_tables_never_contradict_a_measured_build_on_nesting() {
+    fn version_tables_never_contradict_a_measured_build() {
         for build in BUILDS {
             let Some(table) = IL2CPPOffsets::new(build.version, build.pointer_size) else {
                 continue;
