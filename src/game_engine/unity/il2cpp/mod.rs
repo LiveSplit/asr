@@ -395,6 +395,24 @@ impl Module {
         self.walk().dictionary_offsets(process, object)
     }
 
+    /// Reads a managed `Dictionary`'s live pairs through the reference
+    /// stored at the given address, with the offsets
+    /// [`get_dictionary_offsets`](Self::get_dictionary_offsets) resolved.
+    /// `N` bounds the live pairs, never the counted entries or the backing
+    /// capacity; freed entries are skipped by their marks, and a live tally
+    /// that cannot balance against the counts fails rather than answering
+    /// wrong pairs. The key and value types are the caller's claims, as
+    /// with [`read_array`](Self::read_array), refused where a claim
+    /// outgrows the room its member has inside one entry.
+    pub fn read_dictionary<K: CheckedBitPattern, V: CheckedBitPattern, const N: usize>(
+        &self,
+        process: &Process,
+        offsets: DictionaryOffsets,
+        at: Address,
+    ) -> Result<ArrayVec<(K, V), N>, Error> {
+        managed::read_dictionary(process, self.pointer_size, offsets, at)
+    }
+
     /// Returns the pointer size the target runs at, which is what a caller
     /// claims reference-width values with.
     pub fn get_pointer_size(&self) -> PointerSize {

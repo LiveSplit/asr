@@ -128,7 +128,37 @@ fn image() -> Vec<u8> {
     let parallel = [BASE + 0x2300, BASE + 0x2340, BASE + 0x2380, BASE + 0x23C0];
     dictionary_class(&mut i, 0x1B00, 0x1C40, parallel, 0);
 
+    // The healthy dictionary's live state: three counted entries over a
+    // four-slot backing, the middle one freed, so two pairs are live.
+    ptr(&mut i, 0x118, BASE + 0x1D00);
+    put(&mut i, 0x120, &3_i32.to_le_bytes());
+    put(&mut i, 0x124, &1_i32.to_le_bytes());
+    put(&mut i, 0x1D18, &4_u32.to_le_bytes());
+    entry(&mut i, 0x1D20, 1111, -1, 10, 100);
+    entry(&mut i, 0x1D30, -1, -1, 99, 999); // freed: the hash carries the mark
+    entry(&mut i, 0x1D40, 2222, -1, 20, 200);
+    entry(&mut i, 0x1D50, 0, 0, 0, 0);
+
+    // The framework dictionary claims three live entries but holds two: its
+    // tally cannot balance.
+    ptr(&mut i, 0x198, BASE + 0x1E00);
+    put(&mut i, 0x1A0, &3_i32.to_le_bytes());
+    put(&mut i, 0x1A4, &0_i32.to_le_bytes());
+    put(&mut i, 0x1E18, &4_u32.to_le_bytes());
+    entry(&mut i, 0x1E20, 1111, -1, 1, 2);
+    entry(&mut i, 0x1E30, -1, -1, 0, 0);
+    entry(&mut i, 0x1E40, 2222, -1, 3, 4);
+    entry(&mut i, 0x1E50, 0, 0, 0, 0);
+
     i
+}
+
+// One live or freed entry at the fixture's 16-byte stride: the stored hash,
+// the chain link, and an i32 key and value.
+fn entry(image: &mut [u8], at: u64, hash: i32, next: i32, key: i32, value: i32) {
+    for (index, word) in [hash, next, key, value].into_iter().enumerate() {
+        put(image, at + 4 * index as u64, &word.to_le_bytes());
+    }
 }
 
 fn module() -> Module {
@@ -193,5 +223,61 @@ fn parallel_shape_names_answer_nothing() {
         assert!(module
             .get_dictionary_offsets(process, Address::new(BASE + 0x20))
             .is_none());
+    });
+}
+
+// The read returns exactly the live pairs: the counted entries minus the
+// freed one, in entry order.
+#[test]
+fn dictionaries_read_their_live_pairs() {
+    on_fixture(|process, module| {
+        let slot = Address::new(BASE);
+        let offsets = module.get_dictionary_offsets(process, slot).unwrap();
+        let pairs = module
+            .read_dictionary::<i32, i32, 8>(process, offsets, slot)
+            .unwrap();
+        assert_eq!(pairs.as_slice(), [(10, 100), (20, 200)]);
+    });
+}
+
+// The buffer judges the live pairs, never the counted entries or the
+// backing capacity.
+#[test]
+fn read_buffers_judge_live_pairs() {
+    on_fixture(|process, module| {
+        let slot = Address::new(BASE);
+        let offsets = module.get_dictionary_offsets(process, slot).unwrap();
+        assert!(module
+            .read_dictionary::<i32, i32, 2>(process, offsets, slot)
+            .is_ok());
+        assert!(module
+            .read_dictionary::<i32, i32, 1>(process, offsets, slot)
+            .is_err());
+    });
+}
+
+// A claimed element size past its member's room would read a sibling's
+// bytes; the read refuses instead.
+#[test]
+fn oversized_element_claims_refuse() {
+    on_fixture(|process, module| {
+        let slot = Address::new(BASE);
+        let offsets = module.get_dictionary_offsets(process, slot).unwrap();
+        assert!(module
+            .read_dictionary::<u64, u64, 8>(process, offsets, slot)
+            .is_err());
+    });
+}
+
+// A live tally that cannot balance against the counts is a torn or lying
+// dictionary, and fails rather than answering wrong pairs.
+#[test]
+fn unbalanced_tallies_refuse() {
+    on_fixture(|process, module| {
+        let slot = Address::new(BASE + 0x8);
+        let offsets = module.get_dictionary_offsets(process, slot).unwrap();
+        assert!(module
+            .read_dictionary::<i32, i32, 8>(process, offsets, slot)
+            .is_err());
     });
 }

@@ -81,6 +81,23 @@ fn image(version: Version) -> Vec<u8> {
     field(&mut i, 0x780, BASE + 0x1980, 0, 0x18);
     field(&mut i, 0x7A0, BASE + 0x19C0, 0, 0x1C);
 
+    // The dictionary's live state: three counted entries over a four-slot
+    // backing, the middle one freed, so two pairs are live.
+    ptr(&mut i, 0x118, BASE + 0x800);
+    put(&mut i, 0x120, &3_i32.to_le_bytes());
+    put(&mut i, 0x124, &1_i32.to_le_bytes());
+    put(&mut i, 0x818, &4_u32.to_le_bytes());
+    for (index, entry) in [(1111, -1, 10, 100), (-1, -1, 99, 999), (2222, -1, 20, 200)]
+        .into_iter()
+        .enumerate()
+    {
+        let at = 0x820 + 0x10 * index as u64;
+        let (hash, next, key, value): (i32, i32, i32, i32) = entry;
+        for (word, value) in [hash, next, key, value].into_iter().enumerate() {
+            put(&mut i, at + 4 * word as u64, &value.to_le_bytes());
+        }
+    }
+
     i
 }
 
@@ -120,6 +137,18 @@ fn dictionaries_resolve_through_the_cached_class() {
 // The 2022.2-and-later fallback table carries no cached class, because the
 // measured builds inside that stretch disagree. A fallback attach misses
 // cleanly; known builds carry their own value.
+#[test]
+fn dictionaries_read_their_live_pairs() {
+    on_fixture(Version::V2019, |process, module| {
+        let slot = Address::new(BASE);
+        let offsets = module.get_dictionary_offsets(process, slot).unwrap();
+        let pairs = module
+            .read_dictionary::<i32, i32, 8>(process, offsets, slot)
+            .unwrap();
+        assert_eq!(pairs.as_slice(), [(10, 100), (20, 200)]);
+    });
+}
+
 #[test]
 fn fallback_tables_without_a_cached_class_answer_nothing() {
     on_fixture(Version::V2022, |process, module| {
