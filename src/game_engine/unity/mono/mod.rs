@@ -8,7 +8,7 @@ use crate::{
     future::retry,
     print_limited,
     signature::Signature,
-    Address, Address32, PointerSize, Process,
+    Address, Address32, Error, PointerSize, Process,
 };
 
 mod builds;
@@ -23,9 +23,11 @@ pub use pointer::UnityPointer;
 mod offsets;
 use offsets::MonoOffsets;
 #[cfg(all(test, not(target_family = "wasm")))]
+mod readers_tests;
+#[cfg(all(test, not(target_family = "wasm")))]
 mod walk_tests;
 
-use super::{managed, BinaryFormat};
+use super::{managed, BinaryFormat, ManagedString};
 
 /// Represents access to a Unity game that is using the standard Mono backend.
 pub struct Module {
@@ -327,6 +329,22 @@ impl Module {
     /// `Assembly-CSharp` [image](Image).
     pub fn get_default_image(&self, process: &Process) -> Option<Image> {
         self.get_image(process, "Assembly-CSharp")
+    }
+
+    /// Reads a managed string through the reference stored at the given
+    /// address, such as the end of a pointer path or a slot in a static
+    /// table. The string carries its own character count, so no length is
+    /// passed, and the returned [`ManagedString`] holds exactly that many
+    /// UTF-16 units, a nul character among them like any other. `N` bounds
+    /// how many units the string holds, and a string claiming more than that
+    /// fails rather than truncates, as do a negative count and a null
+    /// reference.
+    pub fn read_string<const N: usize>(
+        &self,
+        process: &Process,
+        at: Address,
+    ) -> Result<ManagedString<N>, Error> {
+        managed::read_string(process, self.pointer_size, at)
     }
 
     /// Attaches to a Unity game that is using the standard Mono backend. This
