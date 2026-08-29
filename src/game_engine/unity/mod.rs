@@ -85,7 +85,7 @@
 
 pub mod il2cpp;
 mod managed;
-pub use managed::ManagedString;
+pub use managed::{ManagedArray, ManagedString};
 pub mod mono;
 pub mod scene_manager;
 

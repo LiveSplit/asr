@@ -3,6 +3,8 @@
 
 #[cfg(feature = "alloc")]
 use crate::file_format::macho;
+use bytemuck::CheckedBitPattern;
+
 use crate::{
     file_format::{elf, pe},
     future::retry,
@@ -27,7 +29,7 @@ mod readers_tests;
 #[cfg(all(test, not(target_family = "wasm")))]
 mod walk_tests;
 
-use super::{managed, BinaryFormat, ManagedString};
+use super::{managed, BinaryFormat, ManagedArray, ManagedString};
 
 /// Represents access to a Unity game that is using the standard Mono backend.
 pub struct Module {
@@ -345,6 +347,22 @@ impl Module {
         at: Address,
     ) -> Result<ManagedString<N>, Error> {
         managed::read_string(process, self.pointer_size, at)
+    }
+
+    /// Reads a managed array of value elements through the reference stored
+    /// at the given address. The array carries its own length, so no count
+    /// is passed; `N` bounds how many elements the returned [`ManagedArray`]
+    /// holds, and an array claiming more than that fails rather than
+    /// truncates, as does a null reference. The element type is the caller's
+    /// claim and has to match the target's own element layout: a managed
+    /// `char` is a `u16` here, a `bool` a single byte, and Rust's `char` and
+    /// `usize` never match. Reference elements have no portable claim.
+    pub fn read_array<T: CheckedBitPattern, const N: usize>(
+        &self,
+        process: &Process,
+        at: Address,
+    ) -> Result<ManagedArray<T, N>, Error> {
+        managed::read_array(process, self.pointer_size, at)
     }
 
     /// Attaches to a Unity game that is using the standard Mono backend. This

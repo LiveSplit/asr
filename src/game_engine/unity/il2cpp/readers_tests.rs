@@ -29,6 +29,16 @@ fn image() -> Vec<u8> {
         put(&mut i, 0x100 + 0x14 + 2 * index as u64, &unit.to_le_bytes());
     }
 
+    // An array whose length slot carries garbage above the low u32. IL2CPP's
+    // length really is pointer-sized, so the whole slot judges the claim.
+    ptr(&mut i, 0x8, BASE + 0x200);
+    put(&mut i, 0x200 + 0x18, &0x1_0000_0003_u64.to_le_bytes());
+
+    ptr(&mut i, 0x10, BASE + 0x300);
+    put(&mut i, 0x300 + 0x18, &2_u64.to_le_bytes());
+    put(&mut i, 0x300 + 0x20, &11_u32.to_le_bytes());
+    put(&mut i, 0x300 + 0x24, &22_u32.to_le_bytes());
+
     i
 }
 
@@ -52,5 +62,26 @@ fn strings_resolve_through_their_reference() {
             .read_string::<8>(process, Address::new(BASE))
             .unwrap();
         assert!(read.matches_str("Loop"));
+    });
+}
+
+#[test]
+fn arrays_resolve_through_their_reference() {
+    on_fixture(|process, module| {
+        let read = module
+            .read_array::<u32, 4>(process, Address::new(BASE + 0x10))
+            .unwrap();
+        assert_eq!(read.as_slice(), [11, 22]);
+    });
+}
+
+// A length whose low u32 reads small but whose full width does not is
+// garbage, not a small array. An i32 read here would wrongly succeed.
+#[test]
+fn array_lengths_judge_at_full_width() {
+    on_fixture(|process, module| {
+        assert!(module
+            .read_array::<i32, 8>(process, Address::new(BASE + 0x8))
+            .is_err());
     });
 }

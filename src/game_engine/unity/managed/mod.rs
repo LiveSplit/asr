@@ -6,6 +6,7 @@
 //! fields, where its statics sit, and how a live object names its class. Below
 //! that, the walk is written once.
 
+mod array;
 mod cursor;
 mod pointer;
 mod readers;
@@ -13,9 +14,10 @@ mod runtime;
 mod string;
 mod walk;
 
+pub use array::ManagedArray;
 pub use cursor::{Assemblies, Classes};
 pub use pointer::PointerPath;
-pub use readers::read_string;
+pub use readers::{read_array, read_string};
 pub use runtime::{Il2CppRuntime, MonoRuntime, Runtime};
 pub use string::ManagedString;
 pub use walk::Walk;
