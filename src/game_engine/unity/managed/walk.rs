@@ -1,5 +1,5 @@
 use super::super::{get_backing_name, CSTR};
-use super::{ClassRef, ClimbStop, FieldRef, ImageRef, Runtime, WalkOffsets};
+use super::{ClassRef, ClimbStop, FieldRef, ImageRef, ListOffsets, Runtime, WalkOffsets};
 use crate::{string::ArrayCString, Address, PointerSize, Process};
 
 /// The walk itself: everything both runtimes lay out the same way, written
@@ -258,6 +258,42 @@ impl Walk {
 
     fn field_offset(&self, process: &Process, field: FieldRef) -> Option<u32> {
         process.read(field.address + self.offsets.field.offset).ok()
+    }
+
+    /// Resolves where a list keeps its backing array and live count, off the
+    /// list object's own class. Corlib names both fields the same across
+    /// every generation the offsets tables cover; a class naming either
+    /// differently is not a list and misses cleanly.
+    pub fn list_offsets(&self, process: &Process, object: Address) -> Option<ListOffsets> {
+        let class = self.object_class(process, object)?;
+
+        let field_count = self.runtime.field_count(process, self.pointer_size, class);
+        let fields = process
+            .read_pointer(class.address + self.offsets.class.fields, self.pointer_size)
+            .ok()
+            .filter(|address| !address.is_null())?;
+
+        let mut items = None;
+        let mut size = None;
+        for index in 0..field_count {
+            let field =
+                FieldRef::new(fields + index.wrapping_mul(self.offsets.field.stride as u64));
+
+            let Some(name) = self.field_name::<CSTR>(process, field) else {
+                continue;
+            };
+
+            if name.matches("_items") {
+                items = self.field_offset(process, field);
+            } else if name.matches("_size") {
+                size = self.field_offset(process, field);
+            }
+        }
+
+        Some(ListOffsets {
+            items: items?,
+            size: size?,
+        })
     }
 
     /// Reads the address a class's static field offsets are measured from.

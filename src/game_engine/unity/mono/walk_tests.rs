@@ -54,6 +54,9 @@ fn image() -> Vec<u8> {
         (0x2700, "Outer"),
         (0x2780, "Inner"),
         (0x2800, "spawner"),
+        (0x2880, "_items"),
+        (0x2900, "_size"),
+        (0x2980, "_version"),
         (0x2B00, "Inventory"),
         (0x2B80, "items"),
     ];
@@ -194,6 +197,50 @@ fn image() -> Vec<u8> {
     ptr(&mut i, 0x1900, BASE + 0x1A00);
     ptr(&mut i, 0x1A00, BASE + game_manager);
     put(&mut i, 0x1900 + 0x20, &777_u32.to_le_bytes());
+
+    // A List: its class is a generic instance like Inventory, its fields are
+    // corlib's own three, and its live object holds a backing array longer
+    // than the live count. A second object claims a count past the backing.
+    let list_class = 0x3600;
+    put(&mut i, list_class + 0x2A, &3_u8.to_le_bytes());
+    ptr(&mut i, list_class + 0x98, BASE + 0x3800);
+    ptr(&mut i, list_class + 0xF0, BASE + 0x3D00);
+    ptr(&mut i, 0x3D00, BASE + 0x3D40); // descriptor: container_class at 0x0
+    put(&mut i, 0x3D40 + 0x100, &3_i32.to_le_bytes()); // the definition's count
+    ptr(&mut i, 0x3800 + 0x8, BASE + 0x2880); // _items
+    put(&mut i, 0x3800 + 0x18, &0x10_i32.to_le_bytes());
+    ptr(&mut i, 0x3820 + 0x8, BASE + 0x2900); // _size
+    put(&mut i, 0x3820 + 0x18, &0x18_i32.to_le_bytes());
+    ptr(&mut i, 0x3840 + 0x8, BASE + 0x2980); // _version
+    put(&mut i, 0x3840 + 0x18, &0x1C_i32.to_le_bytes());
+
+    ptr(&mut i, 0x3900, BASE + 0x3950); // the list object heads with its vtable
+    ptr(&mut i, 0x3950, BASE + list_class);
+    ptr(&mut i, 0x3900 + 0x10, BASE + 0x3A00);
+    put(&mut i, 0x3900 + 0x18, &3_i32.to_le_bytes());
+    put(&mut i, 0x3A00 + 0x18, &8_u32.to_le_bytes()); // the backing's capacity
+    for (index, value) in [5_i32, 6, 7, 100, 100, 100, 100, 100]
+        .into_iter()
+        .enumerate()
+    {
+        put(
+            &mut i,
+            0x3A00 + 0x20 + 4 * index as u64,
+            &value.to_le_bytes(),
+        );
+    }
+
+    ptr(&mut i, 0x3B00, BASE + 0x3950); // the torn list shares the class
+    ptr(&mut i, 0x3B00 + 0x10, BASE + 0x3A00);
+    put(&mut i, 0x3B00 + 0x18, &99_i32.to_le_bytes());
+
+    ptr(&mut i, 0x3C00, BASE + 0x3C50); // an Inventory object, not a list
+    ptr(&mut i, 0x3C50, BASE + 0x2D00);
+
+    // The slots holding the three references.
+    ptr(&mut i, 0x3F00, BASE + 0x3900);
+    ptr(&mut i, 0x3F08, BASE + 0x3B00);
+    ptr(&mut i, 0x3F10, BASE + 0x3C00);
 
     i
 }
@@ -407,6 +454,41 @@ fn static_instances_resolve_through_the_declaring_class() {
             pointer.deref::<u64>(process, module, &image).unwrap(),
             BASE + 0x1980,
         );
+    });
+}
+
+// A list's backing array and live count resolve off the list object's own
+// class, and the read returns the live count's elements, never the backing
+// capacity's, which the buffer size does not judge.
+#[test]
+fn lists_resolve_through_their_own_class() {
+    on_fixture(era(), |process, module| {
+        let at = Address::new(BASE + 0x3F00);
+        let offsets = module.get_list_offsets(process, at).unwrap();
+        let read = module.read_list::<i32, 4>(process, offsets, at).unwrap();
+        assert_eq!(read.as_slice(), [5, 6, 7]);
+    });
+}
+
+// A count past the backing array's own length is a torn resize, not a long
+// list.
+#[test]
+fn list_counts_past_their_backing_refuse() {
+    on_fixture(era(), |process, module| {
+        let at = Address::new(BASE + 0x3F08);
+        let offsets = module.get_list_offsets(process, at).unwrap();
+        assert!(module.read_list::<i32, 128>(process, offsets, at).is_err());
+    });
+}
+
+// An object whose class does not carry corlib's names is not a list, and
+// misses cleanly rather than answering with whatever offsets exist.
+#[test]
+fn objects_that_are_not_lists_answer_nothing() {
+    on_fixture(era(), |process, module| {
+        assert!(module
+            .get_list_offsets(process, Address::new(BASE + 0x3F10))
+            .is_none());
     });
 }
 

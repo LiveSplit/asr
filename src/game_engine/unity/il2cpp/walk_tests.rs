@@ -479,6 +479,8 @@ fn image(version: Version) -> Vec<u8> {
         (0x2700, "Outer"),
         (0x2780, "Inner"),
         (0x2800, "spawner"),
+        (0x2880, "_items"),
+        (0x2900, "_size"),
     ];
     for (at, text) in strings {
         put(&mut i, at, text.as_bytes());
@@ -589,6 +591,30 @@ fn image(version: Version) -> Vec<u8> {
     // Enemy's statics hold the spawner instance. Boss carries a table of its
     // own, empty at that offset, so only the declaring class's table answers.
     ptr(&mut i, 0xFC0 + 0x8, BASE + 0x1080);
+
+    // A List: its class carries corlib's field names, its live object heads
+    // with the class and holds a backing array longer than the live count.
+    let list_class = 0x1600;
+    ptr(&mut i, list_class + 0x80, BASE + 0x1780);
+    put(&mut i, list_class + field_count_at, &2_u16.to_le_bytes());
+    ptr(&mut i, 0x1780, BASE + 0x2880); // _items
+    put(&mut i, 0x1780 + 0x18, &0x10_i32.to_le_bytes());
+    ptr(&mut i, 0x17A0, BASE + 0x2900); // _size
+    put(&mut i, 0x17A0 + 0x18, &0x18_i32.to_le_bytes());
+
+    ptr(&mut i, 0x1800, BASE + list_class); // the list object heads with its class
+    ptr(&mut i, 0x1800 + 0x10, BASE + 0x1900);
+    put(&mut i, 0x1800 + 0x18, &2_i32.to_le_bytes());
+    put(&mut i, 0x1900 + 0x18, &4_u32.to_le_bytes()); // the backing's capacity
+    for (index, value) in [11_u32, 22, 100, 100].into_iter().enumerate() {
+        put(
+            &mut i,
+            0x1900 + 0x20 + 4 * index as u64,
+            &value.to_le_bytes(),
+        );
+    }
+
+    ptr(&mut i, 0x18, BASE + 0x1800); // the slot holding the reference
 
     i
 }
@@ -725,6 +751,19 @@ fn static_instances_resolve_through_the_declaring_class() {
             pointer.deref::<u64>(process, module, &image).unwrap(),
             BASE + 0x1080,
         );
+    });
+}
+
+// A list's backing array and live count resolve off the list object's own
+// class, and the read returns the live count's elements, never the backing
+// capacity's.
+#[test]
+fn lists_resolve_through_their_own_class() {
+    on_fixture(Version::V2022, |process, module| {
+        let at = Address::new(BASE + 0x18);
+        let offsets = module.get_list_offsets(process, at).unwrap();
+        let read = module.read_list::<u32, 4>(process, offsets, at).unwrap();
+        assert_eq!(read.as_slice(), [11, 22]);
     });
 }
 
