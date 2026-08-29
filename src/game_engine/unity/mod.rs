@@ -85,7 +85,7 @@
 
 pub mod il2cpp;
 mod managed;
-pub use managed::{ListOffsets, ManagedString};
+pub use managed::{DictionaryOffsets, ListOffsets, ManagedString};
 pub mod mono;
 pub mod scene_manager;
 

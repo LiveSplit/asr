@@ -1,5 +1,9 @@
 use super::super::{get_backing_name, CSTR};
-use super::{ClassRef, ClimbStop, FieldRef, ImageRef, ListOffsets, Runtime, WalkOffsets};
+use super::readers::ENTRY_SCRATCH;
+use super::{
+    ClassRef, ClimbStop, DictionaryOffsets, EntryLayout, FieldRef, ImageRef, ListOffsets, Runtime,
+    WalkOffsets,
+};
 use crate::{string::ArrayCString, Address, PointerSize, Process};
 
 /// The walk itself: everything both runtimes lay out the same way, written
@@ -307,6 +311,126 @@ impl Walk {
             items: items?,
             size: size?,
         })
+    }
+
+    /// Resolves where a dictionary keeps its backing entries and live
+    /// counts, and how one entry lays out, off the dictionary object's own
+    /// class. Both corlib naming generations answer; the buckets field has
+    /// to exist for the shape to be this one, though nothing here reads it.
+    /// The parallel-arrays shape the oldest corlib used carries other names
+    /// and misses cleanly.
+    pub fn dictionary_offsets(
+        &self,
+        process: &Process,
+        object: Address,
+    ) -> Option<DictionaryOffsets> {
+        let class = self.object_class(process, object)?;
+
+        let mut found = [None; 4];
+        self.each_own_field(process, class, |name, field, offset| {
+            let generations = [
+                ["_buckets", "_entries", "_count", "_freeCount"],
+                ["buckets", "entries", "count", "freeCount"],
+            ];
+            for generation in generations {
+                for (slot, member) in generation.into_iter().enumerate() {
+                    if name.matches(member) {
+                        found[slot] = Some((field, offset));
+                    }
+                }
+            }
+        });
+        let (Some(_), Some(entries), Some(count), Some(free_count)) =
+            (found[0], found[1], found[2], found[3])
+        else {
+            return None;
+        };
+
+        // The entry class arrives through the entries field's own type, and
+        // its instance size, boxed header removed, is the entry stride.
+        let entry_type = process
+            .read_pointer(
+                entries.0.address + self.offsets.field.type_?,
+                self.pointer_size,
+            )
+            .ok()
+            .filter(|address| !address.is_null())?;
+        let entry_class = self
+            .runtime
+            .class_from_type(process, self.pointer_size, entry_type)?;
+
+        let header = 2 * self.pointer_size as u32;
+        let size = process
+            .read::<i32>(entry_class.address + self.offsets.class.instance_size?)
+            .ok()?;
+        let stride = u32::try_from(size)
+            .ok()?
+            .checked_sub(header)
+            .filter(|&stride| stride > 0 && stride as usize <= ENTRY_SCRATCH)?;
+
+        // The members' offsets are recorded as if boxed; folding them by the
+        // header measures them from the entry's own start.
+        let mut members = [None; 4];
+        self.each_own_field(process, entry_class, |name, _, offset| {
+            for (slot, member) in ["hashCode", "next", "key", "value"].into_iter().enumerate() {
+                if name.matches(member) {
+                    members[slot] = offset.checked_sub(header);
+                }
+            }
+        });
+        let (Some(hash), Some(next), Some(key), Some(value)) =
+            (members[0], members[1], members[2], members[3])
+        else {
+            return None;
+        };
+
+        let ends_inside = |member: u32| member.checked_add(4).is_some_and(|end| end <= stride);
+        let holds = ends_inside(hash) && ends_inside(next) && key < stride && value < stride;
+        holds.then_some(DictionaryOffsets {
+            entries: entries.1,
+            count: count.1,
+            free_count: free_count.1,
+            layout: EntryLayout {
+                stride,
+                hash,
+                next,
+                key,
+                value,
+            },
+        })
+    }
+
+    // Hands every field the class itself declares to the callback, with its
+    // name and instance offset. Unreadable entries are skipped, the way the
+    // field climb skips them.
+    fn each_own_field(
+        &self,
+        process: &Process,
+        class: ClassRef,
+        mut each: impl FnMut(&ArrayCString<CSTR>, FieldRef, u32),
+    ) {
+        let field_count = self.runtime.field_count(process, self.pointer_size, class);
+        let Some(fields) = process
+            .read_pointer(class.address + self.offsets.class.fields, self.pointer_size)
+            .ok()
+            .filter(|address| !address.is_null())
+        else {
+            return;
+        };
+
+        for index in 0..field_count {
+            let field =
+                FieldRef::new(fields + index.wrapping_mul(self.offsets.field.stride as u64));
+
+            let Some(name) = self.field_name::<CSTR>(process, field) else {
+                continue;
+            };
+            let Some(offset) = self.field_offset(process, field) else {
+                continue;
+            };
+
+            each(&name, field, offset);
+        }
     }
 
     /// Reads the address a class's static field offsets are measured from.

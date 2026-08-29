@@ -4,6 +4,8 @@ pub(super) struct IL2CPPOffsets {
     pub(super) assembly: AssemblyOffsets,
     pub(super) image: ImageOffsets,
     pub(super) class: ClassOffsets,
+    pub(super) generic: GenericOffsets,
+    pub(super) type_words: TypeOffsets,
     pub(super) field: FieldInfoOffsets,
 }
 
@@ -28,10 +30,17 @@ impl IL2CPPOffsets {
                         parent: 0x58,
                         fields: 0x80,
                         static_fields: 0xB8,
+                        instance_size: None,
                         field_count: 0x124,
+                    },
+                    generic: GenericOffsets { cached_class: None },
+                    type_words: TypeOffsets {
+                        data: Some(0x0), // 2023.1 through 6000.7
+                        kind: Some(0xA), // 2023.1 through 6000.7
                     },
                     field: FieldInfoOffsets {
                         name: 0x0,
+                        type_: Some(0x8), // 2023.1 through 6000.7
                         offset: 0x18,
                         struct_size: 0x20,
                     },
@@ -53,10 +62,17 @@ impl IL2CPPOffsets {
                         parent: 0x58,
                         fields: 0x80,
                         static_fields: 0xB8,
+                        instance_size: None,
                         field_count: 0x120,
+                    },
+                    generic: GenericOffsets { cached_class: None },
+                    type_words: TypeOffsets {
+                        data: None,
+                        kind: None,
                     },
                     field: FieldInfoOffsets {
                         name: 0x0,
+                        type_: None,
                         offset: 0x18,
                         struct_size: 0x20,
                     },
@@ -78,10 +94,19 @@ impl IL2CPPOffsets {
                         parent: 0x58,
                         fields: 0x80,
                         static_fields: 0xB8,
+                        instance_size: Some(0xF4), // 2019.4, 2020.1
                         field_count: 0x11C,
+                    },
+                    generic: GenericOffsets {
+                        cached_class: Some(0x18), // 2019.4, 2020.1
+                    },
+                    type_words: TypeOffsets {
+                        data: Some(0x0), // 2019.4, 2020.1
+                        kind: Some(0xA), // 2019.4, 2020.1
                     },
                     field: FieldInfoOffsets {
                         name: 0x0,
+                        type_: Some(0x8), // 2019.4, 2020.1
                         offset: 0x18,
                         struct_size: 0x20,
                     },
@@ -103,10 +128,17 @@ impl IL2CPPOffsets {
                         parent: 0x58,
                         fields: 0x80,
                         static_fields: 0xB8,
+                        instance_size: None,
                         field_count: 0x114,
+                    },
+                    generic: GenericOffsets { cached_class: None },
+                    type_words: TypeOffsets {
+                        data: None,
+                        kind: None,
                     },
                     field: FieldInfoOffsets {
                         name: 0x0,
+                        type_: None,
                         offset: 0x18,
                         struct_size: 0x20,
                     },
@@ -135,11 +167,25 @@ pub(super) struct ClassOffsets {
     pub(super) parent: u8,
     pub(super) fields: u8,
     pub(super) static_fields: u8,
+    pub(super) instance_size: Option<u16>, // What one instance occupies, boxed header included
     pub(super) field_count: u16,
+}
+
+// Il2CppGenericClass keeps the class an instantiation resolved to.
+pub(super) struct GenericOffsets {
+    pub(super) cached_class: Option<u16>,
+}
+
+// Il2CppType's own words: the data pointer and the element kind byte.
+pub(super) struct TypeOffsets {
+    pub(super) data: Option<u16>,
+    pub(super) kind: Option<u16>,
 }
 
 pub(super) struct FieldInfoOffsets {
     pub(super) name: u8,
+    pub(super) type_: Option<u16>, // Where a field keeps its Il2CppType
+
     pub(super) offset: u8,
     pub(super) struct_size: u8,
 }

@@ -54,6 +54,33 @@ pub struct ListOffsets {
     pub(crate) size: u32,
 }
 
+/// The most bytes one entry may span: past this a claimed layout is
+/// garbage, and at most this many are read per chunk.
+pub(crate) const ENTRY_SCRATCH: usize = 1024;
+
+/// How one dictionary entry lays out, measured from the entry's own start:
+/// the stored hash, the chain link, and the key and value slots.
+#[derive(Copy, Clone)]
+pub struct EntryLayout {
+    pub(crate) stride: u32,
+    pub(crate) hash: u32,
+    pub(crate) next: u32,
+    pub(crate) key: u32,
+    pub(crate) value: u32,
+}
+
+/// Where a dictionary keeps its backing entries and live counts, and how
+/// one entry lays out, resolved once off the dictionary's own class and
+/// held by the caller, so the per-tick read costs reads rather than a
+/// metadata walk.
+#[derive(Copy, Clone)]
+pub struct DictionaryOffsets {
+    pub(crate) entries: u32,
+    pub(crate) count: u32,
+    pub(crate) free_count: u32,
+    pub(crate) layout: EntryLayout,
+}
+
 /// Reads a managed list's live elements through the reference stored at the
 /// given address, with the offsets a resolution handed out earlier. The
 /// count is judged by the buffer, the backing array's capacity is not, and

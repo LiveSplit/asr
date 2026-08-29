@@ -7,6 +7,7 @@ pub(super) struct MonoOffsets {
     pub(super) hash_table: HashTableOffsets,
     pub(super) class: ClassOffsets,
     pub(super) generic: GenericOffsets,
+    pub(super) type_words: TypeOffsets,
     pub(super) field: FieldInfoOffsets,
     pub(super) v_table: MonoVTableOffsets,
 }
@@ -32,7 +33,8 @@ impl MonoOffsets {
                     table: 0x20,
                 },
                 class: ClassOffsets {
-                    class_kind: Some(0x1B), // 2021.3 through 6000.7
+                    class_kind: Some(0x1B),    // 2021.3 through 6000.7
+                    instance_size: Some(0x1C), // 2021.3 through 6000.7
                     parent: 0x30,
                     nested_in: Some(0x38), // 2021.3 through 6000.7
                     name: 0x48,
@@ -47,7 +49,12 @@ impl MonoOffsets {
                     generic_class: Some(0xF0),  // 2021.3 through 6000.7
                     container_class: Some(0x0), // 2021.3 through 6000.7
                 },
+                type_words: TypeOffsets {
+                    data: Some(0x0), // 2021.3 through 6000.7
+                    kind: Some(0xA), // 2021.3 through 6000.7
+                },
                 field: FieldInfoOffsets {
+                    type_: Some(0x0), // 2021.3 through 6000.7
                     name: 0x8,
                     offset: 0x18,
                     alignment: 0x20,
@@ -68,7 +75,8 @@ impl MonoOffsets {
                     table: 0x14,
                 },
                 class: ClassOffsets {
-                    class_kind: Some(0xF), // 2021.3 through 6000.7
+                    class_kind: Some(0xF),     // 2021.3 through 6000.7
+                    instance_size: Some(0x10), // 2021.3 through 6000.7
                     parent: 0x20,
                     nested_in: Some(0x24), // 2021.3 through 6000.7
                     name: 0x2C,
@@ -83,7 +91,12 @@ impl MonoOffsets {
                     generic_class: Some(0x8C),  // 2021.3 through 6000.7
                     container_class: Some(0x0), // 2021.3 through 6000.7
                 },
+                type_words: TypeOffsets {
+                    data: Some(0x0), // 2021.3 through 6000.7
+                    kind: Some(0x6), // 2021.3 through 6000.7
+                },
                 field: FieldInfoOffsets {
+                    type_: Some(0x0), // 2021.3 through 6000.7
                     name: 0x4,
                     offset: 0xC,
                     alignment: 0x10,
@@ -104,7 +117,8 @@ impl MonoOffsets {
                     table: 0x20,
                 },
                 class: ClassOffsets {
-                    class_kind: Some(0x2A), // 2017.4 through 2020.1
+                    class_kind: Some(0x2A),    // 2017.4 through 2020.1
+                    instance_size: Some(0x1C), // 2017.4 through 2020.1
                     parent: 0x30,
                     nested_in: Some(0x38), // 2017.4 through 2020.1
                     name: 0x48,
@@ -119,7 +133,12 @@ impl MonoOffsets {
                     generic_class: Some(0xF0),  // 2017.4 through 2020.1
                     container_class: Some(0x0), // 2017.4 through 2020.1
                 },
+                type_words: TypeOffsets {
+                    data: Some(0x0), // 2017.4 through 2020.1
+                    kind: Some(0xA), // 2017.4 through 2020.1
+                },
                 field: FieldInfoOffsets {
+                    type_: Some(0x0), // 2017.4 through 2020.1
                     name: 0x8,
                     offset: 0x18,
                     alignment: 0x20,
@@ -140,7 +159,8 @@ impl MonoOffsets {
                     table: 0x14,
                 },
                 class: ClassOffsets {
-                    class_kind: Some(0x1E), // 2017.4 through 2020.1
+                    class_kind: Some(0x1E),    // 2017.4 through 2020.1
+                    instance_size: Some(0x10), // 2017.4 through 2020.1
                     parent: 0x20,
                     nested_in: Some(0x24), // 2017.4 through 2020.1
                     name: 0x2C,
@@ -155,7 +175,12 @@ impl MonoOffsets {
                     generic_class: Some(0x94),  // 2017.4 through 2020.1
                     container_class: Some(0x0), // 2017.4 through 2020.1
                 },
+                type_words: TypeOffsets {
+                    data: Some(0x0), // 2017.4 through 2020.1
+                    kind: Some(0x6), // 2017.4 through 2020.1
+                },
                 field: FieldInfoOffsets {
+                    type_: Some(0x0), // 2017.4 through 2020.1
                     name: 0x4,
                     offset: 0xC,
                     alignment: 0x10,
@@ -177,6 +202,7 @@ impl MonoOffsets {
                 },
                 class: ClassOffsets {
                     class_kind: None,
+                    instance_size: Some(0x1C), // 2017.4, 2018.4
                     parent: 0x30,
                     nested_in: None,
                     name: 0x50,
@@ -191,7 +217,12 @@ impl MonoOffsets {
                     generic_class: None,
                     container_class: None,
                 },
+                type_words: TypeOffsets {
+                    data: Some(0x0), // 2017.4, 2018.4
+                    kind: Some(0xA), // 2017.4, 2018.4
+                },
                 field: FieldInfoOffsets {
+                    type_: Some(0x0), // 2017.4, 2018.4
                     name: 0x8,
                     offset: 0x18,
                     alignment: 0x20,
@@ -213,6 +244,7 @@ impl MonoOffsets {
                 },
                 class: ClassOffsets {
                     class_kind: None,
+                    instance_size: Some(0x10), // 2017.4, 2018.4
                     parent: 0x24,
                     nested_in: None,
                     name: 0x34,
@@ -227,7 +259,12 @@ impl MonoOffsets {
                     generic_class: None,
                     container_class: None,
                 },
+                type_words: TypeOffsets {
+                    data: Some(0x0), // 2017.4, 2018.4
+                    kind: Some(0x6), // 2017.4, 2018.4
+                },
                 field: FieldInfoOffsets {
+                    type_: Some(0x0), // 2017.4, 2018.4
                     name: 0x4,
                     offset: 0xC,
                     alignment: 0x10,
@@ -249,6 +286,7 @@ impl MonoOffsets {
                 },
                 class: ClassOffsets {
                     class_kind: None,
+                    instance_size: None,
                     parent: 0x30,
                     nested_in: Some(0x38), // 5.6 through 2018.4
                     name: 0x48,
@@ -263,7 +301,12 @@ impl MonoOffsets {
                     generic_class: None,
                     container_class: None,
                 },
+                type_words: TypeOffsets {
+                    data: None,
+                    kind: None,
+                },
                 field: FieldInfoOffsets {
+                    type_: None,
                     name: 0x8,
                     offset: 0x18,
                     alignment: 0x20,
@@ -285,6 +328,7 @@ impl MonoOffsets {
                 },
                 class: ClassOffsets {
                     class_kind: None,
+                    instance_size: None,
                     parent: 0x24,
                     nested_in: Some(0x28), // 5.6 through 2018.4
                     name: 0x30,
@@ -299,7 +343,12 @@ impl MonoOffsets {
                     generic_class: None,
                     container_class: None,
                 },
+                type_words: TypeOffsets {
+                    data: None,
+                    kind: None,
+                },
                 field: FieldInfoOffsets {
+                    type_: None,
                     name: 0x4,
                     offset: 0xC,
                     alignment: 0x10,
@@ -322,6 +371,7 @@ impl MonoOffsets {
                     },
                     class: ClassOffsets {
                         class_kind: None,
+                        instance_size: None,
                         parent: 0x28,
                         nested_in: None,
                         name: 0x40,
@@ -336,7 +386,12 @@ impl MonoOffsets {
                         generic_class: None,
                         container_class: None,
                     },
+                    type_words: TypeOffsets {
+                        data: None,
+                        kind: None,
+                    },
                     field: FieldInfoOffsets {
+                        type_: None,
                         name: 0x8,
                         offset: 0x18,
                         alignment: 0x20,
@@ -360,6 +415,7 @@ impl MonoOffsets {
                     },
                     class: ClassOffsets {
                         class_kind: None,
+                        instance_size: None,
                         parent: 0x28,
                         nested_in: None,
                         name: 0x40,
@@ -374,7 +430,12 @@ impl MonoOffsets {
                         generic_class: None,
                         container_class: None,
                     },
+                    type_words: TypeOffsets {
+                        data: None,
+                        kind: None,
+                    },
                     field: FieldInfoOffsets {
+                        type_: None,
                         name: 0x8,
                         offset: 0x18,
                         alignment: 0x20,
@@ -398,6 +459,7 @@ impl MonoOffsets {
                     },
                     class: ClassOffsets {
                         class_kind: None,
+                        instance_size: None,
                         parent: 0x28,
                         nested_in: None,
                         name: 0x48,
@@ -412,7 +474,12 @@ impl MonoOffsets {
                         generic_class: None,
                         container_class: None,
                     },
+                    type_words: TypeOffsets {
+                        data: None,
+                        kind: None,
+                    },
                     field: FieldInfoOffsets {
+                        type_: None,
                         name: 0x8,
                         offset: 0x18,
                         alignment: 0x20,
@@ -436,6 +503,7 @@ impl MonoOffsets {
                     },
                     class: ClassOffsets {
                         class_kind: None,
+                        instance_size: None,
                         parent: 0x28,
                         nested_in: None,
                         name: 0x40,
@@ -450,7 +518,12 @@ impl MonoOffsets {
                         generic_class: None,
                         container_class: None,
                     },
+                    type_words: TypeOffsets {
+                        data: None,
+                        kind: None,
+                    },
                     field: FieldInfoOffsets {
+                        type_: None,
                         name: 0x8,
                         offset: 0x18,
                         alignment: 0x20,
@@ -482,6 +555,7 @@ pub(super) struct HashTableOffsets {
 
 pub(super) struct ClassOffsets {
     pub(super) class_kind: Option<u16>, // The byte whose low bits say what kind of class it is
+    pub(super) instance_size: Option<u16>, // What one instance occupies, boxed header included
     pub(super) parent: u8,
     pub(super) nested_in: Option<u16>, // Where a class keeps the one it is nested in
     pub(super) name: u8,
@@ -493,6 +567,12 @@ pub(super) struct ClassOffsets {
     pub(super) next_class_cache: u16,
 }
 
+// MonoType's own words: the data pointer and the element kind byte.
+pub(super) struct TypeOffsets {
+    pub(super) data: Option<u16>,
+    pub(super) kind: Option<u16>,
+}
+
 // MonoClassGenericInst keeps the instantiation descriptor, whose container is
 // the generic definition the instance was made from.
 pub(super) struct GenericOffsets {
@@ -501,6 +581,7 @@ pub(super) struct GenericOffsets {
 }
 
 pub(super) struct FieldInfoOffsets {
+    pub(super) type_: Option<u16>, // Where a field keeps its MonoType
     pub(super) name: u8,
     pub(super) offset: u8,
     pub(super) alignment: u8,

@@ -20,11 +20,13 @@ pub use pointer::UnityPointer;
 mod offsets;
 use offsets::IL2CPPOffsets;
 #[cfg(all(test, not(target_family = "wasm")))]
+mod collections_tests;
+#[cfg(all(test, not(target_family = "wasm")))]
 mod readers_tests;
 #[cfg(all(test, not(target_family = "wasm")))]
 mod walk_tests;
 
-use super::{managed, ListOffsets, ManagedString};
+use super::{managed, DictionaryOffsets, ListOffsets, ManagedString};
 
 /// Represents access to a Unity game that is using the IL2CPP backend.
 pub struct Module {
@@ -273,6 +275,9 @@ impl Module {
                 handle_is_inline: matches!(self.version, Version::Base | Version::V2019),
                 field_count: self.offsets.class.field_count,
                 static_fields: self.offsets.class.static_fields.into(),
+                cached_class: self.offsets.generic.cached_class,
+                type_data: self.offsets.type_words.data,
+                type_kind: self.offsets.type_words.kind,
             }),
             offsets: managed::WalkOffsets {
                 assembly: managed::AssemblyOffsets {
@@ -285,10 +290,12 @@ impl Module {
                     namespace: self.offsets.class.namespace.into(),
                     parent: self.offsets.class.parent.into(),
                     declaring: self.offsets.class.declaring_type,
+                    instance_size: self.offsets.class.instance_size,
                     fields: self.offsets.class.fields.into(),
                 },
                 field: managed::FieldOffsets {
                     name: self.offsets.field.name.into(),
+                    type_: self.offsets.field.type_,
                     offset: self.offsets.field.offset.into(),
                     stride: self.offsets.field.struct_size.into(),
                 },
@@ -368,6 +375,32 @@ impl Module {
         self.walk().list_offsets(process, object)
     }
 
+    /// Resolves where a `Dictionary` keeps its backing entries and live
+    /// counts, and how one entry lays out, off the class the dictionary
+    /// object at the given address names as its own. The answer is a small
+    /// `Copy` value worth storing, like a field offset: resolution walks
+    /// class metadata, where the read itself is a handful of reads. An
+    /// object whose class is not this dictionary shape, and a target still
+    /// starting up, both miss.
+    pub fn get_dictionary_offsets(
+        &self,
+        process: &Process,
+        at: Address,
+    ) -> Option<DictionaryOffsets> {
+        let object = process
+            .read_pointer(at, self.pointer_size)
+            .ok()
+            .filter(|address| !address.is_null())?;
+
+        self.walk().dictionary_offsets(process, object)
+    }
+
+    /// Returns the pointer size the target runs at, which is what a caller
+    /// claims reference-width values with.
+    pub fn get_pointer_size(&self) -> PointerSize {
+        self.pointer_size
+    }
+
     /// Reads a managed `List` of value elements through the reference stored
     /// at the given address, with the offsets
     /// [`get_list_offsets`](Self::get_list_offsets) resolved. The list's
@@ -444,6 +477,21 @@ impl Module {
     /// to the runtime between each try.
     pub async fn wait_get_list_offsets(&self, process: &Process, at: Address) -> ListOffsets {
         retry(|| self.get_list_offsets(process, at)).await
+    }
+
+    /// Resolves where a `Dictionary` keeps its backing entries and live
+    /// counts, and how one entry lays out, off the class the dictionary
+    /// object at the given address names as its own.
+    ///
+    /// This is the `await`able version of the
+    /// [`get_dictionary_offsets`](Self::get_dictionary_offsets) function,
+    /// yielding back to the runtime between each try.
+    pub async fn wait_get_dictionary_offsets(
+        &self,
+        process: &Process,
+        at: Address,
+    ) -> DictionaryOffsets {
+        retry(|| self.get_dictionary_offsets(process, at)).await
     }
 }
 
