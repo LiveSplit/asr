@@ -3,7 +3,7 @@ use bytemuck::CheckedBitPattern;
 use core::mem::{size_of, MaybeUninit};
 
 use super::ManagedString;
-use crate::{Address, Error, PointerSize, Process};
+use crate::{Address, Address32, Address64, Error, PointerSize, Process};
 
 /// How many bytes a managed object's two header words occupy. The readers
 /// skip them; nothing in them is read.
@@ -12,10 +12,6 @@ const fn object_header(pointer_size: PointerSize) -> u64 {
 }
 
 /// Reads a managed string through the reference stored at the given address.
-/// The layout is runtime ABI, shared by both runtimes at both widths: the
-/// character count as an i32 past the object header, the UTF-16 characters
-/// inline behind it. The count is the string's length, so a nul character
-/// inside the string is kept like any other.
 pub fn read_string<const N: usize>(
     process: &Process,
     pointer_size: PointerSize,
@@ -26,6 +22,23 @@ pub fn read_string<const N: usize>(
         .ok()
         .filter(|address| !address.is_null())
         .ok_or(Error {})?;
+
+    read_string_object(process, pointer_size, object)
+}
+
+/// Reads a managed string at its object address, the form a reference
+/// array's elements hand back. The layout is runtime ABI, shared by both
+/// runtimes at both widths: the character count as an i32 past the object
+/// header, the UTF-16 characters inline behind it. The count is the string's
+/// length, so a nul character inside the string is kept like any other.
+pub fn read_string_object<const N: usize>(
+    process: &Process,
+    pointer_size: PointerSize,
+    object: Address,
+) -> Result<ManagedString<N>, Error> {
+    if object.is_null() {
+        return Err(Error {});
+    }
 
     let header = object_header(pointer_size);
     let count = process.read::<i32>(object + header)?;
@@ -581,4 +594,59 @@ pub fn read_array<T: CheckedBitPattern, const N: usize>(
         .try_extend_from_slice(elements)
         .map_err(|_| Error {})?;
     Ok(array)
+}
+
+/// Reads a managed array of reference elements through the reference
+/// stored at the given address, handing back the elements' object
+/// addresses. The element slots are pointers at the target's own width,
+/// which the reader owns rather than taking as a claim. Null elements
+/// are data and stay at their positions; a null array reference fails.
+pub fn read_reference_array<const N: usize>(
+    process: &Process,
+    pointer_size: PointerSize,
+    at: Address,
+) -> Result<ArrayVec<Address, N>, Error> {
+    match pointer_size {
+        PointerSize::Bit64 => Ok(read_array::<Address64, N>(process, pointer_size, at)?
+            .iter()
+            .copied()
+            .map(Into::into)
+            .collect()),
+        PointerSize::Bit32 => Ok(read_array::<Address32, N>(process, pointer_size, at)?
+            .iter()
+            .copied()
+            .map(Into::into)
+            .collect()),
+        // No managed runtime is 16-bit.
+        PointerSize::Bit16 => Err(Error {}),
+    }
+}
+
+/// Reads a managed list of reference elements through the reference
+/// stored at the given address, with the offsets a resolution handed out
+/// earlier, handing back the elements' object addresses the way
+/// [`read_reference_array`] does. The count and backing checks are
+/// [`read_list`]'s.
+pub fn read_reference_list<const N: usize>(
+    process: &Process,
+    pointer_size: PointerSize,
+    offsets: ListOffsets,
+    at: Address,
+) -> Result<ArrayVec<Address, N>, Error> {
+    match pointer_size {
+        PointerSize::Bit64 => Ok(
+            read_list::<Address64, N>(process, pointer_size, offsets, at)?
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        ),
+        PointerSize::Bit32 => Ok(
+            read_list::<Address32, N>(process, pointer_size, offsets, at)?
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        ),
+        // No managed runtime is 16-bit.
+        PointerSize::Bit16 => Err(Error {}),
+    }
 }

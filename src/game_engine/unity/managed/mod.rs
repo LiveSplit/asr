@@ -16,8 +16,9 @@ mod walk;
 pub use cursor::{Assemblies, Classes};
 pub use pointer::PointerPath;
 pub use readers::{
-    read_array, read_dictionary, read_hash_set, read_list, read_string, DictionaryOffsets,
-    EntryLayout, HashSetOffsets, ListOffsets, SlotLayout,
+    read_array, read_dictionary, read_hash_set, read_list, read_reference_array,
+    read_reference_list, read_string, read_string_object, DictionaryOffsets, EntryLayout,
+    HashSetOffsets, ListOffsets, SlotLayout,
 };
 #[cfg(test)]
 pub(crate) use readers::{DictionaryShape, SetShape};

@@ -343,13 +343,31 @@ impl Module {
     /// UTF-16 units, a nul character among them like any other. `N` bounds
     /// how many units the string holds, and a string claiming more than that
     /// fails rather than truncates, as do a negative count and a null
-    /// reference.
+    /// reference. A string already held by its object address reads with
+    /// [`read_string_object`](Self::read_string_object).
     pub fn read_string<const N: usize>(
         &self,
         process: &Process,
         at: Address,
     ) -> Result<ManagedString<N>, Error> {
         managed::read_string(process, self.pointer_size, at)
+    }
+
+    /// Reads a managed string at its object address rather than through a
+    /// reference: the form for an element
+    /// [`read_reference_array`](Self::read_reference_array) hands back. A
+    /// null address fails, so a null element refuses at the element with
+    /// its index in hand. The returned [`ManagedString`] holds exactly the
+    /// string's count of UTF-16 units, a nul character among them like any
+    /// other. `N` bounds how many units the string holds, and a string
+    /// claiming more than that fails rather than truncates, as does a
+    /// negative count.
+    pub fn read_string_object<const N: usize>(
+        &self,
+        process: &Process,
+        object: Address,
+    ) -> Result<ManagedString<N>, Error> {
+        managed::read_string_object(process, self.pointer_size, object)
     }
 
     /// Reads a managed array of value elements through the reference stored
@@ -359,13 +377,32 @@ impl Module {
     /// truncates, as does a null reference. The element type is the caller's
     /// claim and has to match the target's own element layout: a managed
     /// `char` is a `u16` here, a `bool` a single byte, and Rust's `char` and
-    /// `usize` never match. Reference elements have no portable claim.
+    /// `usize` never match. Reference elements read with
+    /// [`read_reference_array`](Self::read_reference_array).
     pub fn read_array<T: CheckedBitPattern, const N: usize>(
         &self,
         process: &Process,
         at: Address,
     ) -> Result<ArrayVec<T, N>, Error> {
         managed::read_array(process, self.pointer_size, at)
+    }
+
+    /// Reads a managed array of reference elements through the reference
+    /// stored at the given address, handing back the elements' object
+    /// addresses read at the target's own pointer width. A null array
+    /// reference fails; null elements are data and come back as null
+    /// addresses at their positions, since positions carry meaning and
+    /// filtering is the caller's choice. `N` bounds how many elements the
+    /// returned vector holds, and an array claiming more than that fails
+    /// rather than truncates. A `string` element reads with
+    /// [`read_string_object`](Self::read_string_object); any other object's
+    /// fields read at its address directly.
+    pub fn read_reference_array<const N: usize>(
+        &self,
+        process: &Process,
+        at: Address,
+    ) -> Result<ArrayVec<Address, N>, Error> {
+        managed::read_reference_array(process, self.pointer_size, at)
     }
 
     /// Resolves where a `List` keeps its backing array and live count, finding
@@ -488,6 +525,24 @@ impl Module {
         at: Address,
     ) -> Result<ArrayVec<T, N>, Error> {
         managed::read_list(process, self.pointer_size, offsets, at)
+    }
+
+    /// Reads a managed `List` of reference elements through the reference
+    /// stored at the given address, with the offsets
+    /// [`get_list_offsets`](Self::get_list_offsets) resolved, handing back
+    /// the elements' object addresses read at the target's own pointer
+    /// width. The list's live count is read, never its backing capacity;
+    /// `N` bounds the count, and a count past the buffer or past the
+    /// backing array's own length fails rather than truncates, as does a
+    /// null list reference. Null elements are data and come back as null
+    /// addresses at their positions.
+    pub fn read_reference_list<const N: usize>(
+        &self,
+        process: &Process,
+        offsets: ListOffsets,
+        at: Address,
+    ) -> Result<ArrayVec<Address, N>, Error> {
+        managed::read_reference_list(process, self.pointer_size, offsets, at)
     }
 
     /// Attaches to a Unity game that is using the IL2CPP backend. This function

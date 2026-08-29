@@ -39,6 +39,11 @@ fn image() -> Vec<u8> {
     put(&mut i, 0x300 + 0x20, &11_u32.to_le_bytes());
     put(&mut i, 0x300 + 0x24, &22_u32.to_le_bytes());
 
+    // A string array holding the string object and a null element.
+    ptr(&mut i, 0x18, BASE + 0x400);
+    put(&mut i, 0x400 + 0x18, &2_u64.to_le_bytes());
+    ptr(&mut i, 0x400 + 0x20, BASE + 0x100);
+
     i
 }
 
@@ -83,5 +88,22 @@ fn array_lengths_judge_at_full_width() {
         assert!(module
             .read_array::<i32, 8>(process, Address::new(BASE + 0x8))
             .is_err());
+    });
+}
+
+#[test]
+fn reference_arrays_resolve_through_their_reference() {
+    on_fixture(|process, module| {
+        let objects = module
+            .read_reference_array::<4>(process, Address::new(BASE + 0x18))
+            .unwrap();
+        assert_eq!(
+            objects.as_slice(),
+            [Address::new(BASE + 0x100), Address::NULL]
+        );
+
+        let read = module.read_string_object::<8>(process, objects[0]).unwrap();
+        assert!(read.matches_str("Loop"));
+        assert!(module.read_string_object::<8>(process, objects[1]).is_err());
     });
 }
