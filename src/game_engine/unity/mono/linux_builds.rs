@@ -360,6 +360,59 @@ mod tests {
         assert!(find(&[]).is_none());
     }
 
+    // Pairs each member a measurement can supply with its name, so both tests
+    // compare the same set and a failure says which member it was.
+    fn grown(offsets: &MonoOffsets) -> [(&'static str, Option<u16>); 8] {
+        [
+            ("class_kind", offsets.class.class_kind),
+            ("instance_size", offsets.class.instance_size),
+            ("nested_in", offsets.class.nested_in),
+            ("generic_class", offsets.generic.generic_class),
+            ("container_class", offsets.generic.container_class),
+            ("type data", offsets.type_words.data),
+            ("type kind", offsets.type_words.kind),
+            ("field type", offsets.field.type_),
+        ]
+    }
+
+    // A version table stands in for the builds nobody measured. Two builds
+    // agreeing on a member is what justifies that, so the table has to carry
+    // what they agree on. One build on its own proves nothing.
+    #[test]
+    fn version_tables_carry_what_two_builds_agree_on() {
+        for build in BUILDS {
+            let agreeing = BUILDS.iter().filter(|other| {
+                core::mem::discriminant(&other.version) == core::mem::discriminant(&build.version)
+                    && other.pointer_size == build.pointer_size
+            });
+            let mut agreed = grown(build.offsets).map(|(name, measured)| (name, Some(measured)));
+            let mut count = 0;
+            for other in agreeing {
+                count += 1;
+                for (slot, (_, measured)) in grown(other.offsets).into_iter().enumerate() {
+                    if agreed[slot].1 != Some(measured) {
+                        agreed[slot].1 = None;
+                    }
+                }
+            }
+            if count < 2 {
+                continue;
+            }
+
+            let Some(table) =
+                MonoOffsets::new(build.version, build.pointer_size, BinaryFormat::ELF)
+            else {
+                continue;
+            };
+            for (slot, (name, carried)) in grown(table).into_iter().enumerate() {
+                let (_, agreed) = agreed[slot];
+                if let Some(agreed) = agreed {
+                    assert_eq!(carried, agreed, "the table says nothing about {name}");
+                }
+            }
+        }
+    }
+
     // A version table's value for any member must match every measured build
     // it stands in for, or say nothing.
     #[test]

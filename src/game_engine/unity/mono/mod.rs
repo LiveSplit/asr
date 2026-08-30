@@ -106,8 +106,9 @@ impl fmt::Debug for Identity {
 
 impl Module {
     /// Tries attaching to a Unity game that is using the standard Mono backend.
-    /// If the mono runtime is a known build, this function uses the offsets
-    /// from its PDB. Otherwise this function detects the [Mono version](Version).
+    /// If the Mono runtime is a known build, this function uses the offsets
+    /// measured for that exact build. Otherwise this function detects the
+    /// [Mono version](Version).
     /// If you know the version in advance or it fails detecting it, use
     /// [`attach`](Self::attach) instead.
     pub fn attach_auto_detect(process: &Process) -> Option<Self> {
