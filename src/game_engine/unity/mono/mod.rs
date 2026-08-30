@@ -5,6 +5,7 @@
 use crate::file_format::macho;
 use arrayvec::ArrayVec;
 use bytemuck::CheckedBitPattern;
+use core::fmt;
 
 use crate::{
     file_format::{elf, pe},
@@ -16,6 +17,7 @@ use crate::{
 
 mod builds;
 mod image;
+mod linux_builds;
 pub use image::Image;
 mod class;
 pub use class::Class;
@@ -27,6 +29,8 @@ mod offsets;
 use offsets::MonoOffsets;
 #[cfg(all(test, not(target_family = "wasm")))]
 mod collections_tests;
+#[cfg(all(test, not(target_family = "wasm")))]
+mod identity_tests;
 #[cfg(all(test, not(target_family = "wasm")))]
 mod readers_tests;
 #[cfg(all(test, not(target_family = "wasm")))]
@@ -42,6 +46,64 @@ pub struct Module {
     pointer_size: PointerSize,
 }
 
+/// The identity of one exact runtime binary, and the module it was read
+/// from, so a build nobody has measured is reported as the file to look at.
+enum Identity {
+    Debug(pe::DebugId),
+    Build(elf::BuildId, &'static str),
+}
+
+impl Identity {
+    /// Reads what names the Mono library's build. On ELF the library's own
+    /// build ID answers whenever it has one, and `UnityPlayer.so`'s answers
+    /// only for a library that has none: a library naming itself is the one
+    /// that counts, known or not, where reaching past it would pair it with
+    /// another file's offsets.
+    fn read(
+        process: &Process,
+        runtime: ((Address, u64), &'static str),
+        player: Option<(Address, u64)>,
+        format: BinaryFormat,
+    ) -> Option<Self> {
+        let (runtime, runtime_name) = runtime;
+
+        match format {
+            BinaryFormat::PE => pe::DebugId::read(process, runtime.0).map(Self::Debug),
+            BinaryFormat::ELF => match elf::build_id(process, runtime) {
+                Some(build_id) => Some(Self::Build(build_id, runtime_name)),
+                None => Some(Self::Build(
+                    elf::build_id(process, player?)?,
+                    "UnityPlayer.so",
+                )),
+            },
+            #[allow(unreachable_patterns)]
+            _ => None,
+        }
+    }
+
+    /// The version and offsets measured from the build this names, when it is
+    /// one that was measured at the width the target runs at.
+    fn find(&self, pointer_size: PointerSize) -> Option<(Version, &'static MonoOffsets)> {
+        match self {
+            Self::Debug(debug_id) => builds::find(debug_id)
+                .filter(|build| build.pointer_size == pointer_size)
+                .map(|build| (build.version, &build.offsets)),
+            Self::Build(build_id, _) => linux_builds::find(build_id.as_bytes())
+                .filter(|build| build.pointer_size == pointer_size)
+                .map(|build| (build.version, build.offsets)),
+        }
+    }
+}
+
+impl fmt::Debug for Identity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Debug(debug_id) => write!(f, "{debug_id:?}"),
+            Self::Build(build_id, module) => write!(f, "{build_id:?} in {module}"),
+        }
+    }
+}
+
 impl Module {
     /// Tries attaching to a Unity game that is using the standard Mono backend.
     /// If the mono runtime is a known build, this function uses the offsets
@@ -49,27 +111,28 @@ impl Module {
     /// If you know the version in advance or it fails detecting it, use
     /// [`attach`](Self::attach) instead.
     pub fn attach_auto_detect(process: &Process) -> Option<Self> {
-        let (module_range, format) = Self::find_runtime_module(process)?;
+        let (module_range, format, name) = Self::find_runtime_module(process)?;
         let pointer_size = Self::pointer_size(process, module_range, format)?;
 
-        let debug_id = match format {
-            BinaryFormat::PE => pe::DebugId::read(process, module_range.0),
+        // The player names the build for a Mono library that has no ID of its
+        // own, which is every Linux one past a point.
+        let player = match format {
+            BinaryFormat::ELF => process.get_module_range("UnityPlayer.so").ok(),
             _ => None,
         };
+        let identity = Identity::read(process, (module_range, name), player, format);
 
-        if let Some(debug_id) = &debug_id {
-            if let Some(build) =
-                builds::find(debug_id).filter(|build| build.pointer_size == pointer_size)
-            {
+        if let Some(identity) = &identity {
+            if let Some((version, offsets)) = identity.find(pointer_size) {
                 if let Some(module) = Self::attach_with(
                     process,
                     module_range,
                     format,
                     pointer_size,
-                    build.version,
-                    &build.offsets,
+                    version,
+                    offsets,
                 ) {
-                    print_limited::<128>(&format_args!("known mono build: {debug_id:?}"));
+                    print_limited::<128>(&format_args!("known mono build: {identity:?}"));
                     return Some(module);
                 }
             }
@@ -78,9 +141,9 @@ impl Module {
         let version = Version::detect(process)?;
         let module = Self::attach(process, version)?;
 
-        if let Some(debug_id) = debug_id {
-            if builds::find(&debug_id).is_none() {
-                print_limited::<128>(&format_args!("unknown mono build: {debug_id:?}"));
+        if let Some(identity) = &identity {
+            if identity.find(pointer_size).is_none() {
+                print_limited::<128>(&format_args!("unknown mono build: {identity:?}"));
             }
         }
 
@@ -92,7 +155,7 @@ impl Module {
     /// correct for this function to work. If you don't know the version in
     /// advance, use [`attach_auto_detect`](Self::attach_auto_detect) instead.
     pub fn attach(process: &Process, version: Version) -> Option<Self> {
-        let (module_range, format) = Self::find_runtime_module(process)?;
+        let (module_range, format, _) = Self::find_runtime_module(process)?;
         let pointer_size = Self::pointer_size(process, module_range, format)?;
         let offsets = MonoOffsets::new(version, pointer_size, format)?;
 
@@ -106,7 +169,9 @@ impl Module {
         )
     }
 
-    fn find_runtime_module(process: &Process) -> Option<((Address, u64), BinaryFormat)> {
+    fn find_runtime_module(
+        process: &Process,
+    ) -> Option<((Address, u64), BinaryFormat, &'static str)> {
         [
             ("mono.dll", BinaryFormat::PE),
             ("libmono.so", BinaryFormat::ELF),
@@ -118,7 +183,7 @@ impl Module {
             ("libmonobdwgc-2.0.dylib", BinaryFormat::MachO),
         ]
         .into_iter()
-        .find_map(|(name, format)| Some((process.get_module_range(name).ok()?, format)))
+        .find_map(|(name, format)| Some((process.get_module_range(name).ok()?, format, name)))
     }
 
     fn pointer_size(
