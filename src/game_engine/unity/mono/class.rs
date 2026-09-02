@@ -51,6 +51,36 @@ impl Class {
         .await
     }
 
+    /// Reads the class of an object found in memory.
+    ///
+    /// Every managed object begins with a pointer to its class's vtable, and a
+    /// vtable begins with a pointer to its class, so an object can be resolved
+    /// back to a [`Class`] whose fields are then available by name.
+    ///
+    /// This is the only way to reach a generic instantiation such as
+    /// `HashSet<string>`. Each instantiation is a distinct class with its own
+    /// field offsets, and none of them can be looked up in an
+    /// [`Image`](super::Image) by name -- but any instance points at its own.
+    ///
+    /// # Inflated generics may have no field names
+    ///
+    /// Mono fills a class's field table in lazily, and for an inflated generic
+    /// nothing necessarily has. [`get_field_offset`](Self::get_field_offset)
+    /// can therefore return [`None`] for every field of a class resolved this
+    /// way, against an object that is plainly an instance of it -- and the
+    /// same lookup may succeed against another process running the same build,
+    /// so it is runtime state rather than anything a version check could
+    /// predict. Code that must not fail on a collection needs a fallback to
+    /// the known layout, guarded by a check that the object agrees with it.
+    pub fn of_object(process: &Process, module: &Module, object: Address) -> Option<Self> {
+        module
+            .walk()
+            .object_class(process, object)
+            .map(|class| Class {
+                class: class.address,
+            })
+    }
+
     /// Returns the address of this class's `MonoVTable` in the first domain.
     ///
     /// Every managed object begins with a pointer to the vtable of its class,

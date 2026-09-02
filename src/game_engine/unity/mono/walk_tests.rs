@@ -588,6 +588,20 @@ fn vtables_resolve_through_the_runtime_info() {
     });
 }
 
+// A live object resolves to a class whose fields read by name, and an object
+// whose vtable pointer is null resolves to nothing.
+#[test]
+fn objects_resolve_to_their_class() {
+    on_fixture(measured(), |process, module| {
+        let object = Address::new(BASE + 0x1900);
+        let class = Class::of_object(process, module, object).unwrap();
+        let points = class.get_field_offset(process, module, "points").unwrap();
+        assert_eq!(process.read::<u32>(object + points).ok(), Some(777));
+
+        assert!(Class::of_object(process, module, Address::new(BASE + 0x1908)).is_none());
+    });
+}
+
 // A static field found on a parent measures into the parent's own static
 // table, not the table of the class the lookup started at.
 #[test]
