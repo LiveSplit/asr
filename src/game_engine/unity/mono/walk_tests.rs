@@ -7,7 +7,7 @@ use super::offsets::{
     AssemblyOffsets, ClassOffsets, FieldInfoOffsets, GenericOffsets, HashTableOffsets,
     ImageOffsets, MonoVTableOffsets, TypeOffsets,
 };
-use super::{profiles, Library, Module, Profile, UnityPointer};
+use super::{profiles, Class, Library, Module, Profile, UnityPointer};
 use crate::runtime::mock::{poll_once, with_process};
 use crate::{Address, PointerSize, Process};
 
@@ -568,6 +568,23 @@ fn statics_resolve_through_the_vtable() {
 
         let outer = image.get_class(process, module, "Game.Outer").unwrap();
         assert!(outer.get_static_table(process, module).is_none());
+    });
+}
+
+// The vtable is the one the statics were found through, and a class whose
+// runtime info is unset has none.
+#[test]
+fn vtables_resolve_through_the_runtime_info() {
+    on_fixture(measured(), |process, module| {
+        let image = module.get_default_image(process).unwrap();
+        let game_manager = image.get_class(process, module, "GameManager").unwrap();
+        assert_eq!(
+            game_manager.get_vtable(process, module),
+            Some(Address::new(BASE + 0x1700)),
+        );
+
+        let outer = image.get_class(process, module, "Game.Outer").unwrap();
+        assert!(outer.get_vtable(process, module).is_none());
     });
 }
 

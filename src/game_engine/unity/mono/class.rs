@@ -1,4 +1,4 @@
-use super::super::managed::ClassRef;
+use super::super::managed::{self, ClassRef};
 use super::Module;
 use crate::{future::retry, Address, Process};
 
@@ -49,6 +49,25 @@ impl Class {
                 .filter(|addr| !addr.is_null())
         })
         .await
+    }
+
+    /// Returns the address of this class's `MonoVTable` in the first domain.
+    ///
+    /// Every managed object begins with a pointer to the vtable of its class,
+    /// so this doubles as an identity handle for the class: an object at
+    /// `addr` is an instance of this exact class if and only if the pointer at
+    /// `addr` equals this value.
+    ///
+    /// This is useful for games where the object of interest cannot be reached
+    /// by walking static fields. Games built around constructor-injection
+    /// dependency injection often have no static roots at all, which makes
+    /// [`UnityPointer`](super::UnityPointer) inapplicable, and the only way to
+    /// find a service is to scan the heap for the instance of its class.
+    pub fn get_vtable(&self, process: &Process, module: &Module) -> Option<Address> {
+        let managed::Runtime::Mono(mono) = module.walk().runtime else {
+            return None;
+        };
+        mono.vtable_address(process, module.pointer_size, ClassRef::new(self.class))
     }
 
     /// Returns the address of the static table of the class. This contains the
