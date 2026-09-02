@@ -135,7 +135,19 @@ impl Class {
         .await
     }
 
-    fn get_static_table_pointer(&self, process: &Process, module: &Module) -> Option<Address> {
+    /// Returns the address of this class's `MonoVTable` in the first domain.
+    ///
+    /// Every managed object begins with a pointer to the vtable of its class,
+    /// so this doubles as an identity handle for the class: an object at
+    /// `addr` is an instance of this exact class if and only if the pointer at
+    /// `addr` equals this value.
+    ///
+    /// This is useful for games where the object of interest cannot be reached
+    /// by walking static fields. Games built around constructor-injection
+    /// dependency injection often have no static roots at all, which makes
+    /// [`UnityPointer`](super::UnityPointer) inapplicable, and the only way to
+    /// find a service is to scan the heap for the instance of its class.
+    pub fn get_vtable(&self, process: &Process, module: &Module) -> Option<Address> {
         let runtime_info = process
             .read_pointer(
                 self.class + module.offsets.class.runtime_info,
@@ -144,10 +156,14 @@ impl Class {
             .ok()
             .filter(|addr| !addr.is_null())?;
 
-        let mut vtables = process
+        process
             .read_pointer(runtime_info + module.size_of_ptr(), module.pointer_size)
             .ok()
-            .filter(|addr| !addr.is_null())?;
+            .filter(|addr| !addr.is_null())
+    }
+
+    fn get_static_table_pointer(&self, process: &Process, module: &Module) -> Option<Address> {
+        let mut vtables = self.get_vtable(process, module)?;
 
         // Mono V1 behaves differently when it comes to recover the static table
         match module.version {
