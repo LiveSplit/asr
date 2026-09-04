@@ -262,13 +262,21 @@ impl<const N: usize> Signature<N> {
         // SAFETY: zero-initializing an array of u8 poses no problems in terms of memory safety
         let mut buffer = unsafe { mem::zeroed::<Buffer<N>>() };
 
-        // SAFETY: As the data is zero-initialized, we know it's safe to reinterpret this data as
-        // an array uf u8.
-        let buffer = unsafe {
-            slice::from_raw_parts_mut(&mut buffer as *mut _ as *mut u8, size_of::<Buffer<N>>())
-        };
-
         iter::from_fn(move || {
+            // The slice has to be created here, inside the closure, rather than
+            // once before the iterator is built. The buffer is owned by the
+            // closure, so its storage is live for as long as the iterator is,
+            // but outside the closure `&mut buffer` names a local of
+            // `scan_iter`, whose frame is already gone by the time the iterator
+            // is first polled.
+            //
+            // SAFETY: As the data is zero-initialized, we know it's safe to
+            // reinterpret this data as an array uf u8. The buffer it points at
+            // is live for the whole of this call.
+            let buffer = unsafe {
+                slice::from_raw_parts_mut(&mut buffer as *mut _ as *mut u8, size_of::<Buffer<N>>())
+            };
+
             if addr.value() >= overall_end {
                 return None;
             }
