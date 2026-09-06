@@ -1,7 +1,7 @@
 //! Support for attaching to Unity games that are using the standard Mono
 //! backend.
 
-#[cfg(feature = "alloc")]
+#[cfg(any(feature = "alloc", not(target_family = "wasm")))]
 use crate::file_format::macho;
 use crate::{
     file_format::{elf, pe},
@@ -54,11 +54,11 @@ impl Module {
         let (module_range, format) = [
             ("mono.dll", BinaryFormat::PE),
             ("libmono.so", BinaryFormat::ELF),
-            #[cfg(feature = "alloc")]
+            #[cfg(any(feature = "alloc", not(target_family = "wasm")))]
             ("libmono.0.dylib", BinaryFormat::MachO),
             ("mono-2.0-bdwgc.dll", BinaryFormat::PE),
             ("libmonobdwgc-2.0.so", BinaryFormat::ELF),
-            #[cfg(feature = "alloc")]
+            #[cfg(any(feature = "alloc", not(target_family = "wasm")))]
             ("libmonobdwgc-2.0.dylib", BinaryFormat::MachO),
         ]
         .into_iter()
@@ -69,7 +69,7 @@ impl Module {
         let pointer_size = match format {
             BinaryFormat::PE => pe::MachineType::read(process, mono_module)?.pointer_size()?,
             BinaryFormat::ELF => elf::pointer_size(process, mono_module)?,
-            #[cfg(feature = "alloc")]
+            #[cfg(any(feature = "alloc", not(target_family = "wasm")))]
             BinaryFormat::MachO => macho::pointer_size(process, module_range)?,
             #[allow(unreachable_patterns)]
             _ => return None,
@@ -96,7 +96,7 @@ impl Module {
                     })?
                     .address
             }
-            #[cfg(feature = "alloc")]
+            #[cfg(any(feature = "alloc", not(target_family = "wasm")))]
             BinaryFormat::MachO => {
                 macho::symbols(process, module_range)
                     .find(|symbol| {
@@ -125,7 +125,7 @@ impl Module {
                     .map(|addr| addr + 3)
                     .and_then(|addr| Some(addr + 0x4 + process.read::<i32>(addr).ok()?))?
             }
-            #[cfg(feature = "alloc")]
+            #[cfg(any(feature = "alloc", not(target_family = "wasm")))]
             (PointerSize::Bit64, BinaryFormat::MachO) => {
                 const SIG_MONO_X86_64_MACHO: Signature<3> = Signature::new("48 8B 3D");
                 // 57 0f 00 d0   adrp  x23,(page + 0x1ea000)

@@ -418,15 +418,15 @@ impl FileVersion {
         }
 
         impl DataEntry {
-            fn is_rt_version(&self) -> bool {
+            const fn is_rt_version(&self) -> bool {
                 self.id == 0x10
             }
 
-            fn is_directory(&self) -> bool {
+            const fn is_directory(&self) -> bool {
                 (self.offset & 0x80000000) != 0
             }
 
-            fn get_offset(&self) -> u32 {
+            const fn get_offset(&self) -> u32 {
                 self.offset & 0x7FFFFFFF
             }
         }

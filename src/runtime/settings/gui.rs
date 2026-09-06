@@ -326,7 +326,7 @@ impl<T: Clone + Widget> Widget for Pair<T> {
 /// # }
 /// ```
 #[derive(Clone, PartialEq, Eq)]
-#[cfg(feature = "alloc")]
+#[cfg(any(feature = "alloc", not(target_family = "wasm")))]
 pub struct FileSelect {
     /// The file path, as accessible through the WASI file system,
     /// so a Windows path of `C:\foo\bar.exe` would be represented
@@ -336,7 +336,7 @@ pub struct FileSelect {
 
 /// The arguments that are needed to register a file selection widget.
 /// This is an internal type that you don't need to worry about.
-#[cfg(feature = "alloc")]
+#[cfg(any(feature = "alloc", not(target_family = "wasm")))]
 #[doc(hidden)]
 #[derive(Default)]
 #[non_exhaustive]
@@ -344,14 +344,14 @@ pub struct FileSelectArgs {
     pub filter: &'static [FileSelectFilter],
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(any(feature = "alloc", not(target_family = "wasm")))]
 #[doc(hidden)]
 pub enum FileSelectFilter {
     NamePattern(Option<&'static str>, &'static str),
     MimeType(&'static str),
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(any(feature = "alloc", not(target_family = "wasm")))]
 impl Widget for FileSelect {
     type Args = FileSelectArgs;
 

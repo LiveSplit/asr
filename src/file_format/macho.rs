@@ -1,12 +1,12 @@
 //! Support for parsing Mach-O format
 
-#[cfg(feature = "alloc")]
+#[cfg(any(feature = "alloc", not(target_family = "wasm")))]
 use core::iter::FusedIterator;
 
-#[cfg(feature = "alloc")]
+#[cfg(any(feature = "alloc", not(target_family = "wasm")))]
 use alloc::collections::BTreeMap;
 
-#[cfg(feature = "alloc")]
+#[cfg(any(feature = "alloc", not(target_family = "wasm")))]
 use crate::{string::ArrayCString, Error};
 use crate::{Address, PointerSize, Process};
 
@@ -36,18 +36,15 @@ fn scan_macho_page(process: &Process, range: (Address, u64)) -> Option<Address> 
     let first_page = addr + distance_to_page;
     for i in 0..((len - distance_to_page) / PAGE_SIZE) {
         let a = first_page + (i * PAGE_SIZE);
-        match process.read::<u32>(a) {
-            Ok(MH_MAGIC_64 | MH_CIGAM_64 | MH_MAGIC_32 | MH_CIGAM_32) => {
-                return Some(a);
-            }
-            _ => (),
+        if let Ok(MH_MAGIC_64 | MH_CIGAM_64 | MH_MAGIC_32 | MH_CIGAM_32) = process.read::<u32>(a) {
+            return Some(a);
         }
     }
     None
 }
 
 /// Scans the range for pages that begin with Mach-O Magic
-#[cfg(feature = "alloc")]
+#[cfg(any(feature = "alloc", not(target_family = "wasm")))]
 fn scan_macho_pages(
     process: &Process,
     range: (Address, u64),
@@ -72,13 +69,13 @@ fn scan_macho_pages(
 // Constants for the cmd field of load commands, the type
 // https://opensource.apple.com/source/xnu/xnu-4570.71.2/EXTERNAL_HEADERS/mach-o/loader.h.auto.html
 /// link-edit stab symbol table info
-#[cfg(feature = "alloc")]
+#[cfg(any(feature = "alloc", not(target_family = "wasm")))]
 const LC_SYMTAB: u32 = 0x2;
 /// 64-bit segment of this file to be mapped
-#[cfg(feature = "alloc")]
+#[cfg(any(feature = "alloc", not(target_family = "wasm")))]
 const LC_SEGMENT_64: u32 = 0x19;
 
-#[cfg(feature = "alloc")]
+#[cfg(any(feature = "alloc", not(target_family = "wasm")))]
 struct MachOFormatOffsets {
     number_of_commands: u32,
     load_commands: u32,
@@ -92,7 +89,7 @@ struct MachOFormatOffsets {
     segcmd64_fileoff: u32,
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(any(feature = "alloc", not(target_family = "wasm")))]
 impl MachOFormatOffsets {
     const fn new() -> Self {
         // offsets taken from:
@@ -114,7 +111,7 @@ impl MachOFormatOffsets {
 }
 
 /// A symbol exported into the current module.
-#[cfg(feature = "alloc")]
+#[cfg(any(feature = "alloc", not(target_family = "wasm")))]
 pub struct Symbol {
     /// The address associated with the current function
     pub address: Address,
@@ -122,7 +119,7 @@ pub struct Symbol {
     name_addr: Address,
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(any(feature = "alloc", not(target_family = "wasm")))]
 impl Symbol {
     /// Tries to retrieve the name of the current function
     pub fn get_name<const CAP: usize>(
@@ -135,7 +132,7 @@ impl Symbol {
 
 /// Iterates over the exported symbols for a given module.
 /// Only 64-bit Mach-O format is supported
-#[cfg(feature = "alloc")]
+#[cfg(any(feature = "alloc", not(target_family = "wasm")))]
 pub fn symbols(process: &Process, range: (Address, u64)) -> impl FusedIterator<Item = Symbol> + '_ {
     scan_macho_pages(process, range)
         .filter_map(|page| macho_page_symbols(process, page))
@@ -143,7 +140,7 @@ pub fn symbols(process: &Process, range: (Address, u64)) -> impl FusedIterator<I
         .fuse()
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(any(feature = "alloc", not(target_family = "wasm")))]
 fn macho_page_symbols(
     process: &Process,
     page: Address,
@@ -197,7 +194,7 @@ fn macho_page_symbols(
     )
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(any(feature = "alloc", not(target_family = "wasm")))]
 fn fileoff_to_vmaddr(map: &BTreeMap<u64, u64>, fileoff: u64) -> u64 {
     map.iter()
         .filter(|(&k, _)| k <= fileoff)

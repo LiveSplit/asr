@@ -1,4 +1,4 @@
-#![no_std]
+#![cfg_attr(target_family = "wasm", no_std)]
 #![warn(
     clippy::complexity,
     clippy::correctness,
@@ -124,7 +124,7 @@
 //! }
 //! ```
 
-#[cfg(feature = "alloc")]
+#[cfg(any(feature = "alloc", not(target_family = "wasm")))]
 extern crate alloc;
 
 mod primitives;

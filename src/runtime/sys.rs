@@ -1,6 +1,13 @@
 use core::num::NonZeroU64;
 
+#[cfg(target_family = "wasm")]
 use crate::Address;
+
+#[cfg(not(target_family = "wasm"))]
+pub(super) mod native;
+
+#[cfg(not(target_family = "wasm"))]
+pub use native::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(transparent)]
@@ -65,6 +72,7 @@ impl SettingValueType {
     pub const STRING: Self = Self(6);
 }
 
+#[cfg(target_family = "wasm")]
 #[link(wasm_import_module = "env")]
 extern "C" {
     /// Gets the state that the timer currently is in.
@@ -171,7 +179,7 @@ extern "C" {
     /// buffer size. If `false` is returned and the `buf_len_ptr` got set to 0,
     /// the path or the module does not exist or it failed to get read. The path
     /// is guaranteed to be valid UTF-8 and is not nul-terminated.
-    #[cfg(feature = "alloc")]
+    #[cfg(any(feature = "alloc", not(target_family = "wasm")))]
     pub fn process_get_module_path(
         process: Process,
         name_ptr: *const u8,
@@ -188,7 +196,7 @@ extern "C" {
     /// `buf_len_ptr` got set to 0, the path does not exist or failed to get
     /// read. The path is guaranteed to be valid UTF-8 and is not
     /// nul-terminated.
-    #[cfg(feature = "alloc")]
+    #[cfg(any(feature = "alloc", not(target_family = "wasm")))]
     pub fn process_get_path(process: Process, buf_ptr: *mut u8, buf_len_ptr: *mut usize) -> bool;
     /// Gets the number of memory ranges in a given process.
     pub fn process_get_memory_range_count(process: Process) -> Option<NonZeroU64>;

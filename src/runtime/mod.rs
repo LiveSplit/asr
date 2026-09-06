@@ -2,11 +2,16 @@ pub use memory_range::*;
 pub use process::*;
 
 mod memory_range;
+#[cfg(not(target_family = "wasm"))]
+mod native;
 mod process;
 mod sys;
 
 pub mod settings;
 pub mod timer;
+
+#[cfg(not(target_family = "wasm"))]
+pub use native::*;
 
 /// An error returned by a runtime function.
 #[derive(Debug)]

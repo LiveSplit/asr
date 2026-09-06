@@ -1074,7 +1074,7 @@ struct SymTab64 {
 ///
 /// By using this function, the user must be aware of the following limitations:
 /// - Only allocatable symbols and symbols used by the dynamic linker are exported
-/// (.symtab is not loaded in memory at runtime)
+///   (.symtab is not loaded in memory at runtime)
 /// - Only 64-bit ELFs are supported (an empty iterator will be returned for 32-bit ELFs)
 pub fn symbols(
     process: &Process,

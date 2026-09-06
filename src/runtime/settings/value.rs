@@ -67,10 +67,10 @@ impl fmt::Debug for Value {
                     if let Ok(v) = v {
                         return fmt::Debug::fmt(&v, f);
                     }
-                    #[cfg(not(feature = "alloc"))]
+                    #[cfg(all(not(feature = "alloc"), target_family = "wasm"))]
                     return f.write_str("<Long string>");
                 }
-                #[cfg(feature = "alloc")]
+                #[cfg(any(feature = "alloc", not(target_family = "wasm")))]
                 if let Some(v) = self.get_string() {
                     return fmt::Debug::fmt(&v, f);
                 }
@@ -200,7 +200,7 @@ impl Value {
     }
 
     /// Returns the value as a [`String`](alloc::string::String) if it is a string.
-    #[cfg(feature = "alloc")]
+    #[cfg(any(feature = "alloc", not(target_family = "wasm")))]
     #[inline]
     pub fn get_string(&self) -> Option<alloc::string::String> {
         // SAFETY: The handle is valid. We provide a null pointer and 0 as the
@@ -228,7 +228,7 @@ impl Value {
     /// provided buffer if it is a string. Returns [`true`] if the value is a
     /// string. Returns [`false`] if the value is not a string. The buffer is
     /// always cleared before writing into it.
-    #[cfg(feature = "alloc")]
+    #[cfg(any(feature = "alloc", not(target_family = "wasm")))]
     #[inline]
     pub fn get_string_into(&self, buf: &mut alloc::string::String) -> bool {
         // SAFETY: The handle is valid. We provide a null pointer and 0 as the
@@ -300,7 +300,7 @@ pub trait AsValue {
     fn as_value(self) -> Self::Output;
 }
 
-impl<'a> AsValue for &'a Value {
+impl AsValue for &Value {
     type Output = Self;
     fn as_value(self) -> Self::Output {
         self
