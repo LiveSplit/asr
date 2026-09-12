@@ -83,6 +83,9 @@
 // https://github.com/Unity-Technologies/mono
 // https://github.com/CryZe/lunistice-auto-splitter/blob/b8c01031991783f7b41044099ee69edd54514dba/asr-dotnet/src/lib.rs
 
+use crate::file_format::{elf, macho, pe};
+use crate::{Error, PointerSize, Process};
+
 pub mod il2cpp;
 pub mod mono;
 pub mod scene_manager;
@@ -91,9 +94,15 @@ const CSTR: usize = 128;
 
 #[derive(Copy, Clone, PartialEq, Hash, Debug)]
 #[non_exhaustive]
+/// The file format of a given executable / binary - different per operating system.
+/// See https://en.wikipedia.org/wiki/Comparison_of_executable_file_formats
 enum BinaryFormat {
+    /// [Portable Executable](https://en.wikipedia.org/wiki/Portable_Executable), for Windows.
     PE,
+    /// [Executable and Linkable Format](https://en.wikipedia.org/wiki/Executable_and_Linkable_Format),
+    /// for Linux.
     ELF,
+    /// [Mach-O](https://en.wikipedia.org/wiki/Mach-O) (Mach object), for Mac.
     MachO,
 }
 
@@ -102,4 +111,23 @@ fn get_backing_name(name: &str) -> Option<&str> {
     let start = name.find('<')?;
     let end = name[start + 1..].find('>')?;
     Some(&name[start + 1..start + 1 + end])
+}
+
+impl Process {
+    /// Get the [BinaryFormat](BinaryFormat) and pointer size of the main module of the Process
+    // FIXME: BinaryFormat and this function should probably be widely available (rather
+    //   than gated by Unity)
+    fn get_format_and_pointer_size(&self) -> Result<(BinaryFormat, PointerSize), Error> {
+        let main_module = self.get_main_module_range()?;
+
+        if let Some(x) = pe::MachineType::read(self, main_module.0) {
+            Ok((BinaryFormat::PE, x.pointer_size().ok_or(Error {})?))
+        } else if let Some(pointer_size) = elf::pointer_size(self, main_module.0) {
+            Ok((BinaryFormat::ELF, pointer_size))
+        } else if let Some(pointer_size) = macho::pointer_size(self, main_module) {
+            Ok((BinaryFormat::MachO, pointer_size))
+        } else {
+            Err(Error {})
+        }
+    }
 }

@@ -14,19 +14,41 @@ use crate::{
     Address, Address32, Error, PointerSize, Process,
 };
 
-mod game_objects;
-
 mod offsets;
+pub use offsets::Offsets;
 
 mod transform;
 pub use transform::Transform;
 
-use offsets::Offsets;
+mod game_object;
+pub use game_object::GameObject;
 
+mod component;
+pub use component::Component;
 mod scene;
+
 pub use scene::Scene;
 
 use super::{BinaryFormat, CSTR};
+
+fn try_attach_unity_player(process: &Process) -> Option<((Address, u64), BinaryFormat)> {
+    [
+        ("UnityPlayer.dll", BinaryFormat::PE),
+        ("UnityPlayer.so", BinaryFormat::ELF),
+        ("UnityPlayer.dylib", BinaryFormat::MachO),
+    ]
+    .into_iter()
+    .find_map(|(name, format)| match format {
+        BinaryFormat::PE => {
+            let address = process.get_module_address(name).ok()?;
+            Some((
+                (address, pe::read_size_of_image(process, address)? as u64),
+                format,
+            ))
+        }
+        _ => Some((process.get_module_range(name).ok()?, format)),
+    })
+}
 
 /// The scene manager allows you to easily identify the current scene loaded in
 /// the attached Unity game.
@@ -43,8 +65,23 @@ pub struct SceneManager {
 impl SceneManager {
     /// Attaches to the scene manager in the given process.
     pub fn attach(process: &Process) -> Option<Self> {
-        const SIG_64_BIT_PE: Signature<13> =
+        SceneManager::attach_with_offsets(process, None)
+    }
+
+    /// Attaches to the scene manager in the given process with known offsets.
+    /// Use this function if the default offsets are wrong.
+    ///
+    /// FIXME: This function is a bandaid while we don't have support for all
+    ///   scene manager versions in asr. We should remove this by supporting
+    ///   those versions without override.
+    pub fn attach_with_offsets(
+        process: &Process,
+        offsets: Option<&'static Offsets>,
+    ) -> Option<Self> {
+        const SIG_64_BIT_PE_1: Signature<13> =
             Signature::new("48 83 EC 20 4C 8B ?5 ?? ?? ?? ?? 33 F6");
+        const SIG_64_BIT_PE_2: Signature<13> =
+            Signature::new("48 83 EC 20 48 8B 2D ?? ?? ?? ?? 33 F6");
         const SIG_64_BIT_ELF: Signature<13> =
             Signature::new("41 54 53 50 4C 8B ?5 ?? ?? ?? ?? 41 83");
         const SIG_64_BIT_MACHO: Signature<13> =
@@ -53,63 +90,105 @@ impl SceneManager {
         const SIG_32_2: Signature<6> = Signature::new("53 8D 41 ?? 33 DB");
         const SIG_32_3: Signature<14> = Signature::new("55 8B EC 83 EC 18 A1 ?? ?? ?? ?? 33 C9 53");
 
-        let (unity_player, format) = [
-            ("UnityPlayer.dll", BinaryFormat::PE),
-            ("UnityPlayer.so", BinaryFormat::ELF),
-            ("UnityPlayer.dylib", BinaryFormat::MachO),
-        ]
-        .into_iter()
-        .find_map(|(name, format)| match format {
-            BinaryFormat::PE => {
-                let address = process.get_module_address(name).ok()?;
-                Some((
-                    (address, pe::read_size_of_image(process, address)? as u64),
-                    format,
-                ))
-            }
-            _ => Some((process.get_module_range(name).ok()?, format)),
-        })?;
+        const SIG_32_MAIN_1: Signature<17> =
+            Signature::new("55 8B EC E8 ?? ?? ?? ?? 8B C8 E8 ?? ?? ?? ?? 85 C0");
+        const SIG_64_BIT_MACHO_MAIN_1: Signature<18> =
+            Signature::new("48 89 FB E8 ?? ?? ?? ?? 48 89 C7 E8 ?? ?? ?? ?? 31 C9");
 
-        let pointer_size = match format {
-            BinaryFormat::PE => pe::MachineType::read(process, unity_player.0)?.pointer_size()?,
-            BinaryFormat::ELF => elf::pointer_size(process, unity_player.0)?,
-            BinaryFormat::MachO => macho::pointer_size(process, unity_player)?,
-        };
+        let (pointer_size, base_address) = if let Some((unity_player, format)) =
+            try_attach_unity_player(process)
+        {
+            let pointer_size = match format {
+                BinaryFormat::PE => {
+                    pe::MachineType::read(process, unity_player.0)?.pointer_size()?
+                }
+                BinaryFormat::ELF => elf::pointer_size(process, unity_player.0)?,
+                BinaryFormat::MachO => macho::pointer_size(process, unity_player)?,
+            };
 
-        let is_il2cpp = process.get_module_address("GameAssembly.dll").is_ok();
-
-        // There are multiple signatures that can be used, depending on the version of Unity
-        // used in the target game.
-        let base_address: Address = match (pointer_size, format) {
-            (PointerSize::Bit64, BinaryFormat::PE) => {
-                let addr = SIG_64_BIT_PE.scan_process_range(process, unity_player)? + 7;
-                addr + 0x4 + process.read::<i32>(addr).ok()?
-            }
-            (PointerSize::Bit64, BinaryFormat::ELF) => {
-                let addr = SIG_64_BIT_ELF.scan_process_range(process, unity_player)? + 7;
-                addr + 0x4 + process.read::<i32>(addr).ok()?
-            }
-            (PointerSize::Bit64, BinaryFormat::MachO) => {
-                let addr = SIG_64_BIT_MACHO.scan_process_range(process, unity_player)? + 7;
-                addr + 0x4 + process.read::<i32>(addr).ok()?
-            }
-            (PointerSize::Bit32, BinaryFormat::PE) => {
-                if let Some(addr) = SIG_32_1.scan_process_range(process, unity_player) {
-                    process.read::<Address32>(addr + 5).ok()?.into()
-                } else if let Some(addr) = SIG_32_2.scan_process_range(process, unity_player) {
-                    process.read::<Address32>(addr.add_signed(-4)).ok()?.into()
-                } else if let Some(addr) = SIG_32_3.scan_process_range(process, unity_player) {
-                    process.read::<Address32>(addr + 7).ok()?.into()
-                } else {
+            // There are multiple signatures that can be used, depending on the version of Unity
+            // used in the target game.
+            let base_address: Address = match (pointer_size, format) {
+                (PointerSize::Bit64, BinaryFormat::PE) => {
+                    if let Some(addr) = SIG_64_BIT_PE_1.scan_process_range(process, unity_player) {
+                        addr + 0x4 + process.read::<i32>(addr + 7).ok()? + 7
+                    } else if let Some(addr) =
+                        SIG_64_BIT_PE_2.scan_process_range(process, unity_player)
+                    {
+                        addr + 0x4 + process.read::<i32>(addr + 7).ok()? + 7
+                    } else {
+                        return None;
+                    }
+                }
+                (PointerSize::Bit64, BinaryFormat::ELF) => {
+                    let addr = SIG_64_BIT_ELF.scan_process_range(process, unity_player)? + 7;
+                    addr + 0x4 + process.read::<i32>(addr).ok()?
+                }
+                (PointerSize::Bit64, BinaryFormat::MachO) => {
+                    let addr = SIG_64_BIT_MACHO.scan_process_range(process, unity_player)? + 7;
+                    addr + 0x4 + process.read::<i32>(addr).ok()?
+                }
+                (PointerSize::Bit32, BinaryFormat::PE) => {
+                    if let Some(addr) = SIG_32_1.scan_process_range(process, unity_player) {
+                        process.read::<Address32>(addr + 5).ok()?.into()
+                    } else if let Some(addr) = SIG_32_2.scan_process_range(process, unity_player) {
+                        process.read::<Address32>(addr.add_signed(-4)).ok()?.into()
+                    } else if let Some(addr) = SIG_32_3.scan_process_range(process, unity_player) {
+                        process.read::<Address32>(addr + 7).ok()?.into()
+                    } else {
+                        return None;
+                    }
+                }
+                _ => {
                     return None;
                 }
-            }
-            _ => {
-                return None;
-            }
+            };
+
+            (pointer_size, base_address)
+        } else {
+            // If it's not in UnityPlayer, then it's in the main module (old unity versions)
+            let main_module_range = process.get_main_module_range().ok()?;
+            let (format, pointer_size) = process.get_format_and_pointer_size().ok()?;
+
+            // These signatures are for the GetActiveScene function, which calls GetSceneManager,
+            //   which is the thing that actually references the scene manager address
+
+            let base_address: Address = match (pointer_size, format) {
+                (PointerSize::Bit32, BinaryFormat::PE) => {
+                    // pointer to GetSceneManager
+                    let gsm_ptr =
+                        SIG_32_MAIN_1.scan_process_range(process, main_module_range)? + 0x4;
+
+                    // pointer to g_RuntimeSceneManager
+                    // mov [address]
+                    let rsm_ptr = gsm_ptr + process.read::<i32>(gsm_ptr).ok()? + 0x5;
+
+                    Address::from(process.read::<u32>(rsm_ptr).ok()?)
+                }
+                (PointerSize::Bit64, BinaryFormat::MachO) => {
+                    // pointing to the rip-relative address of GetSceneManager
+                    let addr = SIG_64_BIT_MACHO_MAIN_1
+                        .scan_process_range(process, main_module_range)?
+                        + 0x4;
+                    // pointing to the beginning of GetSceneManager
+                    let gsm_addr = addr + process.read::<i32>(addr).ok()? + 0x4;
+
+                    // Cuphead.GetSceneManager()   - 55                    - push rbp
+                    // Cuphead.GetSceneManager()+1 - 48 89 E5              - mov rbp,rsp
+                    // Cuphead.GetSceneManager()+4 - 48 8B 05 4D821101     - mov rax,[Cuphead.g_RuntimeSceneManager]
+                    // pointing to the rip-relative address of g_RuntimeSceneManager
+                    let addr = gsm_addr + 0x7;
+                    addr + process.read::<i32>(addr).ok()? + 0x4
+                }
+                // FIXME: support missing cases
+                _ => return None,
+            };
+
+            (pointer_size, base_address)
         };
 
-        let offsets = Offsets::new(pointer_size)?;
+        let offsets = offsets.or_else(|| Offsets::new(pointer_size))?;
+        let is_il2cpp = process.get_module_address("GameAssembly.dll").is_ok();
 
         // Dereferencing one level because this pointer never changes as long as the game is open.
         // It might not seem a lot, but it helps make things a bit faster when querying for scene stuff.

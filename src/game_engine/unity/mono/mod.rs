@@ -16,7 +16,7 @@ use assembly::Assembly;
 mod image;
 pub use image::Image;
 mod class;
-pub use class::Class;
+pub use class::{Class, Object};
 mod field;
 use field::Field;
 mod version;
@@ -146,6 +146,7 @@ impl Module {
                     check_pos: Some(7),
                     check_byte: 0xF9,
                 };
+
                 if let Some(scan_address) = SIG_MONO_X86_64_MACHO
                     .scan_process_range(process, (root_domain_function_address, 0x100))
                     .map(|a| a + 3)
@@ -193,12 +194,12 @@ impl Module {
     }
 
     /// Retrieve the [Mono version](Version) of the module.
-    pub fn get_version(&self) -> Version {
+    pub const fn get_version(&self) -> Version {
         self.version
     }
 
     /// Retrieve the [pointer size](PointerSize) of the process/module.
-    pub fn get_pointer_size(&self) -> PointerSize {
+    pub const fn get_pointer_size(&self) -> PointerSize {
         self.pointer_size
     }
 
