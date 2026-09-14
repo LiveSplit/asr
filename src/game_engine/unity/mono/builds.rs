@@ -10,18 +10,29 @@ use crate::{file_format::pe::DebugId, PointerSize};
 
 /// One exact mono binary and the offsets from its PDB.
 pub(super) struct Build {
-    pub(super) guid: [u8; 16],
+    pub(super) debug_id: DebugId,
     pub(super) pointer_size: PointerSize,
     pub(super) version: Version,
     pub(super) offsets: MonoOffsets,
 }
 
-/// Finds the build with this GUID.
+/// Finds the build with this GUID and age. A relink keeps the GUID and
+/// raises the age, and the relinked binary can have a different layout.
 pub(super) fn find(debug_id: &DebugId) -> Option<&'static Build> {
     BUILDS
-        .binary_search_by(|build| build.guid.cmp(&debug_id.guid))
+        .binary_search_by(|build| {
+            (build.debug_id.guid, build.debug_id.age).cmp(&(debug_id.guid, debug_id.age))
+        })
         .ok()
         .map(|index| &BUILDS[index])
+}
+
+/// Makes a debug id from a GUID, written the way a PDB prints it, and an age.
+const fn debug_id(canonical: &str, age: u32) -> DebugId {
+    DebugId {
+        guid: guid(canonical),
+        age,
+    }
 }
 
 /// Parses a canonical GUID into the byte order the debug directory stores.
@@ -65,15 +76,15 @@ const fn guid(canonical: &str) -> [u8; 16] {
     ]
 }
 
-// The table is sorted by GUID. The mono.dll builds set `v_table.vtable` to
-// 0. Their statics path reads `MonoVTable.data` through `vtable_size` and
-// never reads `v_table.vtable`.
+// The table is sorted by GUID, then age. The mono.dll builds set
+// `v_table.vtable` to 0. Their statics path reads `MonoVTable.data` through
+// `vtable_size` and never reads `v_table.vtable`.
 static BUILDS: &[Build] = &[
     // Unity 2017.4.40f1, mono-2.0-bdwgc.dll (net_4_6), x86.
     // No x86 PDB exists for this binary. The offsets are the x64 layout with
     // 32-bit field sizes, worked out by hand.
     Build {
-        guid: guid("54fe0c31-c851-4749-baa5-7699d1279165"),
+        debug_id: debug_id("54fe0c31-c851-4749-baa5-7699d1279165", 1),
         pointer_size: PointerSize::Bit32,
         version: Version::V2,
         offsets: MonoOffsets {
@@ -109,7 +120,7 @@ static BUILDS: &[Build] = &[
     },
     // Unity 6000.5.8, mono-2.0-bdwgc.dll, x86.
     Build {
-        guid: guid("eb6b6239-5624-487c-a84e-d7f0a7335670"),
+        debug_id: debug_id("eb6b6239-5624-487c-a84e-d7f0a7335670", 1),
         pointer_size: PointerSize::Bit32,
         version: Version::V3,
         offsets: MonoOffsets {
@@ -147,7 +158,7 @@ static BUILDS: &[Build] = &[
     // No PDB exists for this exact binary. The offsets come from another
     // build's mono-2.0-bdwgc.pdb.
     Build {
-        guid: guid("2f7a3442-3c29-424d-8a46-8cc59237ed89"),
+        debug_id: debug_id("2f7a3442-3c29-424d-8a46-8cc59237ed89", 1),
         pointer_size: PointerSize::Bit64,
         version: Version::V2,
         offsets: MonoOffsets {
@@ -183,7 +194,7 @@ static BUILDS: &[Build] = &[
     },
     // Unity 2021.3.11, mono-2.0-bdwgc.dll, x64.
     Build {
-        guid: guid("1d994642-9a41-4a6a-84be-f55f9cff8f57"),
+        debug_id: debug_id("1d994642-9a41-4a6a-84be-f55f9cff8f57", 1),
         pointer_size: PointerSize::Bit64,
         version: Version::V3,
         offsets: MonoOffsets {
@@ -219,7 +230,7 @@ static BUILDS: &[Build] = &[
     },
     // Unity 2018.4.36, mono-2.0-bdwgc.dll, x64.
     Build {
-        guid: guid("f469c84e-5b81-4c42-8c3f-72ad629f99cb"),
+        debug_id: debug_id("f469c84e-5b81-4c42-8c3f-72ad629f99cb", 1),
         pointer_size: PointerSize::Bit64,
         version: Version::V2,
         offsets: MonoOffsets {
@@ -255,7 +266,7 @@ static BUILDS: &[Build] = &[
     },
     // Unity 2018.4.36, mono.dll, x64.
     Build {
-        guid: guid("487fa150-59b5-4a18-8fed-964001db1b82"),
+        debug_id: debug_id("487fa150-59b5-4a18-8fed-964001db1b82", 1),
         pointer_size: PointerSize::Bit64,
         version: Version::V1Cattrs,
         offsets: MonoOffsets {
@@ -291,7 +302,7 @@ static BUILDS: &[Build] = &[
     },
     // Unity 6000.5.8, mono-2.0-bdwgc.dll, x64.
     Build {
-        guid: guid("4f356e63-5da8-496c-8bb8-aaf2a0b1f364"),
+        debug_id: debug_id("4f356e63-5da8-496c-8bb8-aaf2a0b1f364", 1),
         pointer_size: PointerSize::Bit64,
         version: Version::V3,
         offsets: MonoOffsets {
@@ -327,7 +338,7 @@ static BUILDS: &[Build] = &[
     },
     // Unity 6000.2.12, mono-2.0-bdwgc.dll, x64.
     Build {
-        guid: guid("018d6f65-a658-4607-93eb-2518f5018226"),
+        debug_id: debug_id("018d6f65-a658-4607-93eb-2518f5018226", 1),
         pointer_size: PointerSize::Bit64,
         version: Version::V3,
         offsets: MonoOffsets {
@@ -363,7 +374,7 @@ static BUILDS: &[Build] = &[
     },
     // Unity 6000.7.0, mono-2.0-bdwgc.dll, x64.
     Build {
-        guid: guid("49c1826a-d1b9-442e-8388-4509b7c91395"),
+        debug_id: debug_id("49c1826a-d1b9-442e-8388-4509b7c91395", 1),
         pointer_size: PointerSize::Bit64,
         version: Version::V3,
         offsets: MonoOffsets {
@@ -399,7 +410,7 @@ static BUILDS: &[Build] = &[
     },
     // Unity 6000.3.21, mono-2.0-bdwgc.dll, x64.
     Build {
-        guid: guid("1ac99f6b-fd3a-4dc0-93e7-782ca1b4be7d"),
+        debug_id: debug_id("1ac99f6b-fd3a-4dc0-93e7-782ca1b4be7d", 1),
         pointer_size: PointerSize::Bit64,
         version: Version::V3,
         offsets: MonoOffsets {
@@ -435,7 +446,7 @@ static BUILDS: &[Build] = &[
     },
     // Unity 2018.4.36, mono.dll, x86.
     Build {
-        guid: guid("c3c97c70-f490-4462-a27d-b4103d2aca1f"),
+        debug_id: debug_id("c3c97c70-f490-4462-a27d-b4103d2aca1f", 1),
         pointer_size: PointerSize::Bit32,
         version: Version::V1Cattrs,
         offsets: MonoOffsets {
@@ -473,7 +484,7 @@ static BUILDS: &[Build] = &[
     // No PDB exists for this exact binary. The offsets come from another
     // build's mono.pdb.
     Build {
-        guid: guid("924a8172-8d25-496f-b684-20c9f04d4f92"),
+        debug_id: debug_id("924a8172-8d25-496f-b684-20c9f04d4f92", 1),
         pointer_size: PointerSize::Bit64,
         version: Version::V1,
         offsets: MonoOffsets {
@@ -509,7 +520,7 @@ static BUILDS: &[Build] = &[
     },
     // Unity 2020.1.18, mono-2.0-bdwgc.dll, x86.
     Build {
-        guid: guid("984e5687-3dd9-4d72-8e88-552c6810430d"),
+        debug_id: debug_id("984e5687-3dd9-4d72-8e88-552c6810430d", 1),
         pointer_size: PointerSize::Bit32,
         version: Version::V2,
         offsets: MonoOffsets {
@@ -545,7 +556,7 @@ static BUILDS: &[Build] = &[
     },
     // Unity 2020.1.18, mono-2.0-bdwgc.dll, x64.
     Build {
-        guid: guid("0b5f7f89-7937-4300-9c3b-a1ec2c75e06e"),
+        debug_id: debug_id("0b5f7f89-7937-4300-9c3b-a1ec2c75e06e", 1),
         pointer_size: PointerSize::Bit64,
         version: Version::V2,
         offsets: MonoOffsets {
@@ -581,7 +592,7 @@ static BUILDS: &[Build] = &[
     },
     // Unity 2017.4.40, mono.dll, x64.
     Build {
-        guid: guid("c1c35e9c-fd72-4ebf-af5e-e7c932e2865d"),
+        debug_id: debug_id("c1c35e9c-fd72-4ebf-af5e-e7c932e2865d", 1),
         pointer_size: PointerSize::Bit64,
         version: Version::V1Cattrs,
         offsets: MonoOffsets {
@@ -617,7 +628,7 @@ static BUILDS: &[Build] = &[
     },
     // Unity 6000.3.21, mono-2.0-bdwgc.dll, x86.
     Build {
-        guid: guid("44e461a2-1832-413d-afb1-3fe613634de3"),
+        debug_id: debug_id("44e461a2-1832-413d-afb1-3fe613634de3", 1),
         pointer_size: PointerSize::Bit32,
         version: Version::V3,
         offsets: MonoOffsets {
@@ -653,7 +664,7 @@ static BUILDS: &[Build] = &[
     },
     // Unity 2017.4.40, mono.dll, x86.
     Build {
-        guid: guid("d45555b8-4783-4fba-9eeb-f830cb655d89"),
+        debug_id: debug_id("d45555b8-4783-4fba-9eeb-f830cb655d89", 1),
         pointer_size: PointerSize::Bit32,
         version: Version::V1Cattrs,
         offsets: MonoOffsets {
@@ -689,7 +700,7 @@ static BUILDS: &[Build] = &[
     },
     // Unity 6000.7.0, mono-2.0-bdwgc.dll, x86.
     Build {
-        guid: guid("8e2fbcbc-d64d-4993-a733-a489d7a90b2b"),
+        debug_id: debug_id("8e2fbcbc-d64d-4993-a733-a489d7a90b2b", 1),
         pointer_size: PointerSize::Bit32,
         version: Version::V3,
         offsets: MonoOffsets {
@@ -725,7 +736,7 @@ static BUILDS: &[Build] = &[
     },
     // Unity 2023.1.22, mono-2.0-bdwgc.dll, x64.
     Build {
-        guid: guid("4aac62be-dfea-4610-91fc-8a1b6c768935"),
+        debug_id: debug_id("4aac62be-dfea-4610-91fc-8a1b6c768935", 1),
         pointer_size: PointerSize::Bit64,
         version: Version::V3,
         offsets: MonoOffsets {
@@ -761,7 +772,7 @@ static BUILDS: &[Build] = &[
     },
     // Unity 2019.4.41, mono-2.0-bdwgc.dll, x64.
     Build {
-        guid: guid("7710aac7-315a-4d30-a77a-0807296966f6"),
+        debug_id: debug_id("7710aac7-315a-4d30-a77a-0807296966f6", 1),
         pointer_size: PointerSize::Bit64,
         version: Version::V2,
         offsets: MonoOffsets {
@@ -797,7 +808,7 @@ static BUILDS: &[Build] = &[
     },
     // Unity 2019.4.41, mono-2.0-bdwgc.dll, x86.
     Build {
-        guid: guid("998210ce-aee9-4d0b-a225-9c529815fc78"),
+        debug_id: debug_id("998210ce-aee9-4d0b-a225-9c529815fc78", 1),
         pointer_size: PointerSize::Bit32,
         version: Version::V2,
         offsets: MonoOffsets {
@@ -835,7 +846,7 @@ static BUILDS: &[Build] = &[
     // No x86 PDB exists for this binary. The offsets are the x64 layout with
     // 32-bit field sizes, worked out by hand.
     Build {
-        guid: guid("064ccfd8-ab0c-4a5b-b33d-7a59b8eafbab"),
+        debug_id: debug_id("064ccfd8-ab0c-4a5b-b33d-7a59b8eafbab", 1),
         pointer_size: PointerSize::Bit32,
         version: Version::V1,
         offsets: MonoOffsets {
@@ -871,7 +882,7 @@ static BUILDS: &[Build] = &[
     },
     // Unity 2018.4.36, mono-2.0-bdwgc.dll, x86.
     Build {
-        guid: guid("7059c7da-c870-4870-951d-758ba588a378"),
+        debug_id: debug_id("7059c7da-c870-4870-951d-758ba588a378", 1),
         pointer_size: PointerSize::Bit32,
         version: Version::V2,
         offsets: MonoOffsets {
@@ -907,7 +918,7 @@ static BUILDS: &[Build] = &[
     },
     // Unity 2021.3.11, mono-2.0-bdwgc.dll, x86.
     Build {
-        guid: guid("51a376db-5854-4c34-925f-acb714c49e65"),
+        debug_id: debug_id("51a376db-5854-4c34-925f-acb714c49e65", 1),
         pointer_size: PointerSize::Bit32,
         version: Version::V3,
         offsets: MonoOffsets {
@@ -943,7 +954,7 @@ static BUILDS: &[Build] = &[
     },
     // Unity 6000.2.12, mono-2.0-bdwgc.dll, x86.
     Build {
-        guid: guid("9fd463e5-f21d-49da-8e5d-67d03349843a"),
+        debug_id: debug_id("9fd463e5-f21d-49da-8e5d-67d03349843a", 1),
         pointer_size: PointerSize::Bit32,
         version: Version::V3,
         offsets: MonoOffsets {
@@ -979,7 +990,7 @@ static BUILDS: &[Build] = &[
     },
     // Unity 2023.1.22, mono-2.0-bdwgc.dll, x86.
     Build {
-        guid: guid("347d7ee9-ca67-435d-be75-237735403a3d"),
+        debug_id: debug_id("347d7ee9-ca67-435d-be75-237735403a3d", 1),
         pointer_size: PointerSize::Bit32,
         version: Version::V3,
         offsets: MonoOffsets {
@@ -1036,7 +1047,10 @@ mod tests {
 
     #[test]
     fn table_is_sorted_and_unique() {
-        assert!(BUILDS.windows(2).all(|pair| pair[0].guid < pair[1].guid));
+        assert!(BUILDS.windows(2).all(|pair| {
+            (pair[0].debug_id.guid, pair[0].debug_id.age)
+                < (pair[1].debug_id.guid, pair[1].debug_id.age)
+        }));
     }
 
     #[test]
@@ -1052,6 +1066,15 @@ mod tests {
         assert!(find(&DebugId {
             guid: [0; 16],
             age: 1,
+        })
+        .is_none());
+    }
+
+    #[test]
+    fn builds_with_another_age_are_not_found() {
+        assert!(find(&DebugId {
+            guid: STORED,
+            age: 2,
         })
         .is_none());
     }
