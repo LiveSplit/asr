@@ -1160,13 +1160,19 @@ pub fn symbols(
 
 /// The GNU build ID of an ELF module, read from its `NT_GNU_BUILD_ID` note.
 /// The linker derives it from the built binary, so it names one exact build.
+/// Holds up to [`MAX_LEN`](Self::MAX_LEN) bytes.
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct BuildId {
-    bytes: [u8; 32],
+    bytes: [u8; Self::MAX_LEN],
     len: u8,
 }
 
 impl BuildId {
+    /// The longest build ID that can be read. The linker's own choices are
+    /// 16 bytes for `md5` and `uuid`, 20 for `sha1`, and 32 for a SHA-256
+    /// passed as `--build-id=0x...`. A longer one reads as absent.
+    pub const MAX_LEN: usize = 32;
+
     /// The bytes of the build ID.
     pub fn as_bytes(&self) -> &[u8] {
         &self.bytes[..self.len as usize]
@@ -1184,7 +1190,8 @@ impl fmt::Debug for BuildId {
 
 /// Reads the GNU build ID from the notes of the ELF module in the given
 /// range. Returns [`None`] if the module carries no such note, which not
-/// every module does. Only little-endian ELFs are supported.
+/// every module does, or if the build ID is longer than
+/// [`BuildId::MAX_LEN`]. Only little-endian ELFs are supported.
 pub fn build_id(process: &Process, range: (Address, u64)) -> Option<BuildId> {
     #[derive(Debug, Copy, Clone, Pod, Zeroable)]
     #[repr(C)]
@@ -1294,11 +1301,11 @@ pub fn build_id(process: &Process, range: (Address, u64)) -> Option<BuildId> {
 
                 if note.n_type == NT_GNU_BUILD_ID
                     && note.n_namesz == 4
-                    && (1..=32).contains(&note.n_descsz)
+                    && (1..=BuildId::MAX_LEN as u32).contains(&note.n_descsz)
                     && desc + note.n_descsz as u64 <= p_filesz
                     && process.read::<[u8; 4]>(segment + name).ok()? == *b"GNU\0"
                 {
-                    let mut bytes = [0; 32];
+                    let mut bytes = [0; BuildId::MAX_LEN];
                     process
                         .read_into_buf(segment + desc, &mut bytes[..note.n_descsz as usize])
                         .ok()?;
@@ -1317,7 +1324,7 @@ pub fn build_id(process: &Process, range: (Address, u64)) -> Option<BuildId> {
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
-    use super::build_id;
+    use super::{build_id, BuildId};
     use crate::runtime::mock::with_process;
 
     use std::{format, vec, vec::Vec};
@@ -1456,6 +1463,41 @@ mod tests {
         put(&mut image, 0x20, &DECOY.wrapping_sub(BASE).to_le_bytes());
         let table = image[0x40..0xB0].to_vec();
         with_process(&[(BASE, &image), (DECOY, &table)], |process| {
+            assert!(build_id(process, (BASE.into(), 0x400)).is_none());
+        });
+    }
+
+    #[test]
+    fn reads_a_build_id_of_the_longest_supported_length() {
+        let mut image = image(true);
+        let longest = [0xAB; BuildId::MAX_LEN];
+        put(&mut image, 0x224, &(BuildId::MAX_LEN as u32).to_le_bytes());
+        put(&mut image, 0x230, &longest);
+        put(
+            &mut image,
+            0x98,
+            &(0x30 + BuildId::MAX_LEN as u64).to_le_bytes(),
+        );
+        with_process(&[(BASE, &image)], |process| {
+            let build_id = build_id(process, (BASE.into(), 0x400)).unwrap();
+            assert_eq!(build_id.as_bytes(), longest);
+        });
+    }
+
+    #[test]
+    fn answers_nothing_for_a_build_id_longer_than_supported() {
+        let mut image = image(true);
+        put(
+            &mut image,
+            0x224,
+            &(BuildId::MAX_LEN as u32 + 1).to_le_bytes(),
+        );
+        put(
+            &mut image,
+            0x98,
+            &(0x30 + BuildId::MAX_LEN as u64 + 4).to_le_bytes(),
+        );
+        with_process(&[(BASE, &image)], |process| {
             assert!(build_id(process, (BASE.into(), 0x400)).is_none());
         });
     }
