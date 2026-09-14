@@ -127,6 +127,9 @@
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+#[cfg(all(test, not(target_family = "wasm")))]
+extern crate std;
+
 mod primitives;
 mod runtime;
 

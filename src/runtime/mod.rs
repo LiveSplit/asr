@@ -5,6 +5,8 @@ mod memory_range;
 mod process;
 mod sys;
 
+#[cfg(all(test, not(target_family = "wasm")))]
+pub(crate) mod mock;
 pub mod settings;
 pub mod timer;
 

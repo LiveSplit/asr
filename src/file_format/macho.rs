@@ -1,10 +1,14 @@
 //! Support for parsing Mach-O format
 
+use core::{fmt, mem};
+
 #[cfg(feature = "alloc")]
 use core::iter::FusedIterator;
 
 #[cfg(feature = "alloc")]
 use alloc::collections::BTreeMap;
+
+use bytemuck::{Pod, Zeroable};
 
 #[cfg(feature = "alloc")]
 use crate::{string::ArrayCString, Error};
@@ -36,11 +40,8 @@ fn scan_macho_page(process: &Process, range: (Address, u64)) -> Option<Address> 
     let first_page = addr + distance_to_page;
     for i in 0..((len - distance_to_page) / PAGE_SIZE) {
         let a = first_page + (i * PAGE_SIZE);
-        match process.read::<u32>(a) {
-            Ok(MH_MAGIC_64 | MH_CIGAM_64 | MH_MAGIC_32 | MH_CIGAM_32) => {
-                return Some(a);
-            }
-            _ => (),
+        if let Ok(MH_MAGIC_64 | MH_CIGAM_64 | MH_MAGIC_32 | MH_CIGAM_32) = process.read::<u32>(a) {
+            return Some(a);
         }
     }
     None
@@ -71,12 +72,109 @@ fn scan_macho_pages(
 
 // Constants for the cmd field of load commands, the type
 // https://opensource.apple.com/source/xnu/xnu-4570.71.2/EXTERNAL_HEADERS/mach-o/loader.h.auto.html
+/// the uuid
+const LC_UUID: u32 = 0x1b;
 /// link-edit stab symbol table info
 #[cfg(feature = "alloc")]
 const LC_SYMTAB: u32 = 0x2;
 /// 64-bit segment of this file to be mapped
 #[cfg(feature = "alloc")]
 const LC_SEGMENT_64: u32 = 0x19;
+
+/// The UUID of a Mach-O module, from its `LC_UUID` load command. The linker
+/// derives it from the built binary, so it names one exact build.
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+pub struct Uuid {
+    /// The bytes of the UUID.
+    pub bytes: [u8; 16],
+}
+
+impl fmt::Debug for Uuid {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (i, byte) in self.bytes.iter().enumerate() {
+            if let 4 | 6 | 8 | 10 = i {
+                f.write_str("-")?;
+            }
+            write!(f, "{byte:02x}")?;
+        }
+        Ok(())
+    }
+}
+
+/// Reads the UUID from the load commands of the Mach-O module in the given
+/// range. Returns [`None`] if the module carries no `LC_UUID` command, or is
+/// 32-bit or big-endian. macOS has not run 32-bit software since 2019, and
+/// Unity dropped PowerPC, the only big-endian Mac, with Unity 3.
+pub fn uuid(process: &Process, range: (Address, u64)) -> Option<Uuid> {
+    #[derive(Debug, Copy, Clone, Zeroable, Pod)]
+    #[repr(C)]
+    struct MachHeader {
+        magic: u32,
+        cputype: u32,
+        cpusubtype: u32,
+        filetype: u32,
+        ncmds: u32,
+        sizeofcmds: u32,
+        flags: u32,
+    }
+
+    #[derive(Debug, Copy, Clone, Zeroable, Pod)]
+    #[repr(C)]
+    struct LoadCommand {
+        cmd: u32,
+        cmdsize: u32,
+    }
+
+    let page = scan_macho_page(process, range)?;
+    let header = process.read::<MachHeader>(page).ok()?;
+
+    // Anything but the 64-bit little-endian magic is 32-bit or big-endian,
+    // and nothing here decodes either. The 64-bit header ends with one
+    // reserved field.
+    if header.magic != MH_MAGIC_64 {
+        return None;
+    }
+    let commands = page + (mem::size_of::<MachHeader>() + mem::size_of::<u32>()) as u64;
+
+    // The command table has to lie inside the module, which is what bounds
+    // the walk.
+    let (module_address, module_size) = range;
+    let table_size = header.sizeofcmds as u64;
+    let module_end = module_address.value().saturating_add(module_size);
+    if commands
+        .value()
+        .checked_add(table_size)
+        .is_none_or(|end| end > module_end)
+    {
+        return None;
+    }
+
+    let mut offset = 0;
+    for _ in 0..header.ncmds {
+        if offset + mem::size_of::<LoadCommand>() as u64 > table_size {
+            return None;
+        }
+        let command = process.read::<LoadCommand>(commands + offset).ok()?;
+        let size = command.cmdsize as u64;
+        if size < mem::size_of::<LoadCommand>() as u64 || offset + size > table_size {
+            return None;
+        }
+
+        if command.cmd == LC_UUID {
+            if size < (mem::size_of::<LoadCommand>() + mem::size_of::<Uuid>()) as u64 {
+                return None;
+            }
+            return process
+                .read::<[u8; 16]>(commands + offset + mem::size_of::<LoadCommand>() as u64)
+                .ok()
+                .map(|bytes| Uuid { bytes });
+        }
+
+        offset += size;
+    }
+
+    None
+}
 
 #[cfg(feature = "alloc")]
 struct MachOFormatOffsets {
@@ -204,4 +302,115 @@ fn fileoff_to_vmaddr(map: &BTreeMap<u64, u64>, fileoff: u64) -> u64 {
         .max_by_key(|(&k, _)| k)
         .map(|(&k, &v)| v + fileoff - k)
         .unwrap_or(fileoff)
+}
+
+#[cfg(all(test, not(target_family = "wasm")))]
+mod tests {
+    use super::uuid;
+    use crate::runtime::mock::with_process;
+
+    use std::{format, vec, vec::Vec};
+
+    const BASE: u64 = 0x1_0000_0000;
+
+    // The UUID of the 2019.4 mono runtime shipped with a real mac player.
+    const UUID: [u8; 16] = [
+        0xE7, 0x42, 0x0B, 0xC7, 0xA2, 0x6B, 0x33, 0xFA, 0xB5, 0xCD, 0x41, 0xCA, 0xD7, 0xD4, 0x61,
+        0x4C,
+    ];
+
+    fn put(image: &mut [u8], at: usize, bytes: &[u8]) {
+        image[at..at + bytes.len()].copy_from_slice(bytes);
+    }
+
+    // Builds a minimal mapped Mach-O by hand from the loader header, so the
+    // walk is checked against the format rather than against itself: the
+    // header declaring its command table, a segment command, and the uuid
+    // command.
+    fn image() -> Vec<u8> {
+        let mut image = vec![0; 0x1000];
+        put(&mut image, 0x00, &0xFEEDFACF_u32.to_le_bytes());
+        put(&mut image, 0x10, &2_u32.to_le_bytes());
+        put(&mut image, 0x14, &(0x48 + 24_u32).to_le_bytes());
+        let commands = 0x20;
+        put(&mut image, commands, &0x19_u32.to_le_bytes());
+        put(&mut image, commands + 0x4, &0x48_u32.to_le_bytes());
+        put(&mut image, commands + 0x48, &0x1B_u32.to_le_bytes());
+        put(&mut image, commands + 0x4C, &24_u32.to_le_bytes());
+        put(&mut image, commands + 0x50, &UUID);
+        image
+    }
+
+    #[test]
+    fn reads_the_uuid_from_a_mapped_image() {
+        with_process(&[(BASE, &image())], |process| {
+            let uuid = uuid(process, (BASE.into(), 0x1000)).unwrap();
+            assert_eq!(uuid.bytes, UUID);
+        });
+    }
+
+    #[test]
+    fn answers_nothing_for_a_32_bit_image() {
+        let mut image = image();
+        put(&mut image, 0x00, &0xFEEDFACE_u32.to_le_bytes());
+        with_process(&[(BASE, &image)], |process| {
+            assert!(uuid(process, (BASE.into(), 0x1000)).is_none());
+        });
+    }
+
+    #[test]
+    fn renders_the_uuid_canonically() {
+        with_process(&[(BASE, &image())], |process| {
+            let uuid = uuid(process, (BASE.into(), 0x1000)).unwrap();
+            assert_eq!(format!("{uuid:?}"), "e7420bc7-a26b-33fa-b5cd-41cad7d4614c");
+        });
+    }
+
+    #[test]
+    fn answers_nothing_without_a_uuid_command() {
+        let mut image = image();
+        put(&mut image, 0x20 + 0x48, &0_u32.to_le_bytes());
+        with_process(&[(BASE, &image)], |process| {
+            assert!(uuid(process, (BASE.into(), 0x1000)).is_none());
+        });
+    }
+
+    #[test]
+    fn answers_nothing_when_the_commands_overrun_the_module() {
+        let mut image = image();
+        put(&mut image, 0x14, &0x2000_u32.to_le_bytes());
+        with_process(&[(BASE, &image)], |process| {
+            assert!(uuid(process, (BASE.into(), 0x1000)).is_none());
+        });
+    }
+
+    #[test]
+    fn reads_the_uuid_past_the_sixty_fourth_command() {
+        let mut image = vec![0; 0x1000];
+        put(&mut image, 0x00, &0xFEEDFACF_u32.to_le_bytes());
+        put(&mut image, 0x10, &66_u32.to_le_bytes());
+        put(&mut image, 0x14, &(65 * 8 + 24_u32).to_le_bytes());
+        // Sixty-five empty commands ahead of the uuid one.
+        let mut at = 0x20;
+        for _ in 0..65 {
+            put(&mut image, at + 4, &8_u32.to_le_bytes());
+            at += 8;
+        }
+        put(&mut image, at, &0x1B_u32.to_le_bytes());
+        put(&mut image, at + 4, &24_u32.to_le_bytes());
+        put(&mut image, at + 8, &UUID);
+        with_process(&[(BASE, &image)], |process| {
+            let uuid = uuid(process, (BASE.into(), 0x1000)).unwrap();
+            assert_eq!(uuid.bytes, UUID);
+        });
+    }
+
+    #[test]
+    fn answers_nothing_for_a_big_endian_image() {
+        let mut image = image();
+        put(&mut image, 0x00, &0xFEEDFACF_u32.to_be_bytes());
+        with_process(&[(BASE, &image)], |process| {
+            assert!(uuid(process, (BASE.into(), 0x1000)).is_none());
+        });
+    }
 }

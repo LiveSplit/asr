@@ -1074,7 +1074,7 @@ struct SymTab64 {
 ///
 /// By using this function, the user must be aware of the following limitations:
 /// - Only allocatable symbols and symbols used by the dynamic linker are exported
-/// (.symtab is not loaded in memory at runtime)
+///   (.symtab is not loaded in memory at runtime)
 /// - Only 64-bit ELFs are supported (an empty iterator will be returned for 32-bit ELFs)
 pub fn symbols(
     process: &Process,
@@ -1156,4 +1156,367 @@ pub fn symbols(
         }
     })
     .fuse()
+}
+
+/// The GNU build ID of an ELF module, read from its `NT_GNU_BUILD_ID` note.
+/// The linker derives it from the built binary, so it names one exact build.
+/// Holds up to [`MAX_LEN`](Self::MAX_LEN) bytes.
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+pub struct BuildId {
+    bytes: [u8; Self::MAX_LEN],
+    len: u8,
+}
+
+impl BuildId {
+    /// The longest build ID that can be read. The linker's own choices are
+    /// 16 bytes for `md5` and `uuid`, 20 for `sha1`, and 32 for a SHA-256
+    /// passed as `--build-id=0x...`. A longer one reads as absent.
+    pub const MAX_LEN: usize = 32;
+
+    /// The bytes of the build ID.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes[..self.len as usize]
+    }
+}
+
+impl fmt::Debug for BuildId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for byte in self.as_bytes() {
+            write!(f, "{byte:02x}")?;
+        }
+        Ok(())
+    }
+}
+
+/// Reads the GNU build ID from the notes of the ELF module in the given
+/// range. Returns [`None`] if the module carries no such note, which not
+/// every module does, or if the build ID is longer than
+/// [`BuildId::MAX_LEN`]. Only little-endian ELFs are supported.
+pub fn build_id(process: &Process, range: (Address, u64)) -> Option<BuildId> {
+    #[derive(Debug, Copy, Clone, Pod, Zeroable)]
+    #[repr(C)]
+    struct NoteHeader {
+        n_namesz: u32,
+        n_descsz: u32,
+        n_type: u32,
+    }
+
+    const NT_GNU_BUILD_ID: u32 = 3;
+
+    let (module_address, module_size) = range;
+    let header = process.read::<Header>(module_address).ok()?;
+    let info = Info::parse(bytemuck::bytes_of(&header))?;
+
+    if info.endian != Endian::Little {
+        return None;
+    }
+
+    let (e_phoff, e_phentsize, e_phnum, entry_size) = if info.bitness.is_64() {
+        let header = process.read::<Elf64>(module_address).ok()?;
+        (
+            header.e_phoff,
+            header.e_phentsize as u64,
+            header.e_phnum,
+            size_of::<ProgramHeader64>() as u64,
+        )
+    } else {
+        let header = process.read::<Elf32>(module_address).ok()?;
+        (
+            header.e_phoff as u64,
+            header.e_phentsize as u64,
+            header.e_phnum,
+            size_of::<ProgramHeader32>() as u64,
+        )
+    };
+
+    // Entries have to be at least as large as the struct read from them, and
+    // the whole table has to lie inside the module.
+    if e_phentsize < entry_size {
+        return None;
+    }
+    let table_end = e_phentsize
+        .checked_mul(e_phnum as u64)?
+        .checked_add(e_phoff)?;
+    if table_end > module_size {
+        return None;
+    }
+
+    let program_header = |index: u16| {
+        let at = module_address + e_phoff + e_phentsize * index as u64;
+        if info.bitness.is_64() {
+            let header = process.read::<ProgramHeader64>(at).ok()?;
+            Some((
+                header.p_type,
+                header.p_offset,
+                header.p_vaddr,
+                header.p_filesz,
+            ))
+        } else {
+            let header = process.read::<ProgramHeader32>(at).ok()?;
+            Some((
+                header.p_type,
+                header.p_offset as u64,
+                header.p_vaddr as u64,
+                header.p_filesz as u64,
+            ))
+        }
+    };
+
+    // A shared object's addresses count from wherever it landed, and an
+    // executable's are absolute. Either way the load segment at file offset
+    // zero holds this header, and the module address is where that segment
+    // landed, so the difference between the two is what every other address
+    // needs added.
+    let header_vaddr = (0..e_phnum)
+        .filter_map(program_header)
+        .find(|&(p_type, p_offset, ..)| {
+            SegmentType(p_type) == SegmentType::PT_LOAD && p_offset == 0
+        })
+        .map(|(_, _, p_vaddr, _)| p_vaddr)?;
+    let bias = module_address.value().wrapping_sub(header_vaddr);
+    let module_end = module_address.value().saturating_add(module_size);
+
+    (0..e_phnum)
+        .filter_map(program_header)
+        .find_map(|(p_type, _, p_vaddr, p_filesz)| {
+            if SegmentType(p_type) != SegmentType::PT_NOTE {
+                return None;
+            }
+
+            // The segment has to lie inside the module, which is what bounds
+            // the walk.
+            let segment = bias.wrapping_add(p_vaddr);
+            if segment < module_address.value() || segment.checked_add(p_filesz)? > module_end {
+                return None;
+            }
+            let segment = Address::new(segment);
+
+            // A note is its header, the name, then the data, the latter two
+            // padded to four bytes.
+            let mut offset = 0;
+            while offset + size_of::<NoteHeader>() as u64 <= p_filesz {
+                let note = process.read::<NoteHeader>(segment + offset).ok()?;
+                let name = offset + size_of::<NoteHeader>() as u64;
+                let desc = name + (note.n_namesz as u64).next_multiple_of(4);
+
+                if note.n_type == NT_GNU_BUILD_ID
+                    && note.n_namesz == 4
+                    && (1..=BuildId::MAX_LEN as u32).contains(&note.n_descsz)
+                    && desc + note.n_descsz as u64 <= p_filesz
+                    && process.read::<[u8; 4]>(segment + name).ok()? == *b"GNU\0"
+                {
+                    let mut bytes = [0; BuildId::MAX_LEN];
+                    process
+                        .read_into_buf(segment + desc, &mut bytes[..note.n_descsz as usize])
+                        .ok()?;
+                    return Some(BuildId {
+                        bytes,
+                        len: note.n_descsz as u8,
+                    });
+                }
+
+                offset = desc + (note.n_descsz as u64).next_multiple_of(4);
+            }
+
+            None
+        })
+}
+
+#[cfg(all(test, not(target_family = "wasm")))]
+mod tests {
+    use super::{build_id, BuildId};
+    use crate::runtime::mock::with_process;
+
+    use std::{format, vec, vec::Vec};
+
+    const BASE: u64 = 0x7F12_3450_0000;
+
+    // The build ID of the 2019.1 mono runtime, a sha1 the linker computed.
+    const BUILD_ID: [u8; 20] = [
+        0xE6, 0xAA, 0x00, 0x0A, 0x9A, 0x52, 0x01, 0x63, 0x57, 0x43, 0xC6, 0xA1, 0xB2, 0x78, 0x1E,
+        0x05, 0x7D, 0x65, 0x1D, 0xAD,
+    ];
+
+    fn put(image: &mut [u8], at: usize, bytes: &[u8]) {
+        image[at..at + bytes.len()].copy_from_slice(bytes);
+    }
+
+    // Builds a minimal mapped ELF by hand from the spec, so the walk is
+    // checked against the format rather than against itself: the header, a
+    // load and a note program header, and a note segment holding an ABI tag
+    // note followed by the build ID note.
+    fn image(wide: bool) -> Vec<u8> {
+        let mut image = vec![0; 0x400];
+        put(&mut image, 0x00, b"\x7fELF");
+        image[0x04] = if wide { 2 } else { 1 };
+        image[0x05] = 1;
+        image[0x06] = 1;
+        put(&mut image, 0x10, &3_u16.to_le_bytes());
+        if wide {
+            put(&mut image, 0x20, &0x40_u64.to_le_bytes());
+            put(&mut image, 0x36, &56_u16.to_le_bytes());
+            put(&mut image, 0x38, &2_u16.to_le_bytes());
+            put(&mut image, 0x40, &1_u32.to_le_bytes());
+            put(&mut image, 0x78, &4_u32.to_le_bytes());
+            put(&mut image, 0x88, &0x200_u64.to_le_bytes());
+            put(&mut image, 0x98, &0x44_u64.to_le_bytes());
+        } else {
+            put(&mut image, 0x1C, &0x34_u32.to_le_bytes());
+            put(&mut image, 0x2A, &32_u16.to_le_bytes());
+            put(&mut image, 0x2C, &2_u16.to_le_bytes());
+            put(&mut image, 0x34, &1_u32.to_le_bytes());
+            put(&mut image, 0x54, &4_u32.to_le_bytes());
+            put(&mut image, 0x5C, &0x200_u32.to_le_bytes());
+            put(&mut image, 0x64, &0x44_u32.to_le_bytes());
+        }
+        put(&mut image, 0x200, &4_u32.to_le_bytes());
+        put(&mut image, 0x204, &16_u32.to_le_bytes());
+        put(&mut image, 0x208, &1_u32.to_le_bytes());
+        put(&mut image, 0x20C, b"GNU\0");
+        put(&mut image, 0x220, &4_u32.to_le_bytes());
+        put(&mut image, 0x224, &20_u32.to_le_bytes());
+        put(&mut image, 0x228, &3_u32.to_le_bytes());
+        put(&mut image, 0x22C, b"GNU\0");
+        put(&mut image, 0x230, &BUILD_ID);
+        image
+    }
+
+    #[test]
+    fn reads_the_build_id_from_a_mapped_image() {
+        for wide in [true, false] {
+            with_process(&[(BASE, &image(wide))], |process| {
+                let build_id = build_id(process, (BASE.into(), 0x400)).unwrap();
+                assert_eq!(build_id.as_bytes(), BUILD_ID);
+            });
+        }
+    }
+
+    #[test]
+    fn renders_the_id_as_hex() {
+        with_process(&[(BASE, &image(true))], |process| {
+            let build_id = build_id(process, (BASE.into(), 0x400)).unwrap();
+            assert_eq!(
+                format!("{build_id:?}"),
+                "e6aa000a9a5201635743c6a1b2781e057d651dad",
+            );
+        });
+    }
+
+    #[test]
+    fn answers_nothing_without_a_note_segment() {
+        let mut image = image(true);
+        put(&mut image, 0x78, &0_u32.to_le_bytes());
+        with_process(&[(BASE, &image)], |process| {
+            assert!(build_id(process, (BASE.into(), 0x400)).is_none());
+        });
+    }
+
+    // An executable's segments carry absolute addresses, and one built without
+    // position independence is mapped exactly where they say.
+    #[test]
+    fn reads_the_build_id_from_an_executable_mapped_at_its_own_address() {
+        const EXECUTABLE_BASE: u64 = 0x40_0000;
+        let mut image = image(true);
+        put(&mut image, 0x10, &2_u16.to_le_bytes());
+        put(&mut image, 0x50, &EXECUTABLE_BASE.to_le_bytes());
+        put(&mut image, 0x88, &(EXECUTABLE_BASE + 0x200).to_le_bytes());
+        with_process(&[(EXECUTABLE_BASE, &image)], |process| {
+            let build_id = build_id(process, (EXECUTABLE_BASE.into(), 0x400)).unwrap();
+            assert_eq!(build_id.as_bytes(), BUILD_ID);
+        });
+    }
+
+    #[test]
+    fn answers_nothing_when_the_note_segment_overruns_the_module() {
+        let mut image = image(true);
+        put(&mut image, 0x98, &0x1000_u64.to_le_bytes());
+        with_process(&[(BASE, &image)], |process| {
+            assert!(build_id(process, (BASE.into(), 0x400)).is_none());
+        });
+    }
+
+    #[test]
+    fn answers_nothing_when_program_headers_are_declared_smaller_than_read() {
+        let mut image = image(true);
+        put(&mut image, 0x36, &48_u16.to_le_bytes());
+        put(&mut image, 0x70, &4_u32.to_le_bytes());
+        put(&mut image, 0x80, &0x200_u64.to_le_bytes());
+        put(&mut image, 0x90, &0x44_u64.to_le_bytes());
+        with_process(&[(BASE, &image)], |process| {
+            assert!(build_id(process, (BASE.into(), 0x400)).is_none());
+        });
+    }
+
+    #[test]
+    fn answers_nothing_when_the_program_header_table_overruns_the_module() {
+        let mut image = image(true);
+        put(&mut image, 0x38, &100_u16.to_le_bytes());
+        with_process(&[(BASE, &image)], |process| {
+            assert!(build_id(process, (BASE.into(), 0x400)).is_none());
+        });
+    }
+
+    #[test]
+    fn answers_nothing_when_the_program_header_offset_wraps_outside_the_module() {
+        const DECOY: u64 = 0x1000;
+        let mut image = image(true);
+        put(&mut image, 0x20, &DECOY.wrapping_sub(BASE).to_le_bytes());
+        let table = image[0x40..0xB0].to_vec();
+        with_process(&[(BASE, &image), (DECOY, &table)], |process| {
+            assert!(build_id(process, (BASE.into(), 0x400)).is_none());
+        });
+    }
+
+    #[test]
+    fn reads_a_build_id_of_the_longest_supported_length() {
+        let mut image = image(true);
+        let longest = [0xAB; BuildId::MAX_LEN];
+        put(&mut image, 0x224, &(BuildId::MAX_LEN as u32).to_le_bytes());
+        put(&mut image, 0x230, &longest);
+        put(
+            &mut image,
+            0x98,
+            &(0x30 + BuildId::MAX_LEN as u64).to_le_bytes(),
+        );
+        with_process(&[(BASE, &image)], |process| {
+            let build_id = build_id(process, (BASE.into(), 0x400)).unwrap();
+            assert_eq!(build_id.as_bytes(), longest);
+        });
+    }
+
+    #[test]
+    fn answers_nothing_for_a_build_id_longer_than_supported() {
+        let mut image = image(true);
+        put(
+            &mut image,
+            0x224,
+            &(BuildId::MAX_LEN as u32 + 1).to_le_bytes(),
+        );
+        put(
+            &mut image,
+            0x98,
+            &(0x30 + BuildId::MAX_LEN as u64 + 4).to_le_bytes(),
+        );
+        with_process(&[(BASE, &image)], |process| {
+            assert!(build_id(process, (BASE.into(), 0x400)).is_none());
+        });
+    }
+
+    #[test]
+    fn reads_a_build_id_past_the_sixteenth_note() {
+        let mut image = image(true);
+        // Seventeen empty notes ahead of the build ID, all in one segment.
+        put(&mut image, 0x200, &[0; 0x44]);
+        let at = 0x200 + 17 * 12;
+        put(&mut image, at, &4_u32.to_le_bytes());
+        put(&mut image, at + 4, &20_u32.to_le_bytes());
+        put(&mut image, at + 8, &3_u32.to_le_bytes());
+        put(&mut image, at + 12, b"GNU\0");
+        put(&mut image, at + 16, &BUILD_ID);
+        put(&mut image, 0x98, &((at + 36 - 0x200) as u64).to_le_bytes());
+        with_process(&[(BASE, &image)], |process| {
+            let build_id = build_id(process, (BASE.into(), 0x400)).unwrap();
+            assert_eq!(build_id.as_bytes(), BUILD_ID);
+        });
+    }
 }
