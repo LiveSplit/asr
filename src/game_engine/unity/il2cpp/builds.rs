@@ -32,6 +32,14 @@ pub(super) fn find(
     })
 }
 
+/// Whether some build was measured on this Unity version at this width,
+/// whatever its metadata says.
+pub(super) fn measured(unity: (u16, u16, u16, u16), pointer_size: PointerSize) -> bool {
+    BUILDS
+        .iter()
+        .any(|build| build.unity == unity && build.pointer_size == pointer_size)
+}
+
 // The table reads from the oldest player to the newest.
 static BUILDS: &[Build] = &[
     // Unity 2018.4.36f1, metadata version 24, x64.

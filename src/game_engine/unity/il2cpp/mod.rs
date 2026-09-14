@@ -36,48 +36,47 @@ pub struct Module {
 
 impl Module {
     /// Tries attaching to a Unity game that is using the IL2CPP backend. If
-    /// the game's metadata and Unity versions name a known build, its measured
-    /// offsets are used directly. Otherwise this function automatically
-    /// detects the [IL2CPP version](Version). If you know the version in
-    /// advance or it fails detecting it, use [`attach`](Self::attach) instead.
+    /// the game's metadata and Unity versions name a measured build, this
+    /// function uses that build's offsets. Otherwise this function detects
+    /// the [IL2CPP version](Version). If you know the version in advance or
+    /// it fails detecting it, use [`attach`](Self::attach) instead.
     pub fn attach_auto_detect(process: &Process) -> Option<Self> {
         let il2cpp_module = Self::find_runtime_module(process)?;
         let pointer_size = pe::MachineType::read(process, il2cpp_module.0)?.pointer_size()?;
 
-        let identity = Self::identity(process);
+        let unity = Self::unity_version(process);
+        let metadata = Self::metadata_version(process);
 
-        if let Some((metadata, unity)) = identity {
-            if let Some(build) = builds::find(metadata, unity, pointer_size) {
-                if let Some(module) = Self::attach_with(
-                    process,
-                    il2cpp_module,
-                    pointer_size,
-                    build.version,
-                    &build.offsets,
-                ) {
+        match (unity, metadata) {
+            (Some(unity), Some(metadata)) => {
+                if let Some(build) = builds::find(metadata, unity, pointer_size) {
+                    let module = Self::attach_with(
+                        process,
+                        il2cpp_module,
+                        pointer_size,
+                        build.version,
+                        &build.offsets,
+                    )?;
                     print_limited::<128>(&format_args!(
                         "known il2cpp build: metadata {metadata}, unity {}.{}.{}.{}",
                         unity.0, unity.1, unity.2, unity.3,
                     ));
                     return Some(module);
                 }
-            }
-        }
-
-        let version = Version::detect(process)?;
-        let module = Self::attach(process, version)?;
-
-        match identity {
-            Some((metadata, unity)) if builds::find(metadata, unity, pointer_size).is_none() => {
                 print_limited::<128>(&format_args!(
                     "unknown il2cpp build: metadata {metadata}, unity {}.{}.{}.{}",
                     unity.0, unity.1, unity.2, unity.3,
                 ));
             }
+            // The game maps its metadata after GameAssembly.dll. A player
+            // with a measured build waits for it, since attaching now would
+            // take the version table's offsets and keep them.
+            (Some(unity), None) if builds::measured(unity, pointer_size) => return None,
             _ => {}
         }
 
-        Some(module)
+        let version = Version::detect(process)?;
+        Self::attach(process, version)
     }
 
     /// Tries attaching to a Unity game that is using the IL2CPP backend with
@@ -98,22 +97,16 @@ impl Module {
         Some((address, size))
     }
 
-    /// What identifies the game's IL2CPP layout: the version of its mapped
-    /// `global-metadata.dat` and the Unity version stamped on the player.
-    fn identity(process: &Process) -> Option<(u32, (u16, u16, u16, u16))> {
-        let metadata = Self::metadata_version(process)?;
-
+    /// Reads the Unity version stamped on the player, all four parts of
+    /// `UnityPlayer.dll`'s file version.
+    fn unity_version(process: &Process) -> Option<(u16, u16, u16, u16)> {
         let unity_player = process.get_module_address("UnityPlayer.dll").ok()?;
         let file_version = pe::FileVersion::read(process, unity_player)?;
-
         Some((
-            metadata,
-            (
-                file_version.major_version,
-                file_version.minor_version,
-                file_version.build_part,
-                file_version.private_part,
-            ),
+            file_version.major_version,
+            file_version.minor_version,
+            file_version.build_part,
+            file_version.private_part,
         ))
     }
 

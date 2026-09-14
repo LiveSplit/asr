@@ -13,6 +13,173 @@ fn put(image: &mut [u8], at: u64, bytes: &[u8]) {
     image[at..at + bytes.len()].copy_from_slice(bytes);
 }
 
+// A player as `attach_auto_detect` sees it: `GameAssembly.dll` with a PE
+// header and the x64 code that points at both globals, `UnityPlayer.dll` with a
+// PE header and a version resource, and the mapped metadata file when it is
+// there yet.
+struct Player {
+    unity: (u16, u16, u16, u16),
+    metadata: Option<u32>,
+}
+
+const GAME_ASSEMBLY: u64 = 0x1_8000_0000;
+const UNITY_PLAYER: u64 = 0x1900_0000;
+const METADATA: u64 = 0x2000_0000;
+
+impl Player {
+    fn attach(&self) -> Option<Module> {
+        let game_assembly = Self::game_assembly();
+        let unity_player = Self::unity_player(self.unity);
+        let metadata = self.metadata.map(|version| {
+            let mut i = vec![0; 0x100];
+            put(&mut i, 0x0, &0xFAB1_1BAF_u32.to_le_bytes());
+            put(&mut i, 0x4, &version.to_le_bytes());
+            i
+        });
+        let mut regions = vec![
+            (GAME_ASSEMBLY, &game_assembly[..]),
+            (UNITY_PLAYER, &unity_player[..]),
+        ];
+        if let Some(metadata) = &metadata {
+            regions.push((METADATA, &metadata[..]));
+        }
+        crate::runtime::mock::with_modules(
+            &regions,
+            &[
+                ("GameAssembly.dll", GAME_ASSEMBLY, 0x1000),
+                ("UnityPlayer.dll", UNITY_PLAYER, 0x1000),
+            ],
+            Module::attach_auto_detect,
+        )
+    }
+
+    // A PE32+ header for x64, with the image size and, when asked, the
+    // resource directory pointing at `at`.
+    fn pe_header(i: &mut [u8], resources_at: Option<u32>) {
+        put(i, 0x00, b"MZ");
+        put(i, 0x3C, &0x80_u32.to_le_bytes());
+        put(i, 0x80, b"PE\0\0");
+        put(i, 0x84, &0x8664_u16.to_le_bytes()); // machine: x64
+        put(i, 0x94, &0xF0_u16.to_le_bytes()); // size of optional header
+        put(i, 0x98, &0x20B_u16.to_le_bytes()); // PE32+
+        put(i, 0x98 + 0x38, &0x1000_u32.to_le_bytes()); // size of image
+        if let Some(at) = resources_at {
+            put(i, 0x98 + 0x80, &at.to_le_bytes());
+            put(i, 0x98 + 0x84, &0x100_u32.to_le_bytes());
+        }
+    }
+
+    fn game_assembly() -> vec::Vec<u8> {
+        let mut i = vec![0; 0x1000];
+        Self::pe_header(&mut i, None);
+        let rel = |from: u64, to: u64| ((to as i64 - (from + 4) as i64) as i32).to_le_bytes();
+        let base = GAME_ASSEMBLY;
+        // jne; mov rbx, [begin]; cmp rbx, [end]
+        put(&mut i, 0x300, &[0x75, 0xF9, 0x48, 0x8B, 0x1D]);
+        put(&mut i, 0x305, &rel(base + 0x305, base + 0x900));
+        put(&mut i, 0x309, &[0x48, 0x3B, 0x1D]);
+        put(&mut i, 0x30C, &rel(base + 0x30C, base + 0x908));
+        put(&mut i, 0x400, b"global-metadata.dat\0");
+        // lea rcx, [name]; shr rcx, 6; mov [table], rax
+        put(&mut i, 0x500, &[0x48, 0x8D, 0x0D]);
+        put(&mut i, 0x503, &rel(base + 0x503, base + 0x400));
+        put(&mut i, 0x580, &[0x48, 0xC1, 0xE9, 0x06]);
+        put(&mut i, 0x5A0, &[0x48, 0x89, 0x05]);
+        put(&mut i, 0x5A3, &rel(base + 0x5A3, base + 0x910));
+        i
+    }
+
+    // The version resource, the way the resource directory lays it: the
+    // type directory holds RT_VERSION, which holds one language, which holds
+    // the data entry pointing at VS_VERSIONINFO.
+    fn unity_player(unity: (u16, u16, u16, u16)) -> vec::Vec<u8> {
+        let mut i = vec![0; 0x1000];
+        Self::pe_header(&mut i, Some(0x400));
+        let entry = |i: &mut [u8], at: u64, id: u32, offset: u32| {
+            put(i, at, &id.to_le_bytes());
+            put(i, at + 4, &offset.to_le_bytes());
+        };
+        // root: one id entry, RT_VERSION (0x10), a directory at +0x20
+        put(&mut i, 0x400 + 0xE, &1_u16.to_le_bytes());
+        entry(&mut i, 0x410, 0x10, 0x8000_0020);
+        // type directory: one directory entry at +0x40
+        put(&mut i, 0x420 + 0xE, &1_u16.to_le_bytes());
+        entry(&mut i, 0x430, 1, 0x8000_0040);
+        // language directory: one data entry at +0x60
+        put(&mut i, 0x440 + 0xE, &1_u16.to_le_bytes());
+        entry(&mut i, 0x450, 0x409, 0x60);
+        // the data entry names VS_VERSIONINFO at 0x600
+        put(&mut i, 0x460, &0x600_u32.to_le_bytes());
+        // VS_FIXEDFILEINFO sits 0x28 in
+        put(&mut i, 0x628, &0xFEEF_04BD_u32.to_le_bytes());
+        put(&mut i, 0x630, &unity.1.to_le_bytes());
+        put(&mut i, 0x632, &unity.0.to_le_bytes());
+        put(&mut i, 0x634, &unity.3.to_le_bytes());
+        put(&mut i, 0x636, &unity.2.to_le_bytes());
+        i
+    }
+}
+
+const MEASURED_6000_5: (u16, u16, u16, u16) = (6000, 5, 10, 54518);
+
+// A game on a measured player, with its metadata mapped, attaches with the
+// offsets measured on that player.
+#[test]
+fn attach_auto_detect_uses_a_measured_build() {
+    let module = Player {
+        unity: MEASURED_6000_5,
+        metadata: Some(107),
+    }
+    .attach()
+    .unwrap();
+    assert_eq!(module.assemblies, Address::new(GAME_ASSEMBLY + 0x900));
+    assert_eq!(
+        module.type_info_definition_table,
+        Address::new(GAME_ASSEMBLY + 0x910)
+    );
+    assert_eq!(module.offsets.class.static_fields, 0xA0);
+}
+
+// The metadata file is mapped after `GameAssembly.dll`. Until it is, a game
+// on a measured player has to wait rather than attach with the version
+// table's offsets and keep them.
+#[test]
+fn attach_auto_detect_waits_for_the_metadata_of_a_measured_player() {
+    let module = Player {
+        unity: MEASURED_6000_5,
+        metadata: None,
+    }
+    .attach();
+    assert!(module.is_none());
+}
+
+// A player nobody measured takes the version table, whether or not its
+// metadata is mapped yet.
+#[test]
+fn attach_auto_detect_falls_back_for_an_unmeasured_player() {
+    for metadata in [None, Some(107)] {
+        let module = Player {
+            unity: (6000, 5, 11, 1),
+            metadata,
+        }
+        .attach()
+        .unwrap();
+        assert_eq!(module.offsets.class.static_fields, 0xB8);
+    }
+}
+
+// A measured player whose metadata says another version is not that build.
+#[test]
+fn attach_auto_detect_falls_back_when_the_metadata_disagrees() {
+    let module = Player {
+        unity: MEASURED_6000_5,
+        metadata: Some(110),
+    }
+    .attach()
+    .unwrap();
+    assert_eq!(module.offsets.class.static_fields, 0xB8);
+}
+
 // The x86 code that points at both globals. The assemblies loop reads the vector's
 // begin and end by absolute address. The table store follows the string that
 // names the metadata file, and has three shapes across Unity versions, so the
