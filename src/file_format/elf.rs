@@ -1204,20 +1204,38 @@ pub fn build_id(process: &Process, range: (Address, u64)) -> Option<BuildId> {
         return None;
     }
 
-    let (e_phoff, e_phentsize, e_phnum) = if info.bitness.is_64() {
+    let (e_phoff, e_phentsize, e_phnum, entry_size) = if info.bitness.is_64() {
         let header = process.read::<Elf64>(module_address).ok()?;
-        (header.e_phoff, header.e_phentsize as u64, header.e_phnum)
+        (
+            header.e_phoff,
+            header.e_phentsize as u64,
+            header.e_phnum,
+            size_of::<ProgramHeader64>() as u64,
+        )
     } else {
         let header = process.read::<Elf32>(module_address).ok()?;
         (
             header.e_phoff as u64,
             header.e_phentsize as u64,
             header.e_phnum,
+            size_of::<ProgramHeader32>() as u64,
         )
     };
 
+    // Entries have to be at least as large as the struct read from them, and
+    // the whole table has to lie inside the module.
+    if e_phentsize < entry_size {
+        return None;
+    }
+    let table_end = e_phentsize
+        .checked_mul(e_phnum as u64)?
+        .checked_add(e_phoff)?;
+    if table_end > module_size {
+        return None;
+    }
+
     let program_header = |index: u16| {
-        let at = module_address + e_phoff + e_phentsize.wrapping_mul(index as u64);
+        let at = module_address + e_phoff + e_phentsize * index as u64;
         if info.bitness.is_64() {
             let header = process.read::<ProgramHeader64>(at).ok()?;
             Some((
@@ -1406,6 +1424,38 @@ mod tests {
         let mut image = image(true);
         put(&mut image, 0x98, &0x1000_u64.to_le_bytes());
         with_process(&[(BASE, &image)], |process| {
+            assert!(build_id(process, (BASE.into(), 0x400)).is_none());
+        });
+    }
+
+    #[test]
+    fn answers_nothing_when_program_headers_are_declared_smaller_than_read() {
+        let mut image = image(true);
+        put(&mut image, 0x36, &48_u16.to_le_bytes());
+        put(&mut image, 0x70, &4_u32.to_le_bytes());
+        put(&mut image, 0x80, &0x200_u64.to_le_bytes());
+        put(&mut image, 0x90, &0x44_u64.to_le_bytes());
+        with_process(&[(BASE, &image)], |process| {
+            assert!(build_id(process, (BASE.into(), 0x400)).is_none());
+        });
+    }
+
+    #[test]
+    fn answers_nothing_when_the_program_header_table_overruns_the_module() {
+        let mut image = image(true);
+        put(&mut image, 0x38, &100_u16.to_le_bytes());
+        with_process(&[(BASE, &image)], |process| {
+            assert!(build_id(process, (BASE.into(), 0x400)).is_none());
+        });
+    }
+
+    #[test]
+    fn answers_nothing_when_the_program_header_offset_wraps_outside_the_module() {
+        const DECOY: u64 = 0x1000;
+        let mut image = image(true);
+        put(&mut image, 0x20, &DECOY.wrapping_sub(BASE).to_le_bytes());
+        let table = image[0x40..0xB0].to_vec();
+        with_process(&[(BASE, &image), (DECOY, &table)], |process| {
             assert!(build_id(process, (BASE.into(), 0x400)).is_none());
         });
     }
