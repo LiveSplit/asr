@@ -66,6 +66,38 @@ static BUILDS: &[Build] = &[
             },
         },
     },
+    // Unity 2018.4.36f1, metadata version 24, x86.
+    // Offsets from the player's own GameAssembly.pdb.
+    Build {
+        metadata: 24,
+        unity: (2018, 4, 36, 54151),
+        pointer_size: PointerSize::Bit32,
+        version: Version::Base,
+        offsets: IL2CPPOffsets {
+            assembly: AssemblyOffsets {
+                image: 0x0,
+                aname: None,
+            },
+            image: ImageOffsets {
+                assembly_name: Some(0x4),
+                type_count: 0x10,
+                metadata_handle: 0xc,
+            },
+            class: ClassOffsets {
+                name: 0x8,
+                namespace: 0xc,
+                parent: 0x2c,
+                fields: 0x40,
+                static_fields: 0x5c,
+                field_count: 0xac,
+            },
+            field: FieldInfoOffsets {
+                name: 0x0,
+                offset: 0xc,
+                struct_size: 0x14,
+            },
+        },
+    },
     // Unity 2019.4.41f2, metadata version 24, x64.
     // Offsets from the player's own GameAssembly.pdb.
     Build {
@@ -95,6 +127,38 @@ static BUILDS: &[Build] = &[
                 name: 0x0,
                 offset: 0x18,
                 struct_size: 0x20,
+            },
+        },
+    },
+    // Unity 2019.4.41f2, metadata version 24, x86.
+    // Offsets from the player's own GameAssembly.pdb.
+    Build {
+        metadata: 24,
+        unity: (2019, 4, 41, 9172),
+        pointer_size: PointerSize::Bit32,
+        version: Version::V2019,
+        offsets: IL2CPPOffsets {
+            assembly: AssemblyOffsets {
+                image: 0x0,
+                aname: None,
+            },
+            image: ImageOffsets {
+                assembly_name: Some(0x4),
+                type_count: 0x10,
+                metadata_handle: 0xc,
+            },
+            class: ClassOffsets {
+                name: 0x8,
+                namespace: 0xc,
+                parent: 0x2c,
+                fields: 0x40,
+                static_fields: 0x5c,
+                field_count: 0xa8,
+            },
+            field: FieldInfoOffsets {
+                name: 0x0,
+                offset: 0xc,
+                struct_size: 0x14,
             },
         },
     },
@@ -218,6 +282,134 @@ static BUILDS: &[Build] = &[
                 fields: 0x40,
                 static_fields: 0x5c,
                 field_count: 0xa8,
+            },
+            field: FieldInfoOffsets {
+                name: 0x0,
+                offset: 0xc,
+                struct_size: 0x14,
+            },
+        },
+    },
+    // Unity 2022.3.0f1, metadata version 29, x64.
+    // Offsets from the player's own GameAssembly.pdb.
+    Build {
+        metadata: 29,
+        unity: (2022, 3, 0, 4507),
+        pointer_size: PointerSize::Bit64,
+        version: Version::V2022,
+        offsets: IL2CPPOffsets {
+            assembly: AssemblyOffsets {
+                image: 0x0,
+                aname: None,
+            },
+            image: ImageOffsets {
+                assembly_name: Some(0x8),
+                type_count: 0x18,
+                metadata_handle: 0x28,
+            },
+            class: ClassOffsets {
+                name: 0x10,
+                namespace: 0x18,
+                parent: 0x58,
+                fields: 0x80,
+                static_fields: 0xb8,
+                field_count: 0x124,
+            },
+            field: FieldInfoOffsets {
+                name: 0x0,
+                offset: 0x18,
+                struct_size: 0x20,
+            },
+        },
+    },
+    // Unity 2022.3.0f1, metadata version 29, x86.
+    // Offsets from the player's own GameAssembly.pdb.
+    Build {
+        metadata: 29,
+        unity: (2022, 3, 0, 4507),
+        pointer_size: PointerSize::Bit32,
+        version: Version::V2022,
+        offsets: IL2CPPOffsets {
+            assembly: AssemblyOffsets {
+                image: 0x0,
+                aname: None,
+            },
+            image: ImageOffsets {
+                assembly_name: Some(0x4),
+                type_count: 0xc,
+                metadata_handle: 0x18,
+            },
+            class: ClassOffsets {
+                name: 0x8,
+                namespace: 0xc,
+                parent: 0x2c,
+                fields: 0x40,
+                static_fields: 0x5c,
+                field_count: 0xac,
+            },
+            field: FieldInfoOffsets {
+                name: 0x0,
+                offset: 0xc,
+                struct_size: 0x14,
+            },
+        },
+    },
+    // Unity 2023.1.0f1, metadata version 29, x64.
+    // Offsets from the player's own GameAssembly.pdb.
+    Build {
+        metadata: 29,
+        unity: (2023, 1, 0, 2298),
+        pointer_size: PointerSize::Bit64,
+        version: Version::V2022,
+        offsets: IL2CPPOffsets {
+            assembly: AssemblyOffsets {
+                image: 0x0,
+                aname: None,
+            },
+            image: ImageOffsets {
+                assembly_name: Some(0x8),
+                type_count: 0x18,
+                metadata_handle: 0x28,
+            },
+            class: ClassOffsets {
+                name: 0x10,
+                namespace: 0x18,
+                parent: 0x58,
+                fields: 0x80,
+                static_fields: 0xb8,
+                field_count: 0x124,
+            },
+            field: FieldInfoOffsets {
+                name: 0x0,
+                offset: 0x18,
+                struct_size: 0x20,
+            },
+        },
+    },
+    // Unity 2023.1.0f1, metadata version 29, x86.
+    // Offsets from the player's own GameAssembly.pdb.
+    Build {
+        metadata: 29,
+        unity: (2023, 1, 0, 2298),
+        pointer_size: PointerSize::Bit32,
+        version: Version::V2022,
+        offsets: IL2CPPOffsets {
+            assembly: AssemblyOffsets {
+                image: 0x0,
+                aname: None,
+            },
+            image: ImageOffsets {
+                assembly_name: Some(0x4),
+                type_count: 0xc,
+                metadata_handle: 0x18,
+            },
+            class: ClassOffsets {
+                name: 0x8,
+                namespace: 0xc,
+                parent: 0x2c,
+                fields: 0x40,
+                static_fields: 0x5c,
+                field_count: 0xac,
             },
             field: FieldInfoOffsets {
                 name: 0x0,
@@ -550,8 +742,7 @@ static BUILDS: &[Build] = &[
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
-    use super::super::Version;
-    use super::{find, BUILDS};
+    use super::{find, IL2CPPOffsets, BUILDS};
     use crate::PointerSize;
 
     #[test]
@@ -562,6 +753,24 @@ mod tests {
     }
 
     const UNITY_6000_3: (u16, u16, u16, u16) = (6000, 3, 21, 9777);
+
+    // Every player was measured at both widths, so each version in the
+    // table has an x64 entry and an x86 entry.
+    #[test]
+    fn every_version_is_measured_at_both_widths() {
+        for build in BUILDS {
+            let other = match build.pointer_size {
+                PointerSize::Bit64 => PointerSize::Bit32,
+                _ => PointerSize::Bit64,
+            };
+            assert!(
+                find(build.metadata, build.unity, other).is_some(),
+                "{:?} at {:?} has no twin",
+                build.unity,
+                other
+            );
+        }
+    }
 
     #[test]
     fn finds_exact_builds() {
@@ -588,14 +797,23 @@ mod tests {
         assert!(find(16, (5, 6, 7, 0), PointerSize::Bit64).is_none());
     }
 
+    // The version table for 6000.5 and 6000.7 puts static_fields where 2022.3
+    // had it. Both measured players put it lower, and 6000.7 moves field_count
+    // too.
     #[test]
     fn unity_6000_5_builds_diverge_from_their_version_table_on_statics() {
-        let build = find(107, (6000, 5, 10, 54518), PointerSize::Bit64).unwrap();
-        assert!(matches!(build.version, Version::V2022));
-        assert_eq!(build.offsets.class.static_fields, 0xA0);
+        for (metadata, unity, static_fields) in [
+            (107, (6000, 5, 10, 54518), 0xA0),
+            (110, (6000, 7, 0, 5476), 0x98),
+        ] {
+            let build = find(metadata, unity, PointerSize::Bit64).unwrap();
+            let table = IL2CPPOffsets::new(build.version, build.pointer_size).unwrap();
+            assert_eq!(build.offsets.class.static_fields, static_fields);
+            assert_ne!(build.offsets.class.static_fields, table.class.static_fields);
+        }
 
         let build = find(110, (6000, 7, 0, 5476), PointerSize::Bit64).unwrap();
-        assert_eq!(build.offsets.class.static_fields, 0x98);
-        assert_eq!(build.offsets.class.field_count, 0x11C);
+        let table = IL2CPPOffsets::new(build.version, build.pointer_size).unwrap();
+        assert_ne!(build.offsets.class.field_count, table.class.field_count);
     }
 }
