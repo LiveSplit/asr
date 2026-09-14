@@ -21,37 +21,24 @@ fn put(image: &mut [u8], at: u64, bytes: &[u8]) {
 }
 
 // A player as `attach_auto_detect` sees it: `GameAssembly.dll` with a PE
-// header and the x64 code that points at both globals, `UnityPlayer.dll` with a
-// PE header and a version resource, and the mapped metadata file when it is
-// there yet.
+// header and the x64 code that points at both globals, and `UnityPlayer.dll`
+// with a PE header and a version resource.
 struct Player {
     unity: (u16, u16, u16, u16),
-    metadata: Option<u32>,
 }
 
 const GAME_ASSEMBLY: u64 = 0x1_8000_0000;
 const UNITY_PLAYER: u64 = 0x1900_0000;
-const METADATA: u64 = 0x2000_0000;
 
 impl Player {
     fn attach(&self) -> Option<Module> {
         let game_assembly = Self::game_assembly();
         let unity_player = Self::unity_player(self.unity);
-        let metadata = self.metadata.map(|version| {
-            let mut i = vec![0; 0x100];
-            put(&mut i, 0x0, &0xFAB1_1BAF_u32.to_le_bytes());
-            put(&mut i, 0x4, &version.to_le_bytes());
-            i
-        });
-        let mut regions = vec![
-            (GAME_ASSEMBLY, &game_assembly[..]),
-            (UNITY_PLAYER, &unity_player[..]),
-        ];
-        if let Some(metadata) = &metadata {
-            regions.push((METADATA, &metadata[..]));
-        }
         crate::runtime::mock::with_modules(
-            &regions,
+            &[
+                (GAME_ASSEMBLY, &game_assembly[..]),
+                (UNITY_PLAYER, &unity_player[..]),
+            ],
             &[
                 ("GameAssembly.dll", GAME_ASSEMBLY, 0x1000),
                 ("UnityPlayer.dll", UNITY_PLAYER, 0x1000),
@@ -129,13 +116,12 @@ impl Player {
 
 const MEASURED_6000_5: (u16, u16, u16, u16) = (6000, 5, 10, 54518);
 
-// A game on a measured player, with its metadata mapped, attaches with the
-// offsets measured on that player.
+// A game on a measured player attaches with the offsets measured on that
+// player.
 #[test]
 fn attach_auto_detect_uses_a_measured_build() {
     let module = Player {
         unity: MEASURED_6000_5,
-        metadata: Some(107),
     }
     .attach()
     .unwrap();
@@ -147,44 +133,16 @@ fn attach_auto_detect_uses_a_measured_build() {
     assert_eq!(module.offsets.class.static_fields, 0xA0);
 }
 
-// The metadata file is mapped after `GameAssembly.dll`. Until it is, a game
-// on a measured player has to wait rather than attach with the version
-// table's offsets and keep them.
+// A player nobody measured takes the nearest build.
 #[test]
-fn attach_auto_detect_waits_for_the_metadata_of_a_measured_player() {
+fn attach_auto_detect_takes_the_nearest_build_for_an_unmeasured_player() {
     let module = Player {
-        unity: MEASURED_6000_5,
-        metadata: None,
-    }
-    .attach();
-    assert!(module.is_none());
-}
-
-// A player nobody measured takes the version table, whether or not its
-// metadata is mapped yet.
-#[test]
-fn attach_auto_detect_falls_back_for_an_unmeasured_player() {
-    for metadata in [None, Some(107)] {
-        let module = Player {
-            unity: (6000, 5, 11, 1),
-            metadata,
-        }
-        .attach()
-        .unwrap();
-        assert_eq!(module.offsets.class.static_fields, 0xB8);
-    }
-}
-
-// A measured player whose metadata says another version is not that build.
-#[test]
-fn attach_auto_detect_falls_back_when_the_metadata_disagrees() {
-    let module = Player {
-        unity: MEASURED_6000_5,
-        metadata: Some(110),
+        unity: (2021, 3, 5, 1),
     }
     .attach()
     .unwrap();
-    assert_eq!(module.offsets.class.static_fields, 0xB8);
+    let nearest = super::builds::nearest((2021, 3, 11, 23713), PointerSize::Bit64).unwrap();
+    assert!(core::ptr::eq(module.offsets, &nearest.offsets));
 }
 
 // The x86 code that points at both globals. The assemblies loop reads the vector's
@@ -417,7 +375,7 @@ fn x64_scanner_refuses_an_x86_image() {
 // own name field, where the version tables read it off the assembly.
 #[test]
 fn assembly_names_resolve_through_the_image() {
-    let build = super::builds::find(107, (6000, 5, 10, 54518), PointerSize::Bit64).unwrap();
+    let build = super::builds::nearest(MEASURED_6000_5, PointerSize::Bit64).unwrap();
     let offsets = &build.offsets;
     assert!(offsets.assembly.aname.is_none());
     let name_at = offsets.image.assembly_name.unwrap() as u64;

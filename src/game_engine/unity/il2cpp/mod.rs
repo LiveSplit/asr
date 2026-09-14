@@ -38,48 +38,36 @@ pub struct Module {
 }
 
 impl Module {
-    /// Tries attaching to a Unity game that is using the IL2CPP backend. If
-    /// the game's metadata and Unity versions name a measured build, this
-    /// function uses that build's offsets. Otherwise this function detects
-    /// the [IL2CPP version](Version). If you know the version in advance or
-    /// it fails detecting it, use [`attach`](Self::attach) instead.
+    /// Tries attaching to a Unity game that is using the IL2CPP backend. The
+    /// game gets the offsets of the measured build nearest to its Unity
+    /// version, its own build when someone measured that version. If you
+    /// know the [IL2CPP version](Version) in advance, use
+    /// [`attach`](Self::attach) instead.
     pub fn attach_auto_detect(process: &Process) -> Option<Self> {
         let il2cpp_module = Self::find_runtime_module(process)?;
         let pointer_size = pe::MachineType::read(process, il2cpp_module.0)?.pointer_size()?;
+        let unity = Self::unity_version(process)?;
+        let build = builds::nearest(unity, pointer_size)?;
 
-        let unity = Self::unity_version(process);
-        let metadata = Self::metadata_version(process);
-
-        match (unity, metadata) {
-            (Some(unity), Some(metadata)) => {
-                if let Some(build) = builds::find(metadata, unity, pointer_size) {
-                    let module = Self::attach_with(
-                        process,
-                        il2cpp_module,
-                        pointer_size,
-                        build.version,
-                        &build.offsets,
-                    )?;
-                    print_limited::<128>(&format_args!(
-                        "known il2cpp build: metadata {metadata}, unity {}.{}.{}.{}",
-                        unity.0, unity.1, unity.2, unity.3,
-                    ));
-                    return Some(module);
-                }
-                print_limited::<128>(&format_args!(
-                    "unknown il2cpp build: metadata {metadata}, unity {}.{}.{}.{}",
-                    unity.0, unity.1, unity.2, unity.3,
-                ));
-            }
-            // The game maps its metadata after GameAssembly.dll. A player
-            // with a measured build waits for it, since attaching now would
-            // take the version table's offsets and keep them.
-            (Some(unity), None) if builds::measured(unity, pointer_size) => return None,
-            _ => {}
-        }
-
-        let version = Version::detect(process)?;
-        Self::attach(process, version)
+        let module = Self::attach_with(
+            process,
+            il2cpp_module,
+            pointer_size,
+            build.version,
+            &build.offsets,
+        )?;
+        print_limited::<128>(&format_args!(
+            "il2cpp: unity {}.{}.{}.{} takes the build measured on {}.{}.{}.{}",
+            unity.0,
+            unity.1,
+            unity.2,
+            unity.3,
+            build.unity.0,
+            build.unity.1,
+            build.unity.2,
+            build.unity.3,
+        ));
+        Some(module)
     }
 
     /// Tries attaching to a Unity game that is using the IL2CPP backend with
@@ -111,17 +99,6 @@ impl Module {
             file_version.build_part,
             file_version.private_part,
         ))
-    }
-
-    /// Reads the version of the game's metadata. The mapped
-    /// `global-metadata.dat` starts with a sanity value, then the version.
-    fn metadata_version(process: &Process) -> Option<u32> {
-        process.memory_ranges().find_map(|range| {
-            let [sanity, version] = process.read::<[u32; 2]>(range.address().ok()?).ok()?;
-            // Versions are small numbers. Unity 6 renumbered them and reaches
-            // the low hundreds.
-            (sanity == 0xFAB1_1BAF && (16..=999).contains(&version)).then_some(version)
-        })
     }
 
     fn attach_with(
@@ -638,26 +615,5 @@ impl Module {
         at: Address,
     ) -> HashSetOffsets {
         retry(|| self.get_hash_set_offsets(process, at)).await
-    }
-}
-
-#[cfg(all(test, not(target_family = "wasm")))]
-mod tests {
-    use super::Module;
-    use crate::runtime::mock::with_process;
-
-    #[test]
-    fn reads_the_metadata_version_off_the_mapped_file() {
-        let mapped = [0xAF_u8, 0x1B, 0xB1, 0xFA, 39, 0, 0, 0];
-        // The sanity value with nothing sane behind it must not answer.
-        let stray = [0xAF_u8, 0x1B, 0xB1, 0xFA, 0, 0, 0, 0];
-
-        with_process(&[(0x10000, &stray), (0x20000, &mapped)], |process| {
-            assert_eq!(Module::metadata_version(process), Some(39));
-        });
-
-        with_process(&[(0x10000, &stray)], |process| {
-            assert!(Module::metadata_version(process).is_none());
-        });
     }
 }
