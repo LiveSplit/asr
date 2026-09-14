@@ -3,25 +3,79 @@
 
 use core::{cell::RefCell, num::NonZeroU64};
 
-use std::vec::Vec;
+use std::{
+    string::{String, ToString},
+    vec::Vec,
+};
 
 use crate::Process;
 
 std::thread_local! {
     static MEMORY: RefCell<Vec<(u64, Vec<u8>)>> = const { RefCell::new(Vec::new()) };
+    static MODULES: RefCell<Vec<(String, u64, u64)>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Runs a test against a process whose memory holds the given regions, each an
 /// address and the bytes starting there. Reads outside every region fail.
 pub fn with_process<R>(regions: &[(u64, &[u8])], test: impl FnOnce(&Process) -> R) -> R {
+    with_modules(regions, &[], test)
+}
+
+/// Runs a test against a process whose memory holds the given regions and
+/// whose loaded modules are the given names, each with an address and a size.
+pub fn with_modules<R>(
+    regions: &[(u64, &[u8])],
+    modules: &[(&str, u64, u64)],
+    test: impl FnOnce(&Process) -> R,
+) -> R {
     MEMORY.with(|memory| {
         *memory.borrow_mut() = regions
             .iter()
             .map(|&(address, bytes)| (address, bytes.to_vec()))
             .collect();
     });
+    MODULES.with(|held| {
+        *held.borrow_mut() = modules
+            .iter()
+            .map(|&(name, address, size)| (name.to_string(), address, size))
+            .collect();
+    });
     let process = Process::attach("mock").expect("the mock always attaches");
     test(&process)
+}
+
+fn module(name_ptr: *const u8, name_len: usize) -> Option<(u64, u64)> {
+    // SAFETY: The runtime layer passes a pointer to name_len bytes of UTF-8.
+    let name =
+        unsafe { core::str::from_utf8_unchecked(core::slice::from_raw_parts(name_ptr, name_len)) };
+    MODULES.with(|held| {
+        held.borrow()
+            .iter()
+            .find(|(held_name, _, _)| held_name == name)
+            .map(|&(_, address, size)| (address, size))
+    })
+}
+
+/// The host's log. Tests have no need to see it.
+#[no_mangle]
+const extern "C" fn runtime_print_message(_text_ptr: *const u8, _text_len: usize) {}
+
+#[no_mangle]
+extern "C" fn process_get_module_address(
+    _process: u64,
+    name_ptr: *const u8,
+    name_len: usize,
+) -> Option<NonZeroU64> {
+    NonZeroU64::new(module(name_ptr, name_len)?.0)
+}
+
+#[no_mangle]
+extern "C" fn process_get_module_size(
+    _process: u64,
+    name_ptr: *const u8,
+    name_len: usize,
+) -> Option<NonZeroU64> {
+    NonZeroU64::new(module(name_ptr, name_len)?.1)
 }
 
 #[no_mangle]
@@ -31,6 +85,27 @@ extern "C" fn process_attach(_name_ptr: *const u8, _name_len: usize) -> Option<N
 
 #[no_mangle]
 extern "C" fn process_detach(_process: u64) {}
+
+#[no_mangle]
+extern "C" fn process_get_memory_range_count(_process: u64) -> Option<NonZeroU64> {
+    MEMORY.with(|memory| NonZeroU64::new(memory.borrow().len() as u64))
+}
+
+#[no_mangle]
+extern "C" fn process_get_memory_range_address(_process: u64, idx: u64) -> Option<NonZeroU64> {
+    MEMORY.with(|memory| {
+        let memory = memory.borrow();
+        NonZeroU64::new(memory.get(idx as usize)?.0)
+    })
+}
+
+#[no_mangle]
+extern "C" fn process_get_memory_range_size(_process: u64, idx: u64) -> Option<NonZeroU64> {
+    MEMORY.with(|memory| {
+        let memory = memory.borrow();
+        NonZeroU64::new(memory.get(idx as usize)?.1.len() as u64)
+    })
+}
 
 #[no_mangle]
 extern "C" fn process_read(_process: u64, address: u64, buf_ptr: *mut u8, buf_len: usize) -> bool {
@@ -61,6 +136,21 @@ extern "C" fn process_read(_process: u64, address: u64, buf_ptr: *mut u8, buf_le
 #[cfg(test)]
 mod tests {
     use super::with_process;
+    use crate::Address;
+
+    #[test]
+    fn ranges_mirror_the_regions() {
+        with_process(&[(0x1000, &[1, 2]), (0x4000, &[3, 4, 5])], |process| {
+            let mut ranges = process.memory_ranges();
+            let range = ranges.next().unwrap();
+            assert_eq!(range.address().unwrap(), Address::new(0x1000));
+            assert_eq!(range.size().unwrap(), 2);
+            let range = ranges.next().unwrap();
+            assert_eq!(range.address().unwrap(), Address::new(0x4000));
+            assert_eq!(range.size().unwrap(), 3);
+            assert!(ranges.next().is_none());
+        });
+    }
 
     #[test]
     fn reads_come_from_the_regions() {

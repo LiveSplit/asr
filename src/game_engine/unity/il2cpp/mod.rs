@@ -1,9 +1,13 @@
 //! Support for attaching to Unity games that are using the IL2CPP backend.
 
-use crate::{file_format::pe, future::retry, signature::Signature, Address, PointerSize, Process};
+use crate::{
+    file_format::pe, future::retry, print_limited, signature::Signature, Address, PointerSize,
+    Process,
+};
 
 mod assembly;
 use assembly::Assembly;
+mod builds;
 mod image;
 pub use image::Image;
 mod class;
@@ -16,6 +20,8 @@ mod pointer;
 pub use pointer::UnityPointer;
 mod offsets;
 use offsets::IL2CPPOffsets;
+#[cfg(all(test, not(target_family = "wasm")))]
+mod walk_tests;
 
 use super::CSTR;
 
@@ -29,11 +35,46 @@ pub struct Module {
 }
 
 impl Module {
-    /// Tries attaching to a Unity game that is using the IL2CPP backend. This
-    /// function automatically detects the [IL2CPP version](Version). If you
-    /// know the version in advance or it fails detecting it, use
-    /// [`attach`](Self::attach) instead.
+    /// Tries attaching to a Unity game that is using the IL2CPP backend. If
+    /// the game's metadata and Unity versions name a measured build, this
+    /// function uses that build's offsets. Otherwise this function detects
+    /// the [IL2CPP version](Version). If you know the version in advance or
+    /// it fails detecting it, use [`attach`](Self::attach) instead.
     pub fn attach_auto_detect(process: &Process) -> Option<Self> {
+        let il2cpp_module = Self::find_runtime_module(process)?;
+        let pointer_size = pe::MachineType::read(process, il2cpp_module.0)?.pointer_size()?;
+
+        let unity = Self::unity_version(process);
+        let metadata = Self::metadata_version(process);
+
+        match (unity, metadata) {
+            (Some(unity), Some(metadata)) => {
+                if let Some(build) = builds::find(metadata, unity, pointer_size) {
+                    let module = Self::attach_with(
+                        process,
+                        il2cpp_module,
+                        pointer_size,
+                        build.version,
+                        &build.offsets,
+                    )?;
+                    print_limited::<128>(&format_args!(
+                        "known il2cpp build: metadata {metadata}, unity {}.{}.{}.{}",
+                        unity.0, unity.1, unity.2, unity.3,
+                    ));
+                    return Some(module);
+                }
+                print_limited::<128>(&format_args!(
+                    "unknown il2cpp build: metadata {metadata}, unity {}.{}.{}.{}",
+                    unity.0, unity.1, unity.2, unity.3,
+                ));
+            }
+            // The game maps its metadata after GameAssembly.dll. A player
+            // with a measured build waits for it, since attaching now would
+            // take the version table's offsets and keep them.
+            (Some(unity), None) if builds::measured(unity, pointer_size) => return None,
+            _ => {}
+        }
+
         let version = Version::detect(process)?;
         Self::attach(process, version)
     }
@@ -43,49 +84,54 @@ impl Module {
     /// correct for this function to work. If you don't know the version in
     /// advance, use [`attach_auto_detect`](Self::attach_auto_detect) instead.
     pub fn attach(process: &Process, version: Version) -> Option<Self> {
-        let il2cpp_module = {
-            let address = process.get_module_address("GameAssembly.dll").ok()?;
-            let size = pe::read_size_of_image(process, address)? as u64;
-            (address, size)
-        };
-
+        let il2cpp_module = Self::find_runtime_module(process)?;
         let pointer_size = pe::MachineType::read(process, il2cpp_module.0)?.pointer_size()?;
         let offsets = IL2CPPOffsets::new(version, pointer_size)?;
 
-        let assemblies: Address = {
-            const ASSEMBLIES: Signature<12> = Signature::new("75 ?? 48 8B 1D ?? ?? ?? ?? 48 3B 1D");
-            ASSEMBLIES
-                .scan_process_range(process, il2cpp_module)
-                .map(|addr| addr + 5)
-                .and_then(|addr| Some(addr + 0x4 + process.read::<i32>(addr).ok()?))?
-        };
+        Self::attach_with(process, il2cpp_module, pointer_size, version, offsets)
+    }
 
-        let type_info_definition_table: Address = {
-            const GLOBAL_METADATA: Signature<20> =
-                Signature::new("67 6C 6F 62 61 6C 2D 6D 65 74 61 64 61 74 61 2E 64 61 74 00");
-            let s_metadata = GLOBAL_METADATA.scan_process_range(process, il2cpp_module)?;
+    fn find_runtime_module(process: &Process) -> Option<(Address, u64)> {
+        let address = process.get_module_address("GameAssembly.dll").ok()?;
+        let size = pe::read_size_of_image(process, address)? as u64;
+        Some((address, size))
+    }
 
-            const LEA: Signature<3> = Signature::new("48 8D 0D");
-            let lea: Address = LEA
-                .scan_iter(process, il2cpp_module)
-                .map(|addr| addr + 3)
-                .find(|&addr| {
-                    let Ok(offset) = process.read::<i32>(addr) else {
-                        return false;
-                    };
+    /// Reads the Unity version stamped on the player, all four parts of
+    /// `UnityPlayer.dll`'s file version.
+    fn unity_version(process: &Process) -> Option<(u16, u16, u16, u16)> {
+        let unity_player = process.get_module_address("UnityPlayer.dll").ok()?;
+        let file_version = pe::FileVersion::read(process, unity_player)?;
+        Some((
+            file_version.major_version,
+            file_version.minor_version,
+            file_version.build_part,
+            file_version.private_part,
+        ))
+    }
 
-                    addr + 0x4 + offset == s_metadata
-                })?;
+    /// Reads the version of the game's metadata. The mapped
+    /// `global-metadata.dat` starts with a sanity value, then the version.
+    fn metadata_version(process: &Process) -> Option<u32> {
+        process.memory_ranges().find_map(|range| {
+            let [sanity, version] = process.read::<[u32; 2]>(range.address().ok()?).ok()?;
+            // Versions are small numbers. Unity 6 renumbered them and reaches
+            // the low hundreds.
+            (sanity == 0xFAB1_1BAF && (16..=999).contains(&version)).then_some(version)
+        })
+    }
 
-            const SHR: Signature<3> = Signature::new("48 C1 E9");
-            let shr: Address = SHR
-                .scan_process_range(process, (lea, 0x200))
-                .map(|addr| addr + 3)?;
-
-            const RAX: Signature<3> = Signature::new("48 89 05");
-            RAX.scan_process_range(process, (shr, 0x100))
-                .map(|addr| addr + 3)
-                .and_then(|addr| Some(addr + 0x4 + process.read::<i32>(addr).ok()?))?
+    fn attach_with(
+        process: &Process,
+        il2cpp_module: (Address, u64),
+        pointer_size: PointerSize,
+        version: Version,
+        offsets: &'static IL2CPPOffsets,
+    ) -> Option<Self> {
+        let (assemblies, type_info_definition_table) = match pointer_size {
+            PointerSize::Bit64 => Self::globals_x64(process, il2cpp_module)?,
+            PointerSize::Bit32 => Self::globals_x86(process, il2cpp_module)?,
+            _ => return None,
         };
 
         Some(Self {
@@ -97,18 +143,141 @@ impl Module {
         })
     }
 
+    /// Finds the assemblies vector and the type-info table in x64 code. Each
+    /// is given as a displacement from the next instruction.
+    fn globals_x64(process: &Process, il2cpp_module: (Address, u64)) -> Option<(Address, Address)> {
+        let displaced = |addr: Address| Some(addr + 0x4 + process.read::<i32>(addr).ok()?);
+
+        // jne; mov rbx, [begin]; cmp rbx, [end]. The end of a vector sits one
+        // pointer past its begin.
+        const ASSEMBLIES: Signature<16> =
+            Signature::new("75 ?? 48 8B 1D ?? ?? ?? ?? 48 3B 1D ?? ?? ?? ??");
+        let assemblies = ASSEMBLIES
+            .scan_iter(process, il2cpp_module)
+            .find_map(|addr| {
+                let begin = displaced(addr + 5)?;
+                (displaced(addr + 12)? == begin + 8u64).then_some(begin)
+            })?;
+
+        let s_metadata = Self::metadata_name(process, il2cpp_module)?;
+
+        // lea rcx, [name]
+        const LEA: Signature<7> = Signature::new("48 8D 0D ?? ?? ?? ??");
+        let lea: Address = LEA
+            .scan_iter(process, il2cpp_module)
+            .map(|addr| addr + 3)
+            .find(|&addr| displaced(addr) == Some(s_metadata))?;
+
+        // shr rcx, imm8, then mov [table], rax
+        const SHR: Signature<3> = Signature::new("48 C1 E9");
+        let shr: Address = SHR
+            .scan_process_range(process, Self::within(il2cpp_module, lea, 0x200))
+            .map(|addr| addr + 3)?;
+
+        const RAX: Signature<7> = Signature::new("48 89 05 ?? ?? ?? ??");
+        let table = RAX
+            .scan_process_range(process, Self::within(il2cpp_module, shr, 0x100))
+            .map(|addr| addr + 3)
+            .and_then(displaced)?;
+
+        Self::inside(il2cpp_module, assemblies, table)
+    }
+
+    /// Finds the assemblies vector and the type-info table in x86 code. Each
+    /// is given as an absolute address.
+    fn globals_x86(process: &Process, il2cpp_module: (Address, u64)) -> Option<(Address, Address)> {
+        let absolute = |addr: Address| Some(Address::new(process.read::<u32>(addr).ok()? as u64));
+
+        // jne; mov esi, [begin]; sub edi, ecx; cmp esi, [end]. The end of a
+        // vector sits one pointer past its begin.
+        const ASSEMBLIES: Signature<16> =
+            Signature::new("75 ?? 8B 35 ?? ?? ?? ?? 2B F9 3B 35 ?? ?? ?? ??");
+        let assemblies = ASSEMBLIES
+            .scan_iter(process, il2cpp_module)
+            .find_map(|addr| {
+                let begin = absolute(addr + 4)?;
+                (absolute(addr + 12)? == begin + 4u64).then_some(begin)
+            })?;
+
+        let s_metadata = Self::metadata_name(process, il2cpp_module)?;
+
+        // push offset name; call
+        const PUSH: Signature<6> = Signature::new("68 ?? ?? ?? ?? E8");
+        let push: Address = PUSH
+            .scan_iter(process, il2cpp_module)
+            .map(|addr| addr + 1)
+            .find(|&addr| absolute(addr) == Some(s_metadata))?;
+
+        // The table is the first store after the name. Three shapes store
+        // it. Through Unity 6000.2 the count is a byte size, so a shift
+        // divides it first, and some of those builds reload ecx after the
+        // call. From 6000.3 the count comes straight from the header, at
+        // 0xF4.
+        const DIVIDED: Signature<14> = Signature::new("C1 EA ?? 52 E8 ?? ?? ?? ?? A3 ?? ?? ?? ??");
+        const DIVIDED_RELOAD: Signature<20> =
+            Signature::new("C1 EA ?? 52 E8 ?? ?? ?? ?? 8B 0D ?? ?? ?? ?? A3 ?? ?? ?? ??");
+        const PUSHED: Signature<16> =
+            Signature::new("FF B0 F4 00 00 00 E8 ?? ?? ?? ?? A3 ?? ?? ?? ??");
+        let window = Self::within(il2cpp_module, push, 0x400);
+        let store = [
+            DIVIDED
+                .scan_process_range(process, window)
+                .map(|addr| addr + 10),
+            DIVIDED_RELOAD
+                .scan_process_range(process, window)
+                .map(|addr| addr + 16),
+            PUSHED
+                .scan_process_range(process, window)
+                .map(|addr| addr + 12),
+        ]
+        .into_iter()
+        .flatten()
+        .min()?;
+        let table = absolute(store)?;
+
+        Self::inside(il2cpp_module, assemblies, table)
+    }
+
+    /// Finds the string `global-metadata.dat` in the module.
+    fn metadata_name(process: &Process, il2cpp_module: (Address, u64)) -> Option<Address> {
+        const GLOBAL_METADATA: Signature<20> =
+            Signature::new("67 6C 6F 62 61 6C 2D 6D 65 74 61 64 61 74 61 2E 64 61 74 00");
+        GLOBAL_METADATA.scan_process_range(process, il2cpp_module)
+    }
+
+    /// The range from `start` for up to `len` bytes, cut at the module's end.
+    fn within(module: (Address, u64), start: Address, len: u64) -> (Address, u64) {
+        let end = module.0.value().saturating_add(module.1);
+        (start, len.min(end.saturating_sub(start.value())))
+    }
+
+    /// The two globals, once both lie inside the module.
+    fn inside(
+        module: (Address, u64),
+        assemblies: Address,
+        table: Address,
+    ) -> Option<(Address, Address)> {
+        let end = module.0.value().saturating_add(module.1);
+        let holds = |addr: Address| (module.0.value()..end).contains(&addr.value());
+        (holds(assemblies) && holds(table)).then_some((assemblies, table))
+    }
+
     fn assemblies<'a>(
         &'a self,
         process: &'a Process,
     ) -> impl DoubleEndedIterator<Item = Assembly> + 'a {
         let (assemblies, nr_of_assemblies): (Address, u64) = {
-            let [first, limit] = process
-                .read::<[u64; 2]>(self.assemblies)
+            let first = process
+                .read_pointer(self.assemblies, self.pointer_size)
+                .unwrap_or_default();
+            let limit = process
+                .read_pointer(self.assemblies + self.size_of_ptr(), self.pointer_size)
                 .unwrap_or_default();
             let count = limit
-                .saturating_sub(first)
+                .value()
+                .saturating_sub(first.value())
                 .saturating_div(self.size_of_ptr());
-            (Address::new(first), count)
+            (first, count)
         };
 
         (0..nr_of_assemblies).filter_map(move |i| {
@@ -203,5 +372,26 @@ impl Module {
     #[inline]
     const fn size_of_ptr(&self) -> u64 {
         self.pointer_size as u64
+    }
+}
+
+#[cfg(all(test, not(target_family = "wasm")))]
+mod tests {
+    use super::Module;
+    use crate::runtime::mock::with_process;
+
+    #[test]
+    fn reads_the_metadata_version_off_the_mapped_file() {
+        let mapped = [0xAF_u8, 0x1B, 0xB1, 0xFA, 39, 0, 0, 0];
+        // The sanity value with nothing sane behind it must not answer.
+        let stray = [0xAF_u8, 0x1B, 0xB1, 0xFA, 0, 0, 0, 0];
+
+        with_process(&[(0x10000, &stray), (0x20000, &mapped)], |process| {
+            assert_eq!(Module::metadata_version(process), Some(39));
+        });
+
+        with_process(&[(0x10000, &stray)], |process| {
+            assert!(Module::metadata_version(process).is_none());
+        });
     }
 }

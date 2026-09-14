@@ -14,11 +14,12 @@ impl IL2CPPOffsets {
                 Version::V2022 => &Self {
                     assembly: AssemblyOffsets {
                         image: 0x0,
-                        aname: 0x18,
+                        aname: Some(0x18),
                     },
                     image: ImageOffsets {
+                        assembly_name: None,
                         type_count: 0x18,
-                        matadata_handle: 0x28,
+                        metadata_handle: 0x28,
                     },
                     class: ClassOffsets {
                         name: 0x10,
@@ -37,11 +38,12 @@ impl IL2CPPOffsets {
                 Version::V2020 => &Self {
                     assembly: AssemblyOffsets {
                         image: 0x0,
-                        aname: 0x18,
+                        aname: Some(0x18),
                     },
                     image: ImageOffsets {
+                        assembly_name: None,
                         type_count: 0x18,
-                        matadata_handle: 0x28,
+                        metadata_handle: 0x28,
                     },
                     class: ClassOffsets {
                         name: 0x10,
@@ -60,11 +62,12 @@ impl IL2CPPOffsets {
                 Version::V2019 => &Self {
                     assembly: AssemblyOffsets {
                         image: 0x0,
-                        aname: 0x18,
+                        aname: Some(0x18),
                     },
                     image: ImageOffsets {
+                        assembly_name: None,
                         type_count: 0x1C,
-                        matadata_handle: 0x18,
+                        metadata_handle: 0x18,
                     },
                     class: ClassOffsets {
                         name: 0x10,
@@ -83,11 +86,12 @@ impl IL2CPPOffsets {
                 Version::Base => &Self {
                     assembly: AssemblyOffsets {
                         image: 0x0,
-                        aname: 0x18,
+                        aname: Some(0x18),
                     },
                     image: ImageOffsets {
+                        assembly_name: None,
                         type_count: 0x1C,
-                        matadata_handle: 0x18,
+                        metadata_handle: 0x18,
                     },
                     class: ClassOffsets {
                         name: 0x10,
@@ -111,12 +115,13 @@ impl IL2CPPOffsets {
 
 pub(super) struct AssemblyOffsets {
     pub(super) image: u8,
-    pub(super) aname: u8,
+    pub(super) aname: Option<u8>, // Either this or ImageOffsets::assembly_name locates the name
 }
 
 pub(super) struct ImageOffsets {
+    pub(super) assembly_name: Option<u8>, // Either this or AssemblyOffsets::aname locates the name
     pub(super) type_count: u8,
-    pub(super) matadata_handle: u8,
+    pub(super) metadata_handle: u8,
 }
 
 pub(super) struct ClassOffsets {
