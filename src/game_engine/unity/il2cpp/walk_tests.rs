@@ -4,7 +4,7 @@
 //! the literal numbers of the Unity 2019.4 and 6000.3 layouts, copied by hand,
 //! so the walk is checked against the layout rather than against itself.
 
-use super::{IL2CPPOffsets, Module, UnityPointer, Version};
+use super::{IL2CPPOffsets, Module, UnityPointer};
 use crate::runtime::mock::{poll_once, with_process};
 use crate::{Address, PointerSize, Process};
 
@@ -114,7 +114,13 @@ impl Player {
     }
 }
 
+const MEASURED_2019: (u16, u16, u16, u16) = (2019, 4, 41, 9172);
+const MEASURED_2022: (u16, u16, u16, u16) = (2022, 3, 0, 4507);
 const MEASURED_6000_5: (u16, u16, u16, u16) = (6000, 5, 10, 54518);
+
+fn measured(unity: (u16, u16, u16, u16), pointer_size: PointerSize) -> &'static IL2CPPOffsets {
+    &super::builds::nearest(unity, pointer_size).unwrap().offsets
+}
 
 // A game on a measured player attaches with the offsets measured on that
 // player.
@@ -196,16 +202,14 @@ fn x86_image(store: &'static [u8], operand_at: u64) -> vec::Vec<u8> {
     X86Image::with_store(store, operand_at).lay()
 }
 
-// The scan reads no offsets, and the version tables carry no 32 bit arm, so
-// the x64 offsets stand in. The module is the first 0x1000 bytes of the
+// The scan reads no offsets. The module is the first 0x1000 bytes of the
 // image, so the image can hold bytes past the module's end.
 fn attach_x86(process: &crate::Process) -> Option<Module> {
     Module::attach_with(
         process,
         (Address::new(BASE), 0x1000),
         PointerSize::Bit32,
-        Version::V2022,
-        IL2CPPOffsets::new(Version::V2022, PointerSize::Bit64).unwrap(),
+        measured(MEASURED_6000_5, PointerSize::Bit32),
     )
 }
 
@@ -343,8 +347,7 @@ fn x64_globals_resolve_from_a_mapped_image() {
             process,
             (Address::new(BASE), 0x1000),
             PointerSize::Bit64,
-            Version::V2022,
-            IL2CPPOffsets::new(Version::V2022, PointerSize::Bit64).unwrap(),
+            measured(MEASURED_6000_5, PointerSize::Bit64),
         )
         .unwrap();
         assert_eq!(module.assemblies, Address::new(BASE + 0x900));
@@ -364,15 +367,14 @@ fn x64_scanner_refuses_an_x86_image() {
             process,
             (Address::new(BASE), 0x1000),
             PointerSize::Bit64,
-            Version::V2022,
-            IL2CPPOffsets::new(Version::V2022, PointerSize::Bit64).unwrap(),
+            measured(MEASURED_6000_5, PointerSize::Bit64),
         )
         .is_none());
     });
 }
 
 // Every measured build names an assembly through its image, at the image's
-// own name field, where the version tables read it off the assembly.
+// own name field.
 #[test]
 fn assembly_names_resolve_through_the_image() {
     let build = super::builds::nearest(MEASURED_6000_5, PointerSize::Bit64).unwrap();
@@ -395,7 +397,6 @@ fn assembly_names_resolve_through_the_image() {
         let module = Module {
             assemblies: Address::new(BASE),
             type_info_definition_table: Address::new(BASE + 0x10),
-            version: Version::V2022,
             offsets,
             pointer_size: PointerSize::Bit64,
         };
@@ -411,12 +412,12 @@ fn ptr(image: &mut [u8], at: u64, target: u64) {
 // The target's structures, hand-laid: the assemblies vector, the type info
 // definition table sliced by the image's handle, a parent chain reaching a
 // UnityEngine class, a static table, and a live object heading with its class.
-fn image(version: Version) -> Vec<u8> {
-    let (type_count_at, handle_at, field_count_at) = match version {
-        Version::V2019 => (0x1C, 0x18, 0x11C),
-        Version::V2020 => (0x18, 0x28, 0x120),
-        _ => (0x18, 0x28, 0x124),
-    };
+fn image(unity: (u16, u16, u16, u16)) -> Vec<u8> {
+    use super::offsets::TypeStart;
+
+    let offsets = measured(unity, PointerSize::Bit64);
+    let type_count_at = offsets.image.type_count as u64;
+    let field_count_at = offsets.class.field_count as u64;
 
     let mut i = vec![0; 0x5000];
 
@@ -454,19 +455,26 @@ fn image(version: Version) -> Vec<u8> {
     ptr(&mut i, 0x40, BASE + 0x80);
     ptr(&mut i, 0x48, BASE + 0xC0);
 
-    // Il2CppAssembly: the image at 0x0, the name at 0x18.
-    ptr(&mut i, 0x80, BASE + 0x140);
-    ptr(&mut i, 0x80 + 0x18, BASE + 0x2000);
-    ptr(&mut i, 0xC0, BASE + 0x300);
-    ptr(&mut i, 0xC0 + 0x18, BASE + 0x2080);
+    // Each assembly points at its image. Depending on the measured player,
+    // the assembly name lives either on the assembly or on that image.
+    let assembly = |i: &mut [u8], at: u64, image: u64, name: u64| {
+        ptr(i, at + offsets.assembly.image as u64, BASE + image);
+        if let Some(name_at) = offsets.assembly.aname {
+            ptr(i, at + name_at as u64, BASE + name);
+        } else if let Some(name_at) = offsets.image.assembly_name {
+            ptr(i, image + name_at as u64, BASE + name);
+        }
+    };
+    assembly(&mut i, 0x80, 0x140, 0x2000);
+    assembly(&mut i, 0xC0, 0x300, 0x2080);
 
     // The default image: three classes, reached through the handle. The older
     // lineage stores the handle inline where the newer one points at it.
     put(&mut i, 0x300 + type_count_at, &5_u32.to_le_bytes());
-    match version {
-        Version::V2019 => put(&mut i, 0x300 + handle_at, &5_u32.to_le_bytes()),
-        _ => {
-            ptr(&mut i, 0x300 + handle_at, BASE + 0x400);
+    match offsets.image.type_start {
+        TypeStart::Inline(at) => put(&mut i, 0x300 + at as u64, &5_u32.to_le_bytes()),
+        TypeStart::Handle(at) => {
+            ptr(&mut i, 0x300 + at as u64, BASE + 0x400);
             put(&mut i, 0x400, &5_u32.to_le_bytes());
         }
     }
@@ -617,26 +625,25 @@ fn image(version: Version) -> Vec<u8> {
     i
 }
 
-fn module(version: Version) -> Module {
+fn module(unity: (u16, u16, u16, u16)) -> Module {
     Module {
         assemblies: Address::new(BASE),
         type_info_definition_table: Address::new(BASE + 0x10),
-        version,
-        offsets: IL2CPPOffsets::new(version, PointerSize::Bit64).unwrap(),
+        offsets: measured(unity, PointerSize::Bit64),
         pointer_size: PointerSize::Bit64,
     }
 }
 
-fn on_fixture(version: Version, test: impl FnOnce(&Process, &Module)) {
-    with_process(&[(BASE, &image(version))], |process| {
-        test(process, &module(version));
+fn on_fixture(unity: (u16, u16, u16, u16), test: impl FnOnce(&Process, &Module)) {
+    with_process(&[(BASE, &image(unity))], |process| {
+        test(process, &module(unity));
     });
 }
 
 #[test]
 fn images_resolve_by_name_in_both_lineages() {
-    for version in [Version::V2019, Version::V2022] {
-        on_fixture(version, |process, module| {
+    for unity in [MEASURED_2019, MEASURED_2022] {
+        on_fixture(unity, |process, module| {
             assert!(module.get_default_image(process).is_some());
             assert!(module.get_image(process, "mscorlib").is_some());
             assert!(module.get_image(process, "Assembly-DoesNotExist").is_none());
@@ -646,8 +653,8 @@ fn images_resolve_by_name_in_both_lineages() {
 
 #[test]
 fn classes_resolve_by_name_and_namespace() {
-    for version in [Version::V2019, Version::V2022] {
-        on_fixture(version, |process, module| {
+    for unity in [MEASURED_2019, MEASURED_2022] {
+        on_fixture(unity, |process, module| {
             let image = module.get_default_image(process).unwrap();
             assert!(image.get_class(process, module, "GameManager").is_some());
             assert!(image.get_class(process, module, "Game.Boss").is_some());
@@ -660,7 +667,7 @@ fn classes_resolve_by_name_and_namespace() {
 
 #[test]
 fn field_offsets_resolve_declared_and_inherited() {
-    on_fixture(Version::V2022, |process, module| {
+    on_fixture(MEASURED_2022, |process, module| {
         let image = module.get_default_image(process).unwrap();
         let game_manager = image.get_class(process, module, "GameManager").unwrap();
         assert_eq!(
@@ -676,7 +683,7 @@ fn field_offsets_resolve_declared_and_inherited() {
 
 #[test]
 fn nested_classes_resolve_by_their_written_name() {
-    on_fixture(Version::V2022, |process, module| {
+    on_fixture(MEASURED_2022, |process, module| {
         let image = module.get_default_image(process).unwrap();
         assert!(image
             .get_class(process, module, "Game.Outer+Inner")
@@ -693,25 +700,11 @@ fn nested_classes_resolve_by_their_written_name() {
     });
 }
 
-// V2020's table never measured where a class keeps its declaring type, so a
-// nested lookup on it must miss cleanly rather than answer with whichever
-// class carries the leaf name.
-#[test]
-fn nested_lookups_without_a_measured_offset_answer_nothing() {
-    on_fixture(Version::V2020, |process, module| {
-        let image = module.get_default_image(process).unwrap();
-        assert!(image
-            .get_class(process, module, "Game.Outer+Inner")
-            .is_none());
-        assert!(image.get_class(process, module, "GameManager").is_some());
-    });
-}
-
 // The climb stops at UnityEngine's namespace, so an engine field never
 // resolves.
 #[test]
 fn field_climbs_stop_at_the_engine() {
-    on_fixture(Version::V2022, |process, module| {
+    on_fixture(MEASURED_2022, |process, module| {
         let image = module.get_default_image(process).unwrap();
         let game_manager = image.get_class(process, module, "GameManager").unwrap();
         assert!(game_manager
@@ -722,7 +715,7 @@ fn field_climbs_stop_at_the_engine() {
 
 #[test]
 fn statics_resolve_from_the_class() {
-    on_fixture(Version::V2022, |process, module| {
+    on_fixture(MEASURED_2022, |process, module| {
         let image = module.get_default_image(process).unwrap();
         let game_manager = image.get_class(process, module, "GameManager").unwrap();
         assert_eq!(
@@ -736,7 +729,7 @@ fn statics_resolve_from_the_class() {
 // table, not the table of the class the lookup started at.
 #[test]
 fn static_instances_resolve_through_the_declaring_class() {
-    on_fixture(Version::V2022, |process, module| {
+    on_fixture(MEASURED_2022, |process, module| {
         let image = module.get_default_image(process).unwrap();
         let boss = image.get_class(process, module, "Boss").unwrap();
         assert_eq!(
@@ -756,7 +749,7 @@ fn static_instances_resolve_through_the_declaring_class() {
 // and the read returns the live count's elements, never the backing capacity's.
 #[test]
 fn lists_resolve_through_their_own_class() {
-    on_fixture(Version::V2022, |process, module| {
+    on_fixture(MEASURED_2022, |process, module| {
         let at = Address::new(BASE + 0x18);
         let offsets = module.get_list_offsets(process, at).unwrap();
         let read = module.read_list::<u32, 4>(process, offsets, at).unwrap();
@@ -766,7 +759,7 @@ fn lists_resolve_through_their_own_class() {
 
 #[test]
 fn lists_derived_from_corlibs_list_resolve() {
-    on_fixture(Version::V2022, |process, module| {
+    on_fixture(MEASURED_2022, |process, module| {
         let at = Address::new(BASE + 0x20);
         let offsets = module.get_list_offsets(process, at).unwrap();
         let read = module.read_list::<u32, 4>(process, offsets, at).unwrap();
@@ -776,7 +769,7 @@ fn lists_derived_from_corlibs_list_resolve() {
 
 #[test]
 fn list_shaped_objects_are_not_lists() {
-    on_fixture(Version::V2022, |process, module| {
+    on_fixture(MEASURED_2022, |process, module| {
         assert!(module
             .get_list_offsets(process, Address::new(BASE + 0x28))
             .is_none());
@@ -787,7 +780,7 @@ fn list_shaped_objects_are_not_lists() {
 // element preserved at its position.
 #[test]
 fn reference_lists_resolve_their_element_addresses() {
-    on_fixture(Version::V2022, |process, module| {
+    on_fixture(MEASURED_2022, |process, module| {
         let at = Address::new(BASE + 0x30);
         let offsets = module.get_list_offsets(process, at).unwrap();
         let read = module
@@ -804,7 +797,7 @@ fn reference_lists_resolve_their_element_addresses() {
 // resolved against the object's own class read off its head.
 #[test]
 fn pointers_dereference_through_a_static_root() {
-    on_fixture(Version::V2022, |process, module| {
+    on_fixture(MEASURED_2022, |process, module| {
         let image = module.get_default_image(process).unwrap();
         let pointer = UnityPointer::<2>::new("GameManager", 0, &["instance", "points"]);
         assert_eq!(pointer.deref::<u32>(process, module, &image).unwrap(), 888);
@@ -824,7 +817,7 @@ fn public_types_keep_their_properties() {
     is_copy::<super::Image>();
     is_copy::<super::Class>();
 
-    on_fixture(Version::V2022, |process, module| {
+    on_fixture(MEASURED_2022, |process, module| {
         let image = module.get_default_image(process).unwrap();
         let _ = double_ended(image.classes(process, module));
     });
@@ -833,6 +826,8 @@ fn public_types_keep_their_properties() {
 // A 32 bit target lays the assemblies vector and its pointers at four bytes.
 #[test]
 fn images_resolve_on_32_bit_targets() {
+    let offsets = measured(MEASURED_6000_5, PointerSize::Bit32);
+    let name_at = offsets.image.assembly_name.unwrap() as u64;
     let mut i = vec![0; 0x1000];
     let narrow = |i: &mut [u8], at: u64, target: u64| {
         put(i, at, &(target as u32).to_le_bytes());
@@ -843,16 +838,76 @@ fn images_resolve_on_32_bit_targets() {
     narrow(&mut i, 0x4, BASE + 0x44); // and end, one assembly along
     narrow(&mut i, 0x40, BASE + 0x80);
     narrow(&mut i, 0x80, BASE + 0x100); // Il2CppAssembly.image
-    narrow(&mut i, 0x80 + 0x18, BASE + 0x800); // Il2CppAssembly.aname
+    narrow(&mut i, 0x100 + name_at, BASE + 0x800); // Il2CppImage.nameNoExt
 
     with_process(&[(BASE, &i)], |process| {
         let module = Module {
             assemblies: Address::new(BASE),
             type_info_definition_table: Address::new(BASE + 0x10),
-            version: Version::V2022,
-            offsets: IL2CPPOffsets::new(Version::V2022, PointerSize::Bit64).unwrap(),
+            offsets,
             pointer_size: PointerSize::Bit32,
         };
         assert!(module.get_default_image(process).is_some());
     });
+}
+
+// An image says where its first type sits in the type table. Players up to
+// 2020.1 keep that index in the image. Later players keep a handle there,
+// and the index sits behind it.
+#[test]
+fn class_walk_reads_the_type_start_where_the_build_keeps_it() {
+    use super::offsets::TypeStart;
+
+    let walk = |build: &'static super::builds::Build| {
+        let offsets = &build.offsets;
+        let mut i = vec![0; 0x1000];
+        let ptr = |i: &mut [u8], at: u64, target: u64| {
+            put(i, at, &target.to_le_bytes());
+        };
+        put(&mut i, 0x800, b"Timer");
+        ptr(&mut i, 0x10, BASE + 0x200); // the type table
+        ptr(&mut i, 0x210, BASE + 0x300); // its entry 2
+        ptr(&mut i, 0x300 + offsets.class.name as u64, BASE + 0x800);
+        put(
+            &mut i,
+            0x100 + offsets.image.type_count as u64,
+            &1_u32.to_le_bytes(),
+        );
+        match offsets.image.type_start {
+            TypeStart::Inline(at) => put(&mut i, 0x100 + at as u64, &2_u32.to_le_bytes()),
+            TypeStart::Handle(at) => {
+                ptr(&mut i, 0x100 + at as u64, BASE + 0x180);
+                put(&mut i, 0x180, &2_u32.to_le_bytes());
+            }
+        }
+
+        with_process(&[(BASE, &i)], |process| {
+            let module = Module {
+                assemblies: Address::new(BASE),
+                type_info_definition_table: Address::new(BASE + 0x10),
+                offsets,
+                pointer_size: PointerSize::Bit64,
+            };
+            let image = super::Image {
+                image: Address::new(BASE + 0x100),
+            };
+            image
+                .get_class(process, &module, "Timer")
+                .map(|class| class.class)
+        })
+    };
+
+    let inline = super::builds::nearest((2018, 4, 36, 54151), PointerSize::Bit64).unwrap();
+    assert!(matches!(
+        inline.offsets.image.type_start,
+        TypeStart::Inline(0x18)
+    ));
+    assert_eq!(walk(inline), Some(Address::new(BASE + 0x300)));
+
+    let handle = super::builds::nearest(MEASURED_6000_5, PointerSize::Bit64).unwrap();
+    assert!(matches!(
+        handle.offsets.image.type_start,
+        TypeStart::Handle(0x28)
+    ));
+    assert_eq!(walk(handle), Some(Address::new(BASE + 0x300)));
 }

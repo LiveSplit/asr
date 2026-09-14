@@ -13,12 +13,10 @@ mod image;
 pub use image::Image;
 mod class;
 pub use class::Class;
-mod version;
-pub use version::Version;
 mod pointer;
 pub use pointer::UnityPointer;
 mod offsets;
-use offsets::IL2CPPOffsets;
+use offsets::{IL2CPPOffsets, TypeStart};
 #[cfg(all(test, not(target_family = "wasm")))]
 mod collections_tests;
 #[cfg(all(test, not(target_family = "wasm")))]
@@ -32,7 +30,6 @@ use super::{managed, DictionaryOffsets, HashSetOffsets, ListOffsets, ManagedStri
 pub struct Module {
     assemblies: Address,
     type_info_definition_table: Address,
-    version: Version,
     offsets: &'static IL2CPPOffsets,
     pointer_size: PointerSize,
 }
@@ -40,22 +37,14 @@ pub struct Module {
 impl Module {
     /// Tries attaching to a Unity game that is using the IL2CPP backend. The
     /// game gets the offsets of the measured build nearest to its Unity
-    /// version, its own build when someone measured that version. If you
-    /// know the [IL2CPP version](Version) in advance, use
-    /// [`attach`](Self::attach) instead.
+    /// version, its own build when someone measured that version.
     pub fn attach_auto_detect(process: &Process) -> Option<Self> {
         let il2cpp_module = Self::find_runtime_module(process)?;
         let pointer_size = pe::MachineType::read(process, il2cpp_module.0)?.pointer_size()?;
         let unity = Self::unity_version(process)?;
         let build = builds::nearest(unity, pointer_size)?;
 
-        let module = Self::attach_with(
-            process,
-            il2cpp_module,
-            pointer_size,
-            build.version,
-            &build.offsets,
-        )?;
+        let module = Self::attach_with(process, il2cpp_module, pointer_size, &build.offsets)?;
         print_limited::<128>(&format_args!(
             "il2cpp: unity {}.{}.{}.{} takes the build measured on {}.{}.{}.{}",
             unity.0,
@@ -68,18 +57,6 @@ impl Module {
             build.unity.3,
         ));
         Some(module)
-    }
-
-    /// Tries attaching to a Unity game that is using the IL2CPP backend with
-    /// the [IL2CPP version](Version) provided. The version needs to be
-    /// correct for this function to work. If you don't know the version in
-    /// advance, use [`attach_auto_detect`](Self::attach_auto_detect) instead.
-    pub fn attach(process: &Process, version: Version) -> Option<Self> {
-        let il2cpp_module = Self::find_runtime_module(process)?;
-        let pointer_size = pe::MachineType::read(process, il2cpp_module.0)?.pointer_size()?;
-        let offsets = IL2CPPOffsets::new(version, pointer_size)?;
-
-        Self::attach_with(process, il2cpp_module, pointer_size, version, offsets)
     }
 
     fn find_runtime_module(process: &Process) -> Option<(Address, u64)> {
@@ -105,7 +82,6 @@ impl Module {
         process: &Process,
         il2cpp_module: (Address, u64),
         pointer_size: PointerSize,
-        version: Version,
         offsets: &'static IL2CPPOffsets,
     ) -> Option<Self> {
         let (assemblies, type_info_definition_table) = match pointer_size {
@@ -117,7 +93,6 @@ impl Module {
         Some(Self {
             assemblies,
             type_info_definition_table,
-            version,
             offsets,
             pointer_size,
         })
@@ -250,13 +225,18 @@ impl Module {
     }
 
     fn walk(&self) -> managed::Walk {
+        let (metadata_handle, handle_is_inline) = match self.offsets.image.type_start {
+            TypeStart::Inline(at) => (at, true),
+            TypeStart::Handle(at) => (at, false),
+        };
+
         managed::Walk {
             runtime: managed::Runtime::Il2Cpp(managed::Il2CppRuntime {
                 assemblies: self.assemblies,
                 type_info_definition_table: self.type_info_definition_table,
                 type_count: self.offsets.image.type_count.into(),
-                metadata_handle: self.offsets.image.metadata_handle.into(),
-                handle_is_inline: matches!(self.version, Version::Base | Version::V2019),
+                metadata_handle: metadata_handle.into(),
+                handle_is_inline,
                 field_count: self.offsets.class.field_count,
                 static_fields: self.offsets.class.static_fields.into(),
                 cached_class: self.offsets.generic.cached_class,
@@ -522,27 +502,14 @@ impl Module {
         managed::read_reference_list(process, self.pointer_size, offsets, at)
     }
 
-    /// Attaches to a Unity game that is using the IL2CPP backend. This function
-    /// automatically detects the [IL2CPP version](Version). If you know the
-    /// version in advance or it fails detecting it, use
-    /// [`wait_attach`](Self::wait_attach) instead.
+    /// Attaches to a Unity game that is using the IL2CPP backend. The game
+    /// gets the offsets of the measured build nearest to its Unity version.
     ///
     /// This is the `await`able version of the
     /// [`attach_auto_detect`](Self::attach_auto_detect) function, yielding back
     /// to the runtime between each try.
     pub async fn wait_attach_auto_detect(process: &Process) -> Module {
         retry(|| Self::attach_auto_detect(process)).await
-    }
-
-    /// Attaches to a Unity game that is using the IL2CPP backend with the
-    /// [IL2CPP version](Version) provided. The version needs to be correct
-    /// for this function to work. If you don't know the version in advance, use
-    /// [`wait_attach_auto_detect`](Self::wait_attach_auto_detect) instead.
-    ///
-    /// This is the `await`able version of the [`attach`](Self::attach)
-    /// function, yielding back to the runtime between each try.
-    pub async fn wait_attach(process: &Process, version: Version) -> Module {
-        retry(|| Self::attach(process, version)).await
     }
 
     /// Looks for the specified binary [image](Image) inside the target process.

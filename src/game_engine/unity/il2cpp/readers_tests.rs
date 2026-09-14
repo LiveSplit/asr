@@ -2,7 +2,7 @@
 //! implementation is shared, so this pins the mirror surface and the one
 //! behavior whose rationale is IL2CPP's: the full-width length judgment.
 
-use super::{IL2CPPOffsets, Module, Version};
+use super::Module;
 use crate::runtime::mock::with_process;
 use crate::{Address, PointerSize, Process};
 
@@ -52,8 +52,9 @@ fn on_fixture(test: impl FnOnce(&Process, &Module)) {
         let module = Module {
             assemblies: Address::new(BASE),
             type_info_definition_table: Address::new(BASE + 0x10),
-            version: Version::V2022,
-            offsets: IL2CPPOffsets::new(Version::V2022, PointerSize::Bit64).unwrap(),
+            offsets: &super::builds::nearest((2022, 3, 0, 4507), PointerSize::Bit64)
+                .unwrap()
+                .offsets,
             pointer_size: PointerSize::Bit64,
         };
         test(process, &module);
