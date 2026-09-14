@@ -1,6 +1,6 @@
-//! Known IL2CPP builds: exact metadata layouts, named by the version of the
-//! game's `global-metadata.dat` and the Unity version that shipped it, paired
-//! with the offsets measured from their symbols.
+//! Known IL2CPP builds. Each entry is one measured player. The version of
+//! its `global-metadata.dat` and the full Unity version say which player.
+//! The offsets come from that player's `GameAssembly.pdb`.
 
 use super::offsets::{
     AssemblyOffsets, ClassOffsets, FieldInfoOffsets, IL2CPPOffsets, ImageOffsets,
@@ -8,38 +8,37 @@ use super::offsets::{
 use super::Version;
 use crate::PointerSize;
 
-/// One exact IL2CPP layout and the offsets measured from it.
+/// One measured IL2CPP player and the offsets from its PDB.
 pub(super) struct Build {
     pub(super) metadata: u32,
-    pub(super) unity: (u16, u16),
+    pub(super) unity: (u16, u16, u16, u16),
     pub(super) pointer_size: PointerSize,
     pub(super) version: Version,
     pub(super) offsets: IL2CPPOffsets,
 }
 
-/// Looks up the newest known build at or below the given identity. Unlike a
-/// mono runtime, `GameAssembly.dll` is compiled per game, so no identity names
-/// one binary: a build declares the version it applies from, and an identity
-/// below the oldest known build answers nothing.
+/// Finds the build measured on this exact metadata version, Unity version
+/// and width. `GameAssembly.dll` is compiled per game, so the Unity version
+/// stands in for the binary. The Unity version is the four parts of
+/// `UnityPlayer.dll`'s file version, and the last part tells `f1` from `f2`
+/// and an alpha from its release. A player nobody measured gets no answer.
 pub(super) fn find(
     metadata: u32,
-    unity: (u16, u16),
+    unity: (u16, u16, u16, u16),
     pointer_size: PointerSize,
 ) -> Option<&'static Build> {
-    BUILDS
-        .iter()
-        .rev()
-        .filter(|build| build.pointer_size == pointer_size)
-        .find(|build| (build.metadata, build.unity) <= (metadata, unity))
+    BUILDS.iter().find(|build| {
+        build.metadata == metadata && build.unity == unity && build.pointer_size == pointer_size
+    })
 }
 
-// The table reads from the oldest metadata to the newest.
+// The table reads from the oldest player to the newest.
 static BUILDS: &[Build] = &[
     // Unity 2018.4.36f1, metadata version 24, x64.
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         metadata: 24,
-        unity: (2018, 4),
+        unity: (2018, 4, 36, 54151),
         pointer_size: PointerSize::Bit64,
         version: Version::Base,
         offsets: IL2CPPOffsets {
@@ -71,7 +70,7 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         metadata: 24,
-        unity: (2019, 4),
+        unity: (2019, 4, 41, 9172),
         pointer_size: PointerSize::Bit64,
         version: Version::V2019,
         offsets: IL2CPPOffsets {
@@ -103,7 +102,7 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         metadata: 24,
-        unity: (2020, 1),
+        unity: (2020, 1, 18, 38512),
         pointer_size: PointerSize::Bit64,
         version: Version::V2019,
         offsets: IL2CPPOffsets {
@@ -135,7 +134,7 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         metadata: 24,
-        unity: (2020, 1),
+        unity: (2020, 1, 18, 38512),
         pointer_size: PointerSize::Bit32,
         version: Version::V2019,
         offsets: IL2CPPOffsets {
@@ -167,7 +166,7 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         metadata: 29,
-        unity: (2021, 3),
+        unity: (2021, 3, 11, 23713),
         pointer_size: PointerSize::Bit64,
         version: Version::V2020,
         offsets: IL2CPPOffsets {
@@ -199,7 +198,7 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         metadata: 29,
-        unity: (2021, 3),
+        unity: (2021, 3, 11, 23713),
         pointer_size: PointerSize::Bit32,
         version: Version::V2020,
         offsets: IL2CPPOffsets {
@@ -231,7 +230,7 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         metadata: 29,
-        unity: (2023, 1),
+        unity: (2023, 1, 22, 16744),
         pointer_size: PointerSize::Bit64,
         version: Version::V2022,
         offsets: IL2CPPOffsets {
@@ -263,7 +262,7 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         metadata: 29,
-        unity: (2023, 1),
+        unity: (2023, 1, 22, 16744),
         pointer_size: PointerSize::Bit32,
         version: Version::V2022,
         offsets: IL2CPPOffsets {
@@ -295,7 +294,7 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         metadata: 31,
-        unity: (6000, 2),
+        unity: (6000, 2, 12, 40285),
         pointer_size: PointerSize::Bit64,
         version: Version::V2022,
         offsets: IL2CPPOffsets {
@@ -327,7 +326,7 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         metadata: 31,
-        unity: (6000, 2),
+        unity: (6000, 2, 12, 40285),
         pointer_size: PointerSize::Bit32,
         version: Version::V2022,
         offsets: IL2CPPOffsets {
@@ -359,7 +358,7 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         metadata: 39,
-        unity: (6000, 3),
+        unity: (6000, 3, 21, 9777),
         pointer_size: PointerSize::Bit64,
         version: Version::V2022,
         offsets: IL2CPPOffsets {
@@ -391,7 +390,7 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         metadata: 39,
-        unity: (6000, 3),
+        unity: (6000, 3, 21, 9777),
         pointer_size: PointerSize::Bit32,
         version: Version::V2022,
         offsets: IL2CPPOffsets {
@@ -419,11 +418,11 @@ static BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 6000.5.8f1, metadata version 107, x64.
+    // Unity 6000.5.10f1, metadata version 107, x64.
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         metadata: 107,
-        unity: (6000, 5),
+        unity: (6000, 5, 10, 54518),
         pointer_size: PointerSize::Bit64,
         version: Version::V2022,
         offsets: IL2CPPOffsets {
@@ -451,11 +450,11 @@ static BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 6000.5.8f1, metadata version 107, x86.
+    // Unity 6000.5.10f1, metadata version 107, x86.
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         metadata: 107,
-        unity: (6000, 5),
+        unity: (6000, 5, 10, 54518),
         pointer_size: PointerSize::Bit32,
         version: Version::V2022,
         offsets: IL2CPPOffsets {
@@ -487,7 +486,7 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         metadata: 110,
-        unity: (6000, 7),
+        unity: (6000, 7, 0, 5476),
         pointer_size: PointerSize::Bit64,
         version: Version::V2022,
         offsets: IL2CPPOffsets {
@@ -519,7 +518,7 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         metadata: 110,
-        unity: (6000, 7),
+        unity: (6000, 7, 0, 5476),
         pointer_size: PointerSize::Bit32,
         version: Version::V2022,
         offsets: IL2CPPOffsets {
@@ -551,7 +550,8 @@ static BUILDS: &[Build] = &[
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
-    use super::{find, IL2CPPOffsets, BUILDS};
+    use super::super::Version;
+    use super::{find, BUILDS};
     use crate::PointerSize;
 
     #[test]
@@ -561,52 +561,41 @@ mod tests {
             .all(|pair| (pair[0].metadata, pair[0].unity) <= (pair[1].metadata, pair[1].unity)));
     }
 
+    const UNITY_6000_3: (u16, u16, u16, u16) = (6000, 3, 21, 9777);
+
     #[test]
     fn finds_exact_builds() {
-        let build = find(39, (6000, 3), PointerSize::Bit64).unwrap();
+        let build = find(39, UNITY_6000_3, PointerSize::Bit64).unwrap();
         assert_eq!(build.metadata, 39);
-        assert_eq!(build.unity, (6000, 3));
+        assert_eq!(build.unity, UNITY_6000_3);
 
-        let narrow = find(39, (6000, 3), PointerSize::Bit32).unwrap();
+        let narrow = find(39, UNITY_6000_3, PointerSize::Bit32).unwrap();
         assert_eq!(narrow.metadata, 39);
         assert_eq!(narrow.pointer_size, PointerSize::Bit32);
     }
 
+    // A build is one measured player. An identity off it in any part, the
+    // metadata version, any part of the Unity version, or the width, is a
+    // player nobody measured and gets no answer.
     #[test]
-    fn unmeasured_identities_answer_the_newest_build_below() {
-        let build = find(29, (2022, 1), PointerSize::Bit64).unwrap();
-        assert_eq!((build.metadata, build.unity), (29, (2021, 3)));
-
-        let build = find(35, (6000, 0), PointerSize::Bit64).unwrap();
-        assert_eq!((build.metadata, build.unity), (31, (6000, 2)));
-
-        let build = find(200, (7000, 0), PointerSize::Bit64).unwrap();
-        assert_eq!((build.metadata, build.unity), (110, (6000, 7)));
+    fn identities_off_a_measured_build_answer_nothing() {
+        let (major, minor, patch, build) = UNITY_6000_3;
+        assert!(find(40, UNITY_6000_3, PointerSize::Bit64).is_none());
+        assert!(find(39, (major, minor, patch, build + 1), PointerSize::Bit64).is_none());
+        assert!(find(39, (major, minor, patch + 1, build), PointerSize::Bit64).is_none());
+        assert!(find(39, (major, minor + 1, patch, build), PointerSize::Bit64).is_none());
+        assert!(find(200, (7000, 0, 0, 0), PointerSize::Bit64).is_none());
+        assert!(find(16, (5, 6, 7, 0), PointerSize::Bit64).is_none());
     }
 
-    // The version table for 6000.5 and 6000.7 puts static_fields where 2022.3
-    // had it. Both measured players put it lower, and 6000.7 moves field_count
-    // too.
-    #[test]
-    fn identities_below_the_oldest_build_answer_nothing() {
-        assert!(find(16, (5, 6), PointerSize::Bit64).is_none());
-        assert!(find(24, (2018, 4), PointerSize::Bit32).is_none());
-    }
-
-    // The version table for 6000.5 and 6000.7 puts static_fields where 2022.3
-    // had it. Both measured players put it lower, and 6000.7 moves field_count
-    // too.
     #[test]
     fn unity_6000_5_builds_diverge_from_their_version_table_on_statics() {
-        for (metadata, unity, static_fields) in [(107, (6000, 5), 0xA0), (110, (6000, 7), 0x98)] {
-            let build = find(metadata, unity, PointerSize::Bit64).unwrap();
-            let table = IL2CPPOffsets::new(build.version, build.pointer_size).unwrap();
-            assert_eq!(build.offsets.class.static_fields, static_fields);
-            assert_ne!(build.offsets.class.static_fields, table.class.static_fields);
-        }
+        let build = find(107, (6000, 5, 10, 54518), PointerSize::Bit64).unwrap();
+        assert!(matches!(build.version, Version::V2022));
+        assert_eq!(build.offsets.class.static_fields, 0xA0);
 
-        let build = find(110, (6000, 7), PointerSize::Bit64).unwrap();
-        let table = IL2CPPOffsets::new(build.version, build.pointer_size).unwrap();
-        assert_ne!(build.offsets.class.field_count, table.class.field_count);
+        let build = find(110, (6000, 7, 0, 5476), PointerSize::Bit64).unwrap();
+        assert_eq!(build.offsets.class.static_fields, 0x98);
+        assert_eq!(build.offsets.class.field_count, 0x11C);
     }
 }

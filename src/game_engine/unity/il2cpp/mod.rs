@@ -56,8 +56,8 @@ impl Module {
                     &build.offsets,
                 ) {
                     print_limited::<128>(&format_args!(
-                        "known il2cpp build: metadata {metadata}, unity {}.{}",
-                        unity.0, unity.1,
+                        "known il2cpp build: metadata {metadata}, unity {}.{}.{}.{}",
+                        unity.0, unity.1, unity.2, unity.3,
                     ));
                     return Some(module);
                 }
@@ -70,8 +70,8 @@ impl Module {
         match identity {
             Some((metadata, unity)) if builds::find(metadata, unity, pointer_size).is_none() => {
                 print_limited::<128>(&format_args!(
-                    "unknown il2cpp build: metadata {metadata}, unity {}.{}",
-                    unity.0, unity.1,
+                    "unknown il2cpp build: metadata {metadata}, unity {}.{}.{}.{}",
+                    unity.0, unity.1, unity.2, unity.3,
                 ));
             }
             _ => {}
@@ -100,7 +100,7 @@ impl Module {
 
     /// What identifies the game's IL2CPP layout: the version of its mapped
     /// `global-metadata.dat` and the Unity version stamped on the player.
-    fn identity(process: &Process) -> Option<(u32, (u16, u16))> {
+    fn identity(process: &Process) -> Option<(u32, (u16, u16, u16, u16))> {
         let metadata = Self::metadata_version(process)?;
 
         let unity_player = process.get_module_address("UnityPlayer.dll").ok()?;
@@ -108,7 +108,12 @@ impl Module {
 
         Some((
             metadata,
-            (file_version.major_version, file_version.minor_version),
+            (
+                file_version.major_version,
+                file_version.minor_version,
+                file_version.build_part,
+                file_version.private_part,
+            ),
         ))
     }
 
