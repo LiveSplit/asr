@@ -406,6 +406,39 @@ fn x64_scanner_refuses_an_x86_image() {
     });
 }
 
+// Every measured build names an assembly through its image, at the image's
+// own name field, where the version tables read it off the assembly.
+#[test]
+fn assembly_names_resolve_through_the_image() {
+    let build = super::builds::find(107, (6000, 5, 10, 54518), PointerSize::Bit64).unwrap();
+    let offsets = &build.offsets;
+    assert!(offsets.assembly.aname.is_none());
+    let name_at = offsets.image.assembly_name.unwrap() as u64;
+
+    let mut i = vec![0; 0x1000];
+    let ptr = |i: &mut [u8], at: u64, target: u64| {
+        put(i, at, &target.to_le_bytes());
+    };
+    put(&mut i, 0x800, b"Assembly-CSharp");
+    ptr(&mut i, 0x0, BASE + 0x40); // the vector's begin
+    ptr(&mut i, 0x8, BASE + 0x48); // and end, one assembly along
+    ptr(&mut i, 0x40, BASE + 0x80);
+    ptr(&mut i, 0x80, BASE + 0x100); // Il2CppAssembly.image
+    ptr(&mut i, 0x100 + name_at, BASE + 0x800); // Il2CppImage.nameNoExt
+
+    with_process(&[(BASE, &i)], |process| {
+        let module = Module {
+            assemblies: Address::new(BASE),
+            type_info_definition_table: Address::new(BASE + 0x10),
+            version: Version::V2022,
+            offsets,
+            pointer_size: PointerSize::Bit64,
+        };
+        let image = module.get_default_image(process).unwrap();
+        assert_eq!(image.image, Address::new(BASE + 0x100));
+    });
+}
+
 // A 32 bit target lays the assemblies vector and its pointers at four bytes.
 #[test]
 fn images_resolve_on_32_bit_targets() {
