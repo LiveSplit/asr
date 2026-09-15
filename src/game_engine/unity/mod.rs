@@ -84,6 +84,7 @@
 // https://github.com/CryZe/lunistice-auto-splitter/blob/b8c01031991783f7b41044099ee69edd54514dba/asr-dotnet/src/lib.rs
 
 pub mod il2cpp;
+mod managed;
 pub mod mono;
 pub mod scene_manager;
 

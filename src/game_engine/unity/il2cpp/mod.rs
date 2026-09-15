@@ -5,15 +5,11 @@ use crate::{
     Process,
 };
 
-mod assembly;
-use assembly::Assembly;
 mod builds;
 mod image;
 pub use image::Image;
 mod class;
 pub use class::Class;
-mod field;
-use field::Field;
 mod version;
 pub use version::Version;
 mod pointer;
@@ -23,7 +19,7 @@ use offsets::IL2CPPOffsets;
 #[cfg(all(test, not(target_family = "wasm")))]
 mod walk_tests;
 
-use super::CSTR;
+use super::managed;
 
 /// Represents access to a Unity game that is using the IL2CPP backend.
 pub struct Module {
@@ -262,34 +258,38 @@ impl Module {
         (holds(assemblies) && holds(table)).then_some((assemblies, table))
     }
 
-    fn assemblies<'a>(
-        &'a self,
-        process: &'a Process,
-    ) -> impl DoubleEndedIterator<Item = Assembly> + 'a {
-        let (assemblies, nr_of_assemblies): (Address, u64) = {
-            let first = process
-                .read_pointer(self.assemblies, self.pointer_size)
-                .unwrap_or_default();
-            let limit = process
-                .read_pointer(self.assemblies + self.size_of_ptr(), self.pointer_size)
-                .unwrap_or_default();
-            let count = limit
-                .value()
-                .saturating_sub(first.value())
-                .saturating_div(self.size_of_ptr());
-            (first, count)
-        };
-
-        (0..nr_of_assemblies).filter_map(move |i| {
-            process
-                .read_pointer(
-                    assemblies + self.size_of_ptr().wrapping_mul(i),
-                    self.pointer_size,
-                )
-                .ok()
-                .filter(|addr| !addr.is_null())
-                .map(|assembly| Assembly { assembly })
-        })
+    fn walk(&self) -> managed::Walk {
+        managed::Walk {
+            runtime: managed::Runtime::Il2Cpp(managed::Il2CppRuntime {
+                assemblies: self.assemblies,
+                type_info_definition_table: self.type_info_definition_table,
+                type_count: self.offsets.image.type_count.into(),
+                metadata_handle: self.offsets.image.metadata_handle.into(),
+                handle_is_inline: matches!(self.version, Version::Base | Version::V2019),
+                field_count: self.offsets.class.field_count,
+                static_fields: self.offsets.class.static_fields.into(),
+            }),
+            offsets: managed::WalkOffsets {
+                assembly: managed::AssemblyOffsets {
+                    name_in_image: self.offsets.image.assembly_name.map(u16::from),
+                    name_in_assembly: self.offsets.assembly.aname.map(u16::from),
+                    image: self.offsets.assembly.image.into(),
+                },
+                class: managed::ClassOffsets {
+                    name: self.offsets.class.name.into(),
+                    namespace: self.offsets.class.namespace.into(),
+                    parent: self.offsets.class.parent.into(),
+                    fields: self.offsets.class.fields.into(),
+                },
+                field: managed::FieldOffsets {
+                    name: self.offsets.field.name.into(),
+                    offset: self.offsets.field.offset.into(),
+                    stride: self.offsets.field.struct_size.into(),
+                },
+            },
+            stop: managed::ClimbStop::UNITY,
+            pointer_size: self.pointer_size,
+        }
     }
 
     /// Looks for the specified binary [image](Image) inside the target process.
@@ -299,13 +299,11 @@ impl Module {
     /// [`get_default_image`](Self::get_default_image) function is a shorthand
     /// for this function that accesses the `Assembly-CSharp` [image](Image).
     pub fn get_image(&self, process: &Process, assembly_name: &str) -> Option<Image> {
-        self.assemblies(process)
-            .find(|assembly| {
-                assembly
-                    .get_name::<CSTR>(process, self)
-                    .is_ok_and(|name| name.matches(assembly_name))
+        self.walk()
+            .find_image(process, assembly_name)
+            .map(|image| Image {
+                image: image.address,
             })
-            .and_then(|assembly| assembly.get_image(process, self))
     }
 
     /// Looks for the `Assembly-CSharp` binary [image](Image) inside the target
@@ -367,11 +365,6 @@ impl Module {
     /// to the runtime between each try.
     pub async fn wait_get_default_image(&self, process: &Process) -> Image {
         retry(|| self.get_default_image(process)).await
-    }
-
-    #[inline]
-    const fn size_of_ptr(&self) -> u64 {
-        self.pointer_size as u64
     }
 }
 

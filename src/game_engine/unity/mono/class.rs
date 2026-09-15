@@ -1,92 +1,17 @@
-use core::iter::{self, FusedIterator};
-
-use super::{super::get_backing_name, Field, Module, Version, CSTR};
-use crate::{future::retry, string::ArrayCString, Address, Error, Process};
+use super::super::managed::ClassRef;
+use super::Module;
+use crate::{future::retry, Address, Process};
 
 #[cfg(feature = "derive")]
 pub use asr_derive::MonoClass as Class;
 
-/// A .NET class that is part of an [`Image`](Image).
+/// A .NET class that is part of an [`Image`](super::Image).
 #[derive(Copy, Clone)]
 pub struct Class {
     pub(super) class: Address,
 }
 
 impl Class {
-    pub(super) fn get_name<const N: usize>(
-        &self,
-        process: &Process,
-        module: &Module,
-    ) -> Result<ArrayCString<N>, Error> {
-        process
-            .read_pointer(self.class + module.offsets.class.name, module.pointer_size)
-            .and_then(|addr| process.read(addr))
-    }
-
-    pub(super) fn get_name_space<const N: usize>(
-        &self,
-        process: &Process,
-        module: &Module,
-    ) -> Result<ArrayCString<N>, Error> {
-        process
-            .read_pointer(
-                self.class + module.offsets.class.namespace,
-                module.pointer_size,
-            )
-            .and_then(|addr| process.read(addr))
-    }
-
-    fn fields<'a>(
-        &'a self,
-        process: &'a Process,
-        module: &'a Module,
-    ) -> impl FusedIterator<Item = Field> + 'a {
-        let mut this_class = Some(*self);
-
-        iter::from_fn(move || {
-            let class = this_class?;
-
-            if class
-                .get_name::<CSTR>(process, module)
-                .ok()?
-                .matches("Object")
-                || class
-                    .get_name_space::<CSTR>(process, module)
-                    .ok()?
-                    .matches("UnityEngine")
-            {
-                return None;
-            }
-
-            // Prepare for next iteration
-            this_class = class.get_parent(process, module);
-
-            let field_count = process
-                .read::<i32>(class.class + module.offsets.class.field_count)
-                .ok()
-                .filter(|&val| val > 0)
-                .unwrap_or_default();
-
-            let fields = match field_count {
-                0 => None,
-                _ => process
-                    .read_pointer(
-                        class.class + module.offsets.class.fields,
-                        module.pointer_size,
-                    )
-                    .ok(),
-            };
-
-            Some((0..field_count as u64).filter_map(move |i| {
-                fields.map(|fields| Field {
-                    field: fields + i.wrapping_mul(module.offsets.field.alignment as u64),
-                })
-            }))
-        })
-        .flatten()
-        .fuse()
-    }
-
     /// Tries to find the offset for a field with the specified name in the class.
     /// If it's a static field, the offset will be from the start of the static
     /// table.
@@ -96,20 +21,10 @@ impl Class {
         module: &Module,
         field_name: &str,
     ) -> Option<u32> {
-        self.fields(process, module)
-            .find(|field| {
-                field.get_name::<CSTR>(process, module).is_ok_and(|name| {
-                    // If the name matches, return immediately
-                    name.matches(field_name)
-
-                    // BackingField pattern: <FieldName>k__BackingField
-                    || name.validate_utf8()
-                        .ok()
-                        .and_then(|name| get_backing_name(name))
-                        .is_some_and(|name| name == field_name)
-                })
-            })
-            .and_then(|field| field.get_offset(process, module))
+        module
+            .walk()
+            .find_field_offset(process, ClassRef::new(self.class), field_name)
+            .map(|(_, offset)| offset)
     }
 
     /// Tries to find the address of a static instance of the class based on its
@@ -135,57 +50,22 @@ impl Class {
         .await
     }
 
-    fn get_static_table_pointer(&self, process: &Process, module: &Module) -> Option<Address> {
-        let runtime_info = process
-            .read_pointer(
-                self.class + module.offsets.class.runtime_info,
-                module.pointer_size,
-            )
-            .ok()
-            .filter(|addr| !addr.is_null())?;
-
-        let mut vtables = process
-            .read_pointer(runtime_info + module.size_of_ptr(), module.pointer_size)
-            .ok()
-            .filter(|addr| !addr.is_null())?;
-
-        // Mono V1 behaves differently when it comes to recover the static table
-        match module.version {
-            Version::V1 | Version::V1Cattrs => Some(vtables + module.offsets.class.vtable_size),
-            _ => {
-                vtables = vtables + module.offsets.v_table.vtable;
-
-                let vtable_size = process
-                    .read::<u32>(self.class + module.offsets.class.vtable_size)
-                    .ok()?;
-
-                Some(vtables + module.size_of_ptr().wrapping_mul(vtable_size as u64))
-            }
-        }
-    }
-
     /// Returns the address of the static table of the class. This contains the
     /// values of all the static fields.
     pub fn get_static_table(&self, process: &Process, module: &Module) -> Option<Address> {
-        process
-            .read_pointer(
-                self.get_static_table_pointer(process, module)?,
-                module.pointer_size,
-            )
-            .ok()
-            .filter(|val| !val.is_null())
+        module
+            .walk()
+            .static_table(process, ClassRef::new(self.class))
     }
 
     /// Tries to find the parent class.
     pub fn get_parent(&self, process: &Process, module: &Module) -> Option<Class> {
-        process
-            .read_pointer(
-                self.class + module.offsets.class.parent,
-                module.pointer_size,
-            )
-            .ok()
-            .filter(|val| !val.is_null())
-            .map(|class| Class { class })
+        module
+            .walk()
+            .parent(process, ClassRef::new(self.class))
+            .map(|class| Class {
+                class: class.address,
+            })
     }
 
     /// Tries to find a field with the specified name in the class. This returns
