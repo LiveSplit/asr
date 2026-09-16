@@ -3,10 +3,16 @@
 //! 2019.4 x64 runtime, copied by hand, so the walk is checked against the
 //! layout rather than against itself.
 
+use super::offsets::{
+    AssemblyOffsets, ClassOffsets, FieldInfoOffsets, GenericOffsets, HashTableOffsets,
+    ImageOffsets, MonoVTableOffsets,
+};
 use super::{builds, BinaryFormat, Module, MonoOffsets, UnityPointer, Version};
 use crate::file_format::pe::DebugId;
-use crate::runtime::mock::with_process;
+use crate::runtime::mock::{poll_once, with_process};
 use crate::{Address, PointerSize, Process};
+
+use core::task::Poll;
 
 use std::vec;
 use std::vec::Vec;
@@ -24,7 +30,7 @@ fn ptr(image: &mut [u8], at: u64, target: u64) {
 
 // The target's structures, hand-laid. Two assemblies whose GList the walk
 // follows, a class cache of two buckets with one chained class, a parent chain
-// reaching a UnityEngine class, a static table reachable through the vtable,
+// reaching a UnityEngine class, static tables reachable through the vtables,
 // and a live object carrying its class through its vtable.
 fn image() -> Vec<u8> {
     let mut i = vec![0; 0x4000];
@@ -45,6 +51,11 @@ fn image() -> Vec<u8> {
         (0x2580, "UnityEngine"),
         (0x2600, "hidden"),
         (0x2680, "instance"),
+        (0x2700, "Outer"),
+        (0x2780, "Inner"),
+        (0x2800, "spawner"),
+        (0x2B00, "Inventory"),
+        (0x2B80, "items"),
     ];
     for (at, text) in strings {
         put(&mut i, at, text.as_bytes());
@@ -90,6 +101,7 @@ fn image() -> Vec<u8> {
     ptr(&mut i, game_manager + 0x98, BASE + 0x1400);
     ptr(&mut i, game_manager + 0xD0, BASE + 0x1600);
     put(&mut i, game_manager + 0x100, &3_i32.to_le_bytes());
+    ptr(&mut i, game_manager + 0x108, BASE + 0x1B00);
     ptr(&mut i, 0x1400 + 0x8, BASE + 0x2680); // instance
     put(&mut i, 0x1400 + 0x18, &0_i32.to_le_bytes());
     ptr(&mut i, 0x1420 + 0x8, BASE + 0x2200); // points
@@ -97,22 +109,29 @@ fn image() -> Vec<u8> {
     ptr(&mut i, 0x1440 + 0x8, BASE + 0x2280); // <Health>k__BackingField
     put(&mut i, 0x1440 + 0x18, &0x24_i32.to_le_bytes());
 
-    // Enemy, with one field and Boss chained behind it in the bucket.
+    // Enemy, with an instance field and a static slot, and Boss chained
+    // behind it in the bucket.
     let enemy = 0xE00;
     ptr(&mut i, enemy + 0x48, BASE + 0x2300);
     ptr(&mut i, enemy + 0x50, BASE + 0x2180);
+    put(&mut i, enemy + 0x5C, &1_i32.to_le_bytes());
     ptr(&mut i, enemy + 0x98, BASE + 0x1500);
-    put(&mut i, enemy + 0x100, &1_i32.to_le_bytes());
+    ptr(&mut i, enemy + 0xD0, BASE + 0x1620);
+    put(&mut i, enemy + 0x100, &2_i32.to_le_bytes());
     ptr(&mut i, enemy + 0x108, BASE + 0x1000);
     ptr(&mut i, 0x1500 + 0x8, BASE + 0x2380); // hp
     put(&mut i, 0x1500 + 0x18, &0x10_i32.to_le_bytes());
+    ptr(&mut i, 0x1520 + 0x8, BASE + 0x2800); // spawner
+    put(&mut i, 0x1520 + 0x18, &0x8_i32.to_le_bytes());
 
     // Boss, deriving from Enemy, with one field of its own.
     let boss = 0x1000;
     ptr(&mut i, boss + 0x30, BASE + enemy);
     ptr(&mut i, boss + 0x48, BASE + 0x2400);
     ptr(&mut i, boss + 0x50, BASE + 0x2180);
+    put(&mut i, boss + 0x5C, &2_i32.to_le_bytes());
     ptr(&mut i, boss + 0x98, BASE + 0x1540);
+    ptr(&mut i, boss + 0xD0, BASE + 0x1650);
     put(&mut i, boss + 0x100, &1_i32.to_le_bytes());
     ptr(&mut i, 0x1540 + 0x8, BASE + 0x2480); // phase
     put(&mut i, 0x1540 + 0x18, &0x18_i32.to_le_bytes());
@@ -127,12 +146,48 @@ fn image() -> Vec<u8> {
     ptr(&mut i, 0x1580 + 0x8, BASE + 0x2600); // hidden
     put(&mut i, 0x1580 + 0x18, &0x30_i32.to_le_bytes());
 
+    // Outer in Game, enclosing Inner, whose own namespace is empty and whose
+    // nested_in points back out.
+    let outer = 0x1B00;
+    ptr(&mut i, outer + 0x48, BASE + 0x2700);
+    ptr(&mut i, outer + 0x50, BASE + 0x2180);
+    ptr(&mut i, outer + 0x108, BASE + 0x1D00);
+    let inner = 0x1D00;
+    ptr(&mut i, inner + 0x48, BASE + 0x2780);
+    ptr(&mut i, inner + 0x50, BASE + 0x27F0);
+    ptr(&mut i, inner + 0x38, BASE + outer);
+    ptr(&mut i, inner + 0x108, BASE + 0x2D00);
+
+    // Inventory, a generic instance: its class kind's low bits read 3, its own
+    // field count slot holds nothing, and the count lives on the definition
+    // reached through the instantiation descriptor. The inflated field array
+    // is the instance's own.
+    let inventory = 0x2D00;
+    ptr(&mut i, inventory + 0x48, BASE + 0x2B00);
+    ptr(&mut i, inventory + 0x50, BASE + 0x2180);
+    put(&mut i, inventory + 0x2A, &3_u8.to_le_bytes());
+    ptr(&mut i, inventory + 0x98, BASE + 0x3400);
+    ptr(&mut i, inventory + 0xF0, BASE + 0x3000);
+    ptr(&mut i, 0x3000, BASE + 0x3100); // descriptor: container_class at 0x0
+    put(&mut i, 0x3100 + 0x100, &1_i32.to_le_bytes()); // the definition's count
+    ptr(&mut i, 0x3400 + 0x8, BASE + 0x2B80); // items
+    put(&mut i, 0x3400 + 0x18, &0x28_i32.to_le_bytes());
+
     // GameManager's statics: runtime_info to the domain vtable, whose static
     // slot sits past five method pointers, holding the static table. The
     // table's first slot is the live instance.
     ptr(&mut i, 0x1600 + 0x8, BASE + 0x1700);
     ptr(&mut i, 0x1700 + 0x40 + 8 * 5, BASE + 0x1800);
     ptr(&mut i, 0x1800, BASE + 0x1900);
+
+    // Enemy's statics, holding the spawner instance. Boss carries a table of
+    // its own, empty at that offset, so only the declaring class's table
+    // answers.
+    ptr(&mut i, 0x1620 + 0x8, BASE + 0x1780);
+    ptr(&mut i, 0x1780 + 0x40 + 8, BASE + 0x1880);
+    ptr(&mut i, 0x1880 + 0x8, BASE + 0x1980);
+    ptr(&mut i, 0x1650 + 0x8, BASE + 0x1A40);
+    ptr(&mut i, 0x1A40 + 0x40 + 8 * 2, BASE + 0x1AC0);
 
     // The instance object: its vtable heads it, and the vtable's own head is
     // the class. The points field holds a recognizable value.
@@ -195,7 +250,7 @@ fn classes_resolve_by_name_and_namespace() {
         assert!(image.get_class(process, module, "Game.Boss").is_some());
         assert!(image.get_class(process, module, "Wrong.Boss").is_none());
         assert!(image.get_class(process, module, "Nothing").is_none());
-        assert_eq!(image.classes(process, module).count(), 3);
+        assert_eq!(image.classes(process, module).count(), 6);
     });
 }
 
@@ -216,6 +271,94 @@ fn field_offsets_resolve_declared_inherited_and_backing() {
         let boss = image.get_class(process, module, "Boss").unwrap();
         assert_eq!(boss.get_field_offset(process, module, "phase"), Some(0x18));
         assert_eq!(boss.get_field_offset(process, module, "hp"), Some(0x10));
+    });
+}
+
+#[test]
+fn nested_classes_resolve_by_their_written_name() {
+    on_fixture(era(), |process, module| {
+        let image = module.get_default_image(process).unwrap();
+        assert!(image
+            .get_class(process, module, "Game.Outer+Inner")
+            .is_some());
+        assert!(image
+            .get_class(process, module, "Game.Outer+Missing")
+            .is_none());
+        assert!(image
+            .get_class(process, module, "Wrong.Outer+Inner")
+            .is_none());
+        assert!(image
+            .get_class(process, module, "Game.Enemy+Inner")
+            .is_none());
+    });
+}
+
+// Offsets that never measured where a class keeps its enclosing class must
+// miss cleanly rather than answer with whichever class carries the leaf name.
+#[test]
+fn nested_lookups_without_a_measured_offset_answer_nothing() {
+    static UNMEASURED: MonoOffsets = MonoOffsets {
+        assembly: AssemblyOffsets {
+            aname: Some(0x10),
+            image: 0x60,
+        },
+        image: ImageOffsets {
+            assembly_name: None,
+            class_cache: 0x4C0,
+        },
+        hash_table: HashTableOffsets {
+            size: 0x18,
+            table: 0x20,
+        },
+        class: ClassOffsets {
+            class_kind: None,
+            parent: 0x30,
+            nested_in: None,
+            name: 0x48,
+            namespace: 0x50,
+            vtable_size: 0x5C,
+            fields: 0x98,
+            runtime_info: 0xD0,
+            field_count: 0x100,
+            next_class_cache: 0x108,
+        },
+        generic: GenericOffsets {
+            generic_class: None,
+            container_class: None,
+        },
+        field: FieldInfoOffsets {
+            name: 0x8,
+            offset: 0x18,
+            alignment: 0x20,
+        },
+        v_table: MonoVTableOffsets { vtable: 0x40 },
+    };
+
+    on_fixture(&UNMEASURED, |process, module| {
+        let image = module.get_default_image(process).unwrap();
+        assert!(image
+            .get_class(process, module, "Game.Outer+Inner")
+            .is_none());
+        assert!(image.get_class(process, module, "GameManager").is_some());
+
+        let inventory = image.get_class(process, module, "Inventory").unwrap();
+        assert!(inventory
+            .get_field_offset(process, module, "items")
+            .is_none());
+    });
+}
+
+// A generic instance declares no count of its own; the definition it was made
+// from holds it, and the inflated fields are the instance's.
+#[test]
+fn generic_field_counts_resolve_through_the_definition() {
+    on_fixture(era(), |process, module| {
+        let image = module.get_default_image(process).unwrap();
+        let inventory = image.get_class(process, module, "Inventory").unwrap();
+        assert_eq!(
+            inventory.get_field_offset(process, module, "items"),
+            Some(0x28),
+        );
     });
 }
 
@@ -242,8 +385,28 @@ fn statics_resolve_through_the_vtable() {
             Some(Address::new(BASE + 0x1800)),
         );
 
+        let outer = image.get_class(process, module, "Game.Outer").unwrap();
+        assert!(outer.get_static_table(process, module).is_none());
+    });
+}
+
+// A static field found on a parent measures into the parent's own static
+// table, not the table of the class the lookup started at.
+#[test]
+fn static_instances_resolve_through_the_declaring_class() {
+    on_fixture(era(), |process, module| {
+        let image = module.get_default_image(process).unwrap();
         let boss = image.get_class(process, module, "Boss").unwrap();
-        assert!(boss.get_static_table(process, module).is_none());
+        assert_eq!(
+            poll_once(boss.wait_get_static_instance(process, module, "spawner")),
+            Poll::Ready(Address::new(BASE + 0x1980)),
+        );
+
+        let pointer = UnityPointer::<1>::new("Boss", 0, &["spawner"]);
+        assert_eq!(
+            pointer.deref::<u64>(process, module, &image).unwrap(),
+            BASE + 0x1980,
+        );
     });
 }
 

@@ -6,6 +6,7 @@ pub(super) struct MonoOffsets {
     pub(super) image: ImageOffsets,
     pub(super) hash_table: HashTableOffsets,
     pub(super) class: ClassOffsets,
+    pub(super) generic: GenericOffsets,
     pub(super) field: FieldInfoOffsets,
     pub(super) v_table: MonoVTableOffsets,
 }
@@ -31,7 +32,9 @@ impl MonoOffsets {
                     table: 0x20,
                 },
                 class: ClassOffsets {
+                    class_kind: Some(0x1B), // 2021.3 through 6000.7
                     parent: 0x30,
+                    nested_in: Some(0x38), // 2021.3 through 6000.7
                     name: 0x48,
                     namespace: 0x50,
                     vtable_size: 0x5C,
@@ -39,6 +42,10 @@ impl MonoOffsets {
                     runtime_info: 0xD0,
                     field_count: 0x100,
                     next_class_cache: 0x108,
+                },
+                generic: GenericOffsets {
+                    generic_class: Some(0xF0),  // 2021.3 through 6000.7
+                    container_class: Some(0x0), // 2021.3 through 6000.7
                 },
                 field: FieldInfoOffsets {
                     name: 0x8,
@@ -61,7 +68,9 @@ impl MonoOffsets {
                     table: 0x14,
                 },
                 class: ClassOffsets {
+                    class_kind: Some(0xF), // 2021.3 through 6000.7
                     parent: 0x20,
+                    nested_in: Some(0x24), // 2021.3 through 6000.7
                     name: 0x2C,
                     namespace: 0x30,
                     vtable_size: 0x38,
@@ -69,6 +78,10 @@ impl MonoOffsets {
                     runtime_info: 0x7C,
                     field_count: 0x9C,
                     next_class_cache: 0xA0,
+                },
+                generic: GenericOffsets {
+                    generic_class: Some(0x8C),  // 2021.3 through 6000.7
+                    container_class: Some(0x0), // 2021.3 through 6000.7
                 },
                 field: FieldInfoOffsets {
                     name: 0x4,
@@ -91,7 +104,9 @@ impl MonoOffsets {
                     table: 0x20,
                 },
                 class: ClassOffsets {
+                    class_kind: Some(0x2A), // 2017.4 through 2020.1
                     parent: 0x30,
+                    nested_in: Some(0x38), // 2017.4 through 2020.1
                     name: 0x48,
                     namespace: 0x50,
                     vtable_size: 0x5C,
@@ -99,6 +114,10 @@ impl MonoOffsets {
                     runtime_info: 0xD0,
                     field_count: 0x100,
                     next_class_cache: 0x108,
+                },
+                generic: GenericOffsets {
+                    generic_class: Some(0xF0),  // 2017.4 through 2020.1
+                    container_class: Some(0x0), // 2017.4 through 2020.1
                 },
                 field: FieldInfoOffsets {
                     name: 0x8,
@@ -121,7 +140,9 @@ impl MonoOffsets {
                     table: 0x14,
                 },
                 class: ClassOffsets {
+                    class_kind: Some(0x1E), // 2017.4 through 2020.1
                     parent: 0x20,
+                    nested_in: Some(0x24), // 2017.4 through 2020.1
                     name: 0x2C,
                     namespace: 0x30,
                     vtable_size: 0x38,
@@ -129,6 +150,10 @@ impl MonoOffsets {
                     runtime_info: 0x84,
                     field_count: 0xA4,
                     next_class_cache: 0xA8,
+                },
+                generic: GenericOffsets {
+                    generic_class: Some(0x94),  // 2017.4 through 2020.1
+                    container_class: Some(0x0), // 2017.4 through 2020.1
                 },
                 field: FieldInfoOffsets {
                     name: 0x4,
@@ -151,7 +176,9 @@ impl MonoOffsets {
                     table: 0x20,
                 },
                 class: ClassOffsets {
+                    class_kind: None,
                     parent: 0x30,
+                    nested_in: None,
                     name: 0x50,
                     namespace: 0x58,
                     vtable_size: 0x18,
@@ -159,6 +186,10 @@ impl MonoOffsets {
                     runtime_info: 0x100,
                     field_count: 0x9C,
                     next_class_cache: 0x108,
+                },
+                generic: GenericOffsets {
+                    generic_class: None,
+                    container_class: None,
                 },
                 field: FieldInfoOffsets {
                     name: 0x8,
@@ -181,7 +212,9 @@ impl MonoOffsets {
                     table: 0x14,
                 },
                 class: ClassOffsets {
+                    class_kind: None,
                     parent: 0x24,
+                    nested_in: None,
                     name: 0x34,
                     namespace: 0x38,
                     vtable_size: 0xC,
@@ -189,6 +222,10 @@ impl MonoOffsets {
                     runtime_info: 0xA8,
                     field_count: 0x68,
                     next_class_cache: 0xAC,
+                },
+                generic: GenericOffsets {
+                    generic_class: None,
+                    container_class: None,
                 },
                 field: FieldInfoOffsets {
                     name: 0x4,
@@ -211,7 +248,9 @@ impl MonoOffsets {
                     table: 0x20,
                 },
                 class: ClassOffsets {
+                    class_kind: None,
                     parent: 0x30,
+                    nested_in: Some(0x38), // 5.6 through 2018.4
                     name: 0x48,
                     namespace: 0x50,
                     vtable_size: 0x18,
@@ -219,6 +258,10 @@ impl MonoOffsets {
                     runtime_info: 0xF8,
                     field_count: 0x94,
                     next_class_cache: 0x100,
+                },
+                generic: GenericOffsets {
+                    generic_class: None,
+                    container_class: None,
                 },
                 field: FieldInfoOffsets {
                     name: 0x8,
@@ -241,7 +284,9 @@ impl MonoOffsets {
                     table: 0x14,
                 },
                 class: ClassOffsets {
+                    class_kind: None,
                     parent: 0x24,
+                    nested_in: Some(0x28), // 5.6 through 2018.4
                     name: 0x30,
                     namespace: 0x34,
                     vtable_size: 0xC,
@@ -249,6 +294,10 @@ impl MonoOffsets {
                     runtime_info: 0xA4,
                     field_count: 0x64,
                     next_class_cache: 0xA8,
+                },
+                generic: GenericOffsets {
+                    generic_class: None,
+                    container_class: None,
                 },
                 field: FieldInfoOffsets {
                     name: 0x4,
@@ -272,7 +321,9 @@ impl MonoOffsets {
                         table: 0x20,
                     },
                     class: ClassOffsets {
+                        class_kind: None,
                         parent: 0x28,
+                        nested_in: None,
                         name: 0x40,
                         namespace: 0x48,
                         vtable_size: 0x54,
@@ -280,6 +331,10 @@ impl MonoOffsets {
                         runtime_info: 0xC8,
                         field_count: 0xF8,
                         next_class_cache: 0x100,
+                    },
+                    generic: GenericOffsets {
+                        generic_class: None,
+                        container_class: None,
                     },
                     field: FieldInfoOffsets {
                         name: 0x8,
@@ -304,7 +359,9 @@ impl MonoOffsets {
                         table: 0x20,
                     },
                     class: ClassOffsets {
+                        class_kind: None,
                         parent: 0x28,
+                        nested_in: None,
                         name: 0x40,
                         namespace: 0x48,
                         vtable_size: 0x54,
@@ -312,6 +369,10 @@ impl MonoOffsets {
                         runtime_info: 0xC8,
                         field_count: 0xF8,
                         next_class_cache: 0x100,
+                    },
+                    generic: GenericOffsets {
+                        generic_class: None,
+                        container_class: None,
                     },
                     field: FieldInfoOffsets {
                         name: 0x8,
@@ -336,7 +397,9 @@ impl MonoOffsets {
                         table: 0x20,
                     },
                     class: ClassOffsets {
+                        class_kind: None,
                         parent: 0x28,
+                        nested_in: None,
                         name: 0x48,
                         namespace: 0x50,
                         vtable_size: 0x18,
@@ -344,6 +407,10 @@ impl MonoOffsets {
                         runtime_info: 0xF8,
                         field_count: 0x94,
                         next_class_cache: 0x100,
+                    },
+                    generic: GenericOffsets {
+                        generic_class: None,
+                        container_class: None,
                     },
                     field: FieldInfoOffsets {
                         name: 0x8,
@@ -368,7 +435,9 @@ impl MonoOffsets {
                         table: 0x20,
                     },
                     class: ClassOffsets {
+                        class_kind: None,
                         parent: 0x28,
+                        nested_in: None,
                         name: 0x40,
                         namespace: 0x48,
                         vtable_size: 0x18,
@@ -376,6 +445,10 @@ impl MonoOffsets {
                         runtime_info: 0xF0,
                         field_count: 0x8C,
                         next_class_cache: 0xF8,
+                    },
+                    generic: GenericOffsets {
+                        generic_class: None,
+                        container_class: None,
                     },
                     field: FieldInfoOffsets {
                         name: 0x8,
@@ -408,7 +481,9 @@ pub(super) struct HashTableOffsets {
 }
 
 pub(super) struct ClassOffsets {
+    pub(super) class_kind: Option<u16>, // The byte whose low bits say what kind of class it is
     pub(super) parent: u8,
+    pub(super) nested_in: Option<u16>, // Where a class keeps the one it is nested in
     pub(super) name: u8,
     pub(super) namespace: u8,
     pub(super) vtable_size: u8, // On mono V1 and V1_cattrs, this offset represents MonoVTable.data
@@ -416,6 +491,13 @@ pub(super) struct ClassOffsets {
     pub(super) runtime_info: u16,
     pub(super) field_count: u16,
     pub(super) next_class_cache: u16,
+}
+
+// MonoClassGenericInst keeps the instantiation descriptor, whose container is
+// the generic definition the instance was made from.
+pub(super) struct GenericOffsets {
+    pub(super) generic_class: Option<u16>,
+    pub(super) container_class: Option<u16>,
 }
 
 pub(super) struct FieldInfoOffsets {

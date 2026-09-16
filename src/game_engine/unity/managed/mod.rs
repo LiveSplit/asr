@@ -35,11 +35,13 @@ pub struct AssemblyOffsets {
     pub image: u16,
 }
 
-/// Where a class keeps its names, its parent, and its field array.
+/// Where a class keeps its names, its parent, its field array, and, when it
+/// was measured, the class it is nested in.
 pub struct ClassOffsets {
     pub name: u16,
     pub namespace: u16,
     pub parent: u16,
+    pub declaring: Option<u16>,
     pub fields: u16,
 }
 

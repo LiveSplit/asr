@@ -279,6 +279,7 @@ impl Module {
                     name: self.offsets.class.name.into(),
                     namespace: self.offsets.class.namespace.into(),
                     parent: self.offsets.class.parent.into(),
+                    declaring: self.offsets.class.declaring_type,
                     fields: self.offsets.class.fields.into(),
                 },
                 field: managed::FieldOffsets {

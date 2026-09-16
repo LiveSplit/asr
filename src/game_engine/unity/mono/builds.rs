@@ -2,8 +2,8 @@
 //! PDB says which binary. The offsets come from that PDB.
 
 use super::offsets::{
-    AssemblyOffsets, ClassOffsets, FieldInfoOffsets, HashTableOffsets, ImageOffsets, MonoOffsets,
-    MonoVTableOffsets,
+    AssemblyOffsets, ClassOffsets, FieldInfoOffsets, GenericOffsets, HashTableOffsets,
+    ImageOffsets, MonoOffsets, MonoVTableOffsets,
 };
 use super::Version;
 use crate::{file_format::pe::DebugId, PointerSize};
@@ -101,7 +101,9 @@ static BUILDS: &[Build] = &[
                 table: 0x14,
             },
             class: ClassOffsets {
+                class_kind: Some(0x1e),
                 parent: 0x20,
+                nested_in: Some(0x24),
                 name: 0x2c,
                 namespace: 0x30,
                 vtable_size: 0x38,
@@ -109,6 +111,10 @@ static BUILDS: &[Build] = &[
                 runtime_info: 0x84,
                 field_count: 0xa4,
                 next_class_cache: 0xa8,
+            },
+            generic: GenericOffsets {
+                generic_class: Some(0x94),
+                container_class: Some(0x0),
             },
             field: FieldInfoOffsets {
                 name: 0x4,
@@ -137,7 +143,9 @@ static BUILDS: &[Build] = &[
                 table: 0x14,
             },
             class: ClassOffsets {
+                class_kind: Some(0xf),
                 parent: 0x20,
+                nested_in: Some(0x24),
                 name: 0x2c,
                 namespace: 0x30,
                 vtable_size: 0x38,
@@ -145,6 +153,10 @@ static BUILDS: &[Build] = &[
                 runtime_info: 0x7c,
                 field_count: 0x9c,
                 next_class_cache: 0xa0,
+            },
+            generic: GenericOffsets {
+                generic_class: Some(0x8c),
+                container_class: Some(0x0),
             },
             field: FieldInfoOffsets {
                 name: 0x4,
@@ -175,7 +187,9 @@ static BUILDS: &[Build] = &[
                 table: 0x20,
             },
             class: ClassOffsets {
+                class_kind: Some(0x2a),
                 parent: 0x30,
+                nested_in: Some(0x38),
                 name: 0x48,
                 namespace: 0x50,
                 vtable_size: 0x5c,
@@ -183,6 +197,10 @@ static BUILDS: &[Build] = &[
                 runtime_info: 0xd0,
                 field_count: 0x100,
                 next_class_cache: 0x108,
+            },
+            generic: GenericOffsets {
+                generic_class: Some(0xf0),
+                container_class: Some(0x0),
             },
             field: FieldInfoOffsets {
                 name: 0x8,
@@ -211,7 +229,9 @@ static BUILDS: &[Build] = &[
                 table: 0x20,
             },
             class: ClassOffsets {
+                class_kind: Some(0x1b),
                 parent: 0x30,
+                nested_in: Some(0x38),
                 name: 0x48,
                 namespace: 0x50,
                 vtable_size: 0x5c,
@@ -219,6 +239,10 @@ static BUILDS: &[Build] = &[
                 runtime_info: 0xd0,
                 field_count: 0x100,
                 next_class_cache: 0x108,
+            },
+            generic: GenericOffsets {
+                generic_class: Some(0xf0),
+                container_class: Some(0x0),
             },
             field: FieldInfoOffsets {
                 name: 0x8,
@@ -247,7 +271,9 @@ static BUILDS: &[Build] = &[
                 table: 0x20,
             },
             class: ClassOffsets {
+                class_kind: Some(0x2a),
                 parent: 0x30,
+                nested_in: Some(0x38),
                 name: 0x48,
                 namespace: 0x50,
                 vtable_size: 0x5c,
@@ -255,6 +281,10 @@ static BUILDS: &[Build] = &[
                 runtime_info: 0xd0,
                 field_count: 0x100,
                 next_class_cache: 0x108,
+            },
+            generic: GenericOffsets {
+                generic_class: Some(0xf0),
+                container_class: Some(0x0),
             },
             field: FieldInfoOffsets {
                 name: 0x8,
@@ -283,7 +313,9 @@ static BUILDS: &[Build] = &[
                 table: 0x20,
             },
             class: ClassOffsets {
+                class_kind: None,
                 parent: 0x30,
+                nested_in: Some(0x38),
                 name: 0x50,
                 namespace: 0x58,
                 vtable_size: 0x18,
@@ -291,6 +323,10 @@ static BUILDS: &[Build] = &[
                 runtime_info: 0x100,
                 field_count: 0x9c,
                 next_class_cache: 0x108,
+            },
+            generic: GenericOffsets {
+                generic_class: None,
+                container_class: None,
             },
             field: FieldInfoOffsets {
                 name: 0x8,
@@ -319,7 +355,9 @@ static BUILDS: &[Build] = &[
                 table: 0x20,
             },
             class: ClassOffsets {
+                class_kind: Some(0x1b),
                 parent: 0x30,
+                nested_in: Some(0x38),
                 name: 0x48,
                 namespace: 0x50,
                 vtable_size: 0x5c,
@@ -327,6 +365,10 @@ static BUILDS: &[Build] = &[
                 runtime_info: 0xd0,
                 field_count: 0x100,
                 next_class_cache: 0x108,
+            },
+            generic: GenericOffsets {
+                generic_class: Some(0xf0),
+                container_class: Some(0x0),
             },
             field: FieldInfoOffsets {
                 name: 0x8,
@@ -355,7 +397,9 @@ static BUILDS: &[Build] = &[
                 table: 0x20,
             },
             class: ClassOffsets {
+                class_kind: Some(0x1b),
                 parent: 0x30,
+                nested_in: Some(0x38),
                 name: 0x48,
                 namespace: 0x50,
                 vtable_size: 0x5c,
@@ -363,6 +407,10 @@ static BUILDS: &[Build] = &[
                 runtime_info: 0xd0,
                 field_count: 0x100,
                 next_class_cache: 0x108,
+            },
+            generic: GenericOffsets {
+                generic_class: Some(0xf0),
+                container_class: Some(0x0),
             },
             field: FieldInfoOffsets {
                 name: 0x8,
@@ -391,7 +439,9 @@ static BUILDS: &[Build] = &[
                 table: 0x20,
             },
             class: ClassOffsets {
+                class_kind: Some(0x1b),
                 parent: 0x30,
+                nested_in: Some(0x38),
                 name: 0x48,
                 namespace: 0x50,
                 vtable_size: 0x5c,
@@ -399,6 +449,10 @@ static BUILDS: &[Build] = &[
                 runtime_info: 0xd0,
                 field_count: 0x100,
                 next_class_cache: 0x108,
+            },
+            generic: GenericOffsets {
+                generic_class: Some(0xf0),
+                container_class: Some(0x0),
             },
             field: FieldInfoOffsets {
                 name: 0x8,
@@ -427,7 +481,9 @@ static BUILDS: &[Build] = &[
                 table: 0x20,
             },
             class: ClassOffsets {
+                class_kind: Some(0x1b),
                 parent: 0x30,
+                nested_in: Some(0x38),
                 name: 0x48,
                 namespace: 0x50,
                 vtable_size: 0x5c,
@@ -435,6 +491,10 @@ static BUILDS: &[Build] = &[
                 runtime_info: 0xd0,
                 field_count: 0x100,
                 next_class_cache: 0x108,
+            },
+            generic: GenericOffsets {
+                generic_class: Some(0xf0),
+                container_class: Some(0x0),
             },
             field: FieldInfoOffsets {
                 name: 0x8,
@@ -463,7 +523,9 @@ static BUILDS: &[Build] = &[
                 table: 0x14,
             },
             class: ClassOffsets {
+                class_kind: None,
                 parent: 0x24,
+                nested_in: Some(0x28),
                 name: 0x34,
                 namespace: 0x38,
                 vtable_size: 0xc,
@@ -471,6 +533,10 @@ static BUILDS: &[Build] = &[
                 runtime_info: 0xa8,
                 field_count: 0x68,
                 next_class_cache: 0xac,
+            },
+            generic: GenericOffsets {
+                generic_class: None,
+                container_class: None,
             },
             field: FieldInfoOffsets {
                 name: 0x4,
@@ -501,7 +567,9 @@ static BUILDS: &[Build] = &[
                 table: 0x20,
             },
             class: ClassOffsets {
+                class_kind: None,
                 parent: 0x30,
+                nested_in: Some(0x38),
                 name: 0x48,
                 namespace: 0x50,
                 vtable_size: 0x18,
@@ -509,6 +577,10 @@ static BUILDS: &[Build] = &[
                 runtime_info: 0xf8,
                 field_count: 0x94,
                 next_class_cache: 0x100,
+            },
+            generic: GenericOffsets {
+                generic_class: None,
+                container_class: None,
             },
             field: FieldInfoOffsets {
                 name: 0x8,
@@ -537,7 +609,9 @@ static BUILDS: &[Build] = &[
                 table: 0x14,
             },
             class: ClassOffsets {
+                class_kind: Some(0x1e),
                 parent: 0x20,
+                nested_in: Some(0x24),
                 name: 0x2c,
                 namespace: 0x30,
                 vtable_size: 0x38,
@@ -545,6 +619,10 @@ static BUILDS: &[Build] = &[
                 runtime_info: 0x84,
                 field_count: 0xa4,
                 next_class_cache: 0xa8,
+            },
+            generic: GenericOffsets {
+                generic_class: Some(0x94),
+                container_class: Some(0x0),
             },
             field: FieldInfoOffsets {
                 name: 0x4,
@@ -573,7 +651,9 @@ static BUILDS: &[Build] = &[
                 table: 0x20,
             },
             class: ClassOffsets {
+                class_kind: Some(0x2a),
                 parent: 0x30,
+                nested_in: Some(0x38),
                 name: 0x48,
                 namespace: 0x50,
                 vtable_size: 0x5c,
@@ -581,6 +661,10 @@ static BUILDS: &[Build] = &[
                 runtime_info: 0xd0,
                 field_count: 0x100,
                 next_class_cache: 0x108,
+            },
+            generic: GenericOffsets {
+                generic_class: Some(0xf0),
+                container_class: Some(0x0),
             },
             field: FieldInfoOffsets {
                 name: 0x8,
@@ -609,7 +693,9 @@ static BUILDS: &[Build] = &[
                 table: 0x20,
             },
             class: ClassOffsets {
+                class_kind: None,
                 parent: 0x30,
+                nested_in: Some(0x38),
                 name: 0x50,
                 namespace: 0x58,
                 vtable_size: 0x18,
@@ -617,6 +703,10 @@ static BUILDS: &[Build] = &[
                 runtime_info: 0x100,
                 field_count: 0x9c,
                 next_class_cache: 0x108,
+            },
+            generic: GenericOffsets {
+                generic_class: None,
+                container_class: None,
             },
             field: FieldInfoOffsets {
                 name: 0x8,
@@ -645,7 +735,9 @@ static BUILDS: &[Build] = &[
                 table: 0x14,
             },
             class: ClassOffsets {
+                class_kind: Some(0xf),
                 parent: 0x20,
+                nested_in: Some(0x24),
                 name: 0x2c,
                 namespace: 0x30,
                 vtable_size: 0x38,
@@ -653,6 +745,10 @@ static BUILDS: &[Build] = &[
                 runtime_info: 0x7c,
                 field_count: 0x9c,
                 next_class_cache: 0xa0,
+            },
+            generic: GenericOffsets {
+                generic_class: Some(0x8c),
+                container_class: Some(0x0),
             },
             field: FieldInfoOffsets {
                 name: 0x4,
@@ -681,7 +777,9 @@ static BUILDS: &[Build] = &[
                 table: 0x14,
             },
             class: ClassOffsets {
+                class_kind: None,
                 parent: 0x24,
+                nested_in: Some(0x28),
                 name: 0x34,
                 namespace: 0x38,
                 vtable_size: 0xc,
@@ -689,6 +787,10 @@ static BUILDS: &[Build] = &[
                 runtime_info: 0xa8,
                 field_count: 0x68,
                 next_class_cache: 0xac,
+            },
+            generic: GenericOffsets {
+                generic_class: None,
+                container_class: None,
             },
             field: FieldInfoOffsets {
                 name: 0x4,
@@ -717,7 +819,9 @@ static BUILDS: &[Build] = &[
                 table: 0x14,
             },
             class: ClassOffsets {
+                class_kind: Some(0xf),
                 parent: 0x20,
+                nested_in: Some(0x24),
                 name: 0x2c,
                 namespace: 0x30,
                 vtable_size: 0x38,
@@ -725,6 +829,10 @@ static BUILDS: &[Build] = &[
                 runtime_info: 0x7c,
                 field_count: 0x9c,
                 next_class_cache: 0xa0,
+            },
+            generic: GenericOffsets {
+                generic_class: Some(0x8c),
+                container_class: Some(0x0),
             },
             field: FieldInfoOffsets {
                 name: 0x4,
@@ -753,7 +861,9 @@ static BUILDS: &[Build] = &[
                 table: 0x20,
             },
             class: ClassOffsets {
+                class_kind: Some(0x1b),
                 parent: 0x30,
+                nested_in: Some(0x38),
                 name: 0x48,
                 namespace: 0x50,
                 vtable_size: 0x5c,
@@ -761,6 +871,10 @@ static BUILDS: &[Build] = &[
                 runtime_info: 0xd0,
                 field_count: 0x100,
                 next_class_cache: 0x108,
+            },
+            generic: GenericOffsets {
+                generic_class: Some(0xf0),
+                container_class: Some(0x0),
             },
             field: FieldInfoOffsets {
                 name: 0x8,
@@ -789,7 +903,9 @@ static BUILDS: &[Build] = &[
                 table: 0x20,
             },
             class: ClassOffsets {
+                class_kind: Some(0x2a),
                 parent: 0x30,
+                nested_in: Some(0x38),
                 name: 0x48,
                 namespace: 0x50,
                 vtable_size: 0x5c,
@@ -797,6 +913,10 @@ static BUILDS: &[Build] = &[
                 runtime_info: 0xd0,
                 field_count: 0x100,
                 next_class_cache: 0x108,
+            },
+            generic: GenericOffsets {
+                generic_class: Some(0xf0),
+                container_class: Some(0x0),
             },
             field: FieldInfoOffsets {
                 name: 0x8,
@@ -825,7 +945,9 @@ static BUILDS: &[Build] = &[
                 table: 0x14,
             },
             class: ClassOffsets {
+                class_kind: Some(0x1e),
                 parent: 0x20,
+                nested_in: Some(0x24),
                 name: 0x2c,
                 namespace: 0x30,
                 vtable_size: 0x38,
@@ -833,6 +955,10 @@ static BUILDS: &[Build] = &[
                 runtime_info: 0x84,
                 field_count: 0xa4,
                 next_class_cache: 0xa8,
+            },
+            generic: GenericOffsets {
+                generic_class: Some(0x94),
+                container_class: Some(0x0),
             },
             field: FieldInfoOffsets {
                 name: 0x4,
@@ -863,7 +989,9 @@ static BUILDS: &[Build] = &[
                 table: 0x14,
             },
             class: ClassOffsets {
+                class_kind: None,
                 parent: 0x24,
+                nested_in: Some(0x28),
                 name: 0x30,
                 namespace: 0x34,
                 vtable_size: 0xc,
@@ -871,6 +999,10 @@ static BUILDS: &[Build] = &[
                 runtime_info: 0xa4,
                 field_count: 0x64,
                 next_class_cache: 0xa8,
+            },
+            generic: GenericOffsets {
+                generic_class: None,
+                container_class: None,
             },
             field: FieldInfoOffsets {
                 name: 0x4,
@@ -899,7 +1031,9 @@ static BUILDS: &[Build] = &[
                 table: 0x14,
             },
             class: ClassOffsets {
+                class_kind: Some(0x1e),
                 parent: 0x20,
+                nested_in: Some(0x24),
                 name: 0x2c,
                 namespace: 0x30,
                 vtable_size: 0x38,
@@ -907,6 +1041,10 @@ static BUILDS: &[Build] = &[
                 runtime_info: 0x84,
                 field_count: 0xa4,
                 next_class_cache: 0xa8,
+            },
+            generic: GenericOffsets {
+                generic_class: Some(0x94),
+                container_class: Some(0x0),
             },
             field: FieldInfoOffsets {
                 name: 0x4,
@@ -935,7 +1073,9 @@ static BUILDS: &[Build] = &[
                 table: 0x14,
             },
             class: ClassOffsets {
+                class_kind: Some(0xf),
                 parent: 0x20,
+                nested_in: Some(0x24),
                 name: 0x2c,
                 namespace: 0x30,
                 vtable_size: 0x38,
@@ -943,6 +1083,10 @@ static BUILDS: &[Build] = &[
                 runtime_info: 0x7c,
                 field_count: 0x9c,
                 next_class_cache: 0xa0,
+            },
+            generic: GenericOffsets {
+                generic_class: Some(0x8c),
+                container_class: Some(0x0),
             },
             field: FieldInfoOffsets {
                 name: 0x4,
@@ -971,7 +1115,9 @@ static BUILDS: &[Build] = &[
                 table: 0x14,
             },
             class: ClassOffsets {
+                class_kind: Some(0xf),
                 parent: 0x20,
+                nested_in: Some(0x24),
                 name: 0x2c,
                 namespace: 0x30,
                 vtable_size: 0x38,
@@ -979,6 +1125,10 @@ static BUILDS: &[Build] = &[
                 runtime_info: 0x7c,
                 field_count: 0x9c,
                 next_class_cache: 0xa0,
+            },
+            generic: GenericOffsets {
+                generic_class: Some(0x8c),
+                container_class: Some(0x0),
             },
             field: FieldInfoOffsets {
                 name: 0x4,
@@ -1007,7 +1157,9 @@ static BUILDS: &[Build] = &[
                 table: 0x14,
             },
             class: ClassOffsets {
+                class_kind: Some(0xf),
                 parent: 0x20,
+                nested_in: Some(0x24),
                 name: 0x2c,
                 namespace: 0x30,
                 vtable_size: 0x38,
@@ -1015,6 +1167,10 @@ static BUILDS: &[Build] = &[
                 runtime_info: 0x7c,
                 field_count: 0x9c,
                 next_class_cache: 0xa0,
+            },
+            generic: GenericOffsets {
+                generic_class: Some(0x8c),
+                container_class: Some(0x0),
             },
             field: FieldInfoOffsets {
                 name: 0x4,
@@ -1077,6 +1233,35 @@ mod tests {
             age: 2,
         })
         .is_none());
+    }
+
+    // A version table's value for any of the grown members must match every
+    // measured build it stands in for, or say nothing.
+    #[test]
+    fn version_tables_never_contradict_a_measured_build() {
+        fn agrees(table: Option<u16>, measured: Option<u16>) -> bool {
+            table.is_none() || table == measured
+        }
+
+        for build in BUILDS {
+            let Some(table) = MonoOffsets::new(build.version, build.pointer_size, BinaryFormat::PE)
+            else {
+                continue;
+            };
+            assert!(agrees(table.class.nested_in, build.offsets.class.nested_in));
+            assert!(agrees(
+                table.class.class_kind,
+                build.offsets.class.class_kind
+            ));
+            assert!(agrees(
+                table.generic.generic_class,
+                build.offsets.generic.generic_class
+            ));
+            assert!(agrees(
+                table.generic.container_class,
+                build.offsets.generic.container_class
+            ));
+        }
     }
 
     // Every build has the layout its version table describes. The one

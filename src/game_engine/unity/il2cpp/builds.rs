@@ -62,6 +62,7 @@ static BUILDS: &[Build] = &[
             class: ClassOffsets {
                 name: 0x10,
                 namespace: 0x18,
+                declaring_type: Some(0x50),
                 parent: 0x58,
                 fields: 0x80,
                 static_fields: 0xb8,
@@ -94,6 +95,7 @@ static BUILDS: &[Build] = &[
             class: ClassOffsets {
                 name: 0x8,
                 namespace: 0xc,
+                declaring_type: Some(0x28),
                 parent: 0x2c,
                 fields: 0x40,
                 static_fields: 0x5c,
@@ -126,6 +128,7 @@ static BUILDS: &[Build] = &[
             class: ClassOffsets {
                 name: 0x10,
                 namespace: 0x18,
+                declaring_type: Some(0x50),
                 parent: 0x58,
                 fields: 0x80,
                 static_fields: 0xb8,
@@ -158,6 +161,7 @@ static BUILDS: &[Build] = &[
             class: ClassOffsets {
                 name: 0x8,
                 namespace: 0xc,
+                declaring_type: Some(0x28),
                 parent: 0x2c,
                 fields: 0x40,
                 static_fields: 0x5c,
@@ -190,6 +194,7 @@ static BUILDS: &[Build] = &[
             class: ClassOffsets {
                 name: 0x10,
                 namespace: 0x18,
+                declaring_type: Some(0x50),
                 parent: 0x58,
                 fields: 0x80,
                 static_fields: 0xb8,
@@ -222,6 +227,7 @@ static BUILDS: &[Build] = &[
             class: ClassOffsets {
                 name: 0x8,
                 namespace: 0xc,
+                declaring_type: Some(0x28),
                 parent: 0x2c,
                 fields: 0x40,
                 static_fields: 0x5c,
@@ -254,6 +260,7 @@ static BUILDS: &[Build] = &[
             class: ClassOffsets {
                 name: 0x10,
                 namespace: 0x18,
+                declaring_type: Some(0x50),
                 parent: 0x58,
                 fields: 0x80,
                 static_fields: 0xb8,
@@ -286,6 +293,7 @@ static BUILDS: &[Build] = &[
             class: ClassOffsets {
                 name: 0x8,
                 namespace: 0xc,
+                declaring_type: Some(0x28),
                 parent: 0x2c,
                 fields: 0x40,
                 static_fields: 0x5c,
@@ -318,6 +326,7 @@ static BUILDS: &[Build] = &[
             class: ClassOffsets {
                 name: 0x10,
                 namespace: 0x18,
+                declaring_type: Some(0x50),
                 parent: 0x58,
                 fields: 0x80,
                 static_fields: 0xb8,
@@ -350,6 +359,7 @@ static BUILDS: &[Build] = &[
             class: ClassOffsets {
                 name: 0x8,
                 namespace: 0xc,
+                declaring_type: Some(0x28),
                 parent: 0x2c,
                 fields: 0x40,
                 static_fields: 0x5c,
@@ -382,6 +392,7 @@ static BUILDS: &[Build] = &[
             class: ClassOffsets {
                 name: 0x10,
                 namespace: 0x18,
+                declaring_type: Some(0x50),
                 parent: 0x58,
                 fields: 0x80,
                 static_fields: 0xb8,
@@ -414,6 +425,7 @@ static BUILDS: &[Build] = &[
             class: ClassOffsets {
                 name: 0x8,
                 namespace: 0xc,
+                declaring_type: Some(0x28),
                 parent: 0x2c,
                 fields: 0x40,
                 static_fields: 0x5c,
@@ -446,6 +458,7 @@ static BUILDS: &[Build] = &[
             class: ClassOffsets {
                 name: 0x10,
                 namespace: 0x18,
+                declaring_type: Some(0x50),
                 parent: 0x58,
                 fields: 0x80,
                 static_fields: 0xb8,
@@ -478,6 +491,7 @@ static BUILDS: &[Build] = &[
             class: ClassOffsets {
                 name: 0x8,
                 namespace: 0xc,
+                declaring_type: Some(0x28),
                 parent: 0x2c,
                 fields: 0x40,
                 static_fields: 0x5c,
@@ -510,6 +524,7 @@ static BUILDS: &[Build] = &[
             class: ClassOffsets {
                 name: 0x10,
                 namespace: 0x18,
+                declaring_type: Some(0x50),
                 parent: 0x58,
                 fields: 0x80,
                 static_fields: 0xb8,
@@ -542,6 +557,7 @@ static BUILDS: &[Build] = &[
             class: ClassOffsets {
                 name: 0x8,
                 namespace: 0xc,
+                declaring_type: Some(0x28),
                 parent: 0x2c,
                 fields: 0x40,
                 static_fields: 0x5c,
@@ -574,6 +590,7 @@ static BUILDS: &[Build] = &[
             class: ClassOffsets {
                 name: 0x10,
                 namespace: 0x18,
+                declaring_type: Some(0x50),
                 parent: 0x58,
                 fields: 0x80,
                 static_fields: 0xb8,
@@ -606,6 +623,7 @@ static BUILDS: &[Build] = &[
             class: ClassOffsets {
                 name: 0x8,
                 namespace: 0xc,
+                declaring_type: Some(0x28),
                 parent: 0x2c,
                 fields: 0x40,
                 static_fields: 0x5c,
@@ -638,6 +656,7 @@ static BUILDS: &[Build] = &[
             class: ClassOffsets {
                 name: 0x10,
                 namespace: 0x18,
+                declaring_type: Some(0x50),
                 parent: 0x58,
                 fields: 0x80,
                 static_fields: 0xa0,
@@ -670,6 +689,7 @@ static BUILDS: &[Build] = &[
             class: ClassOffsets {
                 name: 0x8,
                 namespace: 0xc,
+                declaring_type: Some(0x28),
                 parent: 0x2c,
                 fields: 0x40,
                 static_fields: 0x50,
@@ -702,6 +722,7 @@ static BUILDS: &[Build] = &[
             class: ClassOffsets {
                 name: 0x10,
                 namespace: 0x18,
+                declaring_type: Some(0x50),
                 parent: 0x58,
                 fields: 0x80,
                 static_fields: 0x98,
@@ -734,6 +755,7 @@ static BUILDS: &[Build] = &[
             class: ClassOffsets {
                 name: 0x8,
                 namespace: 0xc,
+                declaring_type: Some(0x28),
                 parent: 0x2c,
                 fields: 0x40,
                 static_fields: 0x4c,
@@ -803,6 +825,21 @@ mod tests {
         assert!(find(39, (major, minor + 1, patch, build), PointerSize::Bit64).is_none());
         assert!(find(200, (7000, 0, 0, 0), PointerSize::Bit64).is_none());
         assert!(find(16, (5, 6, 7, 0), PointerSize::Bit64).is_none());
+    }
+
+    // A version table's value for where a class keeps its declaring type
+    // must match every measured build it stands in for, or say nothing.
+    #[test]
+    fn version_tables_never_contradict_a_measured_build() {
+        for build in BUILDS {
+            let Some(table) = IL2CPPOffsets::new(build.version, build.pointer_size) else {
+                continue;
+            };
+            assert!(
+                table.class.declaring_type.is_none()
+                    || table.class.declaring_type == build.offsets.class.declaring_type
+            );
+        }
     }
 
     // The version table for 6000.5 and 6000.7 puts static_fields where 2022.3

@@ -273,6 +273,9 @@ impl Module {
                 hash_table_table: self.offsets.hash_table.table.into(),
                 next_class_cache: self.offsets.class.next_class_cache,
                 field_count: self.offsets.class.field_count,
+                class_kind: self.offsets.class.class_kind,
+                generic_class: self.offsets.generic.generic_class,
+                container_class: self.offsets.generic.container_class,
                 runtime_info: self.offsets.class.runtime_info,
                 vtable_size: self.offsets.class.vtable_size.into(),
                 vtable: self.offsets.v_table.vtable.into(),
@@ -288,6 +291,7 @@ impl Module {
                     name: self.offsets.class.name.into(),
                     namespace: self.offsets.class.namespace.into(),
                     parent: self.offsets.class.parent.into(),
+                    declaring: self.offsets.class.nested_in,
                     fields: self.offsets.class.fields.into(),
                 },
                 field: managed::FieldOffsets {

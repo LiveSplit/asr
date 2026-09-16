@@ -24,6 +24,7 @@ impl IL2CPPOffsets {
                     class: ClassOffsets {
                         name: 0x10,
                         namespace: 0x18,
+                        declaring_type: Some(0x50), // 2023.1 through 6000.7
                         parent: 0x58,
                         fields: 0x80,
                         static_fields: 0xB8,
@@ -48,6 +49,7 @@ impl IL2CPPOffsets {
                     class: ClassOffsets {
                         name: 0x10,
                         namespace: 0x18,
+                        declaring_type: None,
                         parent: 0x58,
                         fields: 0x80,
                         static_fields: 0xB8,
@@ -72,6 +74,7 @@ impl IL2CPPOffsets {
                     class: ClassOffsets {
                         name: 0x10,
                         namespace: 0x18,
+                        declaring_type: Some(0x50), // 2019.4, 2020.1
                         parent: 0x58,
                         fields: 0x80,
                         static_fields: 0xB8,
@@ -96,6 +99,7 @@ impl IL2CPPOffsets {
                     class: ClassOffsets {
                         name: 0x10,
                         namespace: 0x18,
+                        declaring_type: None,
                         parent: 0x58,
                         fields: 0x80,
                         static_fields: 0xB8,
@@ -127,6 +131,7 @@ pub(super) struct ImageOffsets {
 pub(super) struct ClassOffsets {
     pub(super) name: u8,
     pub(super) namespace: u8,
+    pub(super) declaring_type: Option<u16>, // Where a class keeps the one declaring it
     pub(super) parent: u8,
     pub(super) fields: u8,
     pub(super) static_fields: u8,
