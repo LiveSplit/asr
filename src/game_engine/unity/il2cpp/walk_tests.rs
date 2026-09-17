@@ -460,7 +460,7 @@ fn image(version: Version) -> Vec<u8> {
         _ => (0x18, 0x28, 0x124),
     };
 
-    let mut i = vec![0; 0x4000];
+    let mut i = vec![0; 0x5000];
 
     let strings = [
         (0x2000, "mscorlib"),
@@ -481,6 +481,10 @@ fn image(version: Version) -> Vec<u8> {
         (0x2800, "spawner"),
         (0x2880, "_items"),
         (0x2900, "_size"),
+        (0x2980, "List`1"),
+        (0x2A00, "System.Collections.Generic"),
+        (0x2A80, "EnemyList"),
+        (0x2B00, "ListLookalike"),
     ];
     for (at, text) in strings {
         put(&mut i, at, text.as_bytes());
@@ -595,6 +599,8 @@ fn image(version: Version) -> Vec<u8> {
     // A List: its class carries corlib's field names, its live object heads
     // with the class and holds a backing array longer than the live count.
     let list_class = 0x1600;
+    ptr(&mut i, list_class + 0x10, BASE + 0x2980);
+    ptr(&mut i, list_class + 0x18, BASE + 0x2A00);
     ptr(&mut i, list_class + 0x80, BASE + 0x1780);
     put(&mut i, list_class + field_count_at, &2_u16.to_le_bytes());
     ptr(&mut i, 0x1780, BASE + 0x2880); // _items
@@ -615,6 +621,31 @@ fn image(version: Version) -> Vec<u8> {
     }
 
     ptr(&mut i, 0x18, BASE + 0x1800); // the slot holding the reference
+
+    // A derived list inherits the two fields from List rather than declaring
+    // them again.
+    let derived_list = 0x3000;
+    ptr(&mut i, derived_list + 0x10, BASE + 0x2A80);
+    ptr(&mut i, derived_list + 0x18, BASE + 0x2180);
+    ptr(&mut i, derived_list + 0x58, BASE + list_class);
+    ptr(&mut i, 0x3200, BASE + derived_list);
+    ptr(&mut i, 0x3200 + 0x10, BASE + 0x1900);
+    put(&mut i, 0x3200 + 0x18, &2_i32.to_le_bytes());
+    ptr(&mut i, 0x20, BASE + 0x3200);
+
+    // A lookalike carries fields with the same names but is not the corlib
+    // List class and must not be accepted as one.
+    let lookalike = 0x3400;
+    ptr(&mut i, lookalike + 0x10, BASE + 0x2B00);
+    ptr(&mut i, lookalike + 0x18, BASE + 0x2180);
+    ptr(&mut i, lookalike + 0x80, BASE + 0x3600);
+    put(&mut i, lookalike + field_count_at, &2_u16.to_le_bytes());
+    ptr(&mut i, 0x3600, BASE + 0x2880);
+    put(&mut i, 0x3600 + 0x18, &0x10_i32.to_le_bytes());
+    ptr(&mut i, 0x3620, BASE + 0x2900);
+    put(&mut i, 0x3620 + 0x18, &0x18_i32.to_le_bytes());
+    ptr(&mut i, 0x3800, BASE + lookalike);
+    ptr(&mut i, 0x28, BASE + 0x3800);
 
     i
 }
@@ -754,9 +785,8 @@ fn static_instances_resolve_through_the_declaring_class() {
     });
 }
 
-// A list's backing array and live count resolve off the list object's own
-// class, and the read returns the live count's elements, never the backing
-// capacity's.
+// A list's backing array and live count resolve off the corlib List class,
+// and the read returns the live count's elements, never the backing capacity's.
 #[test]
 fn lists_resolve_through_their_own_class() {
     on_fixture(Version::V2022, |process, module| {
@@ -764,6 +794,25 @@ fn lists_resolve_through_their_own_class() {
         let offsets = module.get_list_offsets(process, at).unwrap();
         let read = module.read_list::<u32, 4>(process, offsets, at).unwrap();
         assert_eq!(read.as_slice(), [11, 22]);
+    });
+}
+
+#[test]
+fn lists_derived_from_corlibs_list_resolve() {
+    on_fixture(Version::V2022, |process, module| {
+        let at = Address::new(BASE + 0x20);
+        let offsets = module.get_list_offsets(process, at).unwrap();
+        let read = module.read_list::<u32, 4>(process, offsets, at).unwrap();
+        assert_eq!(read.as_slice(), [11, 22]);
+    });
+}
+
+#[test]
+fn list_shaped_objects_are_not_lists() {
+    on_fixture(Version::V2022, |process, module| {
+        assert!(module
+            .get_list_offsets(process, Address::new(BASE + 0x28))
+            .is_none());
     });
 }
 

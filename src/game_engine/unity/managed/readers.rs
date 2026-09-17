@@ -45,10 +45,10 @@ pub fn read_string<const N: usize>(
     ManagedString::from_units(&units[..count]).ok_or(Error {})
 }
 
-/// Where a list keeps its backing array and live count, resolved once off
-/// the list's own class and held by the caller, so the per-tick read costs
-/// reads rather than a metadata walk.
-#[derive(Copy, Clone)]
+/// Where a list keeps its backing array and live count, resolved once from
+/// the list's class hierarchy and held by the caller, so the per-tick read
+/// costs reads rather than a metadata walk.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ListOffsets {
     pub(crate) items: u32,
     pub(crate) size: u32,

@@ -30,8 +30,7 @@ mod readers_tests;
 #[cfg(all(test, not(target_family = "wasm")))]
 mod walk_tests;
 
-pub use super::managed::ListOffsets;
-use super::{managed, BinaryFormat, ManagedString};
+use super::{managed, BinaryFormat, ListOffsets, ManagedString};
 
 /// Represents access to a Unity game that is using the standard Mono backend.
 pub struct Module {
@@ -367,11 +366,11 @@ impl Module {
         managed::read_array(process, self.pointer_size, at)
     }
 
-    /// Resolves where a `List` keeps its backing array and live count, off
-    /// the class the list object at the given address names as its own. The
-    /// answer is a small `Copy` value worth storing, like a field offset:
-    /// resolution walks the class's fields, where the read itself is a
-    /// handful of reads. An object whose class is not a list misses.
+    /// Resolves where a `List` keeps its backing array and live count, finding
+    /// `System.Collections.Generic.List` in the class hierarchy of the object
+    /// at the given address. The answer is a small `Copy` value worth storing,
+    /// like a field offset: resolution walks class metadata, where the read
+    /// itself is a handful of reads. An object that is not a list misses.
     pub fn get_list_offsets(&self, process: &Process, at: Address) -> Option<ListOffsets> {
         let object = process
             .read_pointer(at, self.pointer_size)
@@ -449,8 +448,8 @@ impl Module {
         retry(|| self.get_default_image(process)).await
     }
 
-    /// Resolves where a `List` keeps its backing array and live count, off
-    /// the class the list object at the given address names as its own.
+    /// Resolves where a `List` keeps its backing array and live count from the
+    /// class hierarchy of the list object at the given address.
     ///
     /// This is the `await`able version of the
     /// [`get_list_offsets`](Self::get_list_offsets) function, yielding back

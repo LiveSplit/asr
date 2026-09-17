@@ -33,7 +33,7 @@ fn ptr(image: &mut [u8], at: u64, target: u64) {
 // reaching a UnityEngine class, static tables reachable through the vtables,
 // and a live object carrying its class through its vtable.
 fn image() -> Vec<u8> {
-    let mut i = vec![0; 0x4000];
+    let mut i = vec![0; 0x5000];
 
     // Strings, each 0x80 apart so a 128-byte name read stays in bounds.
     let strings = [
@@ -57,8 +57,12 @@ fn image() -> Vec<u8> {
         (0x2880, "_items"),
         (0x2900, "_size"),
         (0x2980, "_version"),
+        (0x2A00, "List`1"),
+        (0x2A80, "System.Collections.Generic"),
         (0x2B00, "Inventory"),
         (0x2B80, "items"),
+        (0x2C00, "EnemyList"),
+        (0x2C80, "ListLookalike"),
     ];
     for (at, text) in strings {
         put(&mut i, at, text.as_bytes());
@@ -203,6 +207,8 @@ fn image() -> Vec<u8> {
     // than the live count. A second object claims a count past the backing.
     let list_class = 0x3600;
     put(&mut i, list_class + 0x2A, &3_u8.to_le_bytes());
+    ptr(&mut i, list_class + 0x48, BASE + 0x2A00);
+    ptr(&mut i, list_class + 0x50, BASE + 0x2A80);
     ptr(&mut i, list_class + 0x98, BASE + 0x3800);
     ptr(&mut i, list_class + 0xF0, BASE + 0x3D00);
     ptr(&mut i, 0x3D00, BASE + 0x3D40); // descriptor: container_class at 0x0
@@ -241,6 +247,33 @@ fn image() -> Vec<u8> {
     ptr(&mut i, 0x3F00, BASE + 0x3900);
     ptr(&mut i, 0x3F08, BASE + 0x3B00);
     ptr(&mut i, 0x3F10, BASE + 0x3C00);
+
+    // A derived list inherits the two fields from List rather than declaring
+    // them again.
+    let derived_list = 0x4000;
+    ptr(&mut i, derived_list + 0x30, BASE + list_class);
+    ptr(&mut i, derived_list + 0x48, BASE + 0x2C00);
+    ptr(&mut i, derived_list + 0x50, BASE + 0x2180);
+    ptr(&mut i, 0x4100, BASE + derived_list);
+    ptr(&mut i, 0x4200, BASE + 0x4100);
+    ptr(&mut i, 0x4200 + 0x10, BASE + 0x3A00);
+    put(&mut i, 0x4200 + 0x18, &3_i32.to_le_bytes());
+    ptr(&mut i, 0x4F00, BASE + 0x4200);
+
+    // A lookalike carries fields with the same names but is not the corlib
+    // List class and must not be accepted as one.
+    let lookalike = 0x4300;
+    ptr(&mut i, lookalike + 0x48, BASE + 0x2C80);
+    ptr(&mut i, lookalike + 0x50, BASE + 0x2180);
+    ptr(&mut i, lookalike + 0x98, BASE + 0x4500);
+    put(&mut i, lookalike + 0x100, &2_i32.to_le_bytes());
+    ptr(&mut i, 0x4500 + 0x8, BASE + 0x2880);
+    put(&mut i, 0x4500 + 0x18, &0x10_i32.to_le_bytes());
+    ptr(&mut i, 0x4520 + 0x8, BASE + 0x2900);
+    put(&mut i, 0x4520 + 0x18, &0x18_i32.to_le_bytes());
+    ptr(&mut i, 0x4600, BASE + lookalike);
+    ptr(&mut i, 0x4700, BASE + 0x4600);
+    ptr(&mut i, 0x4F08, BASE + 0x4700);
 
     i
 }
@@ -457,13 +490,23 @@ fn static_instances_resolve_through_the_declaring_class() {
     });
 }
 
-// A list's backing array and live count resolve off the list object's own
-// class, and the read returns the live count's elements, never the backing
-// capacity's, which the buffer size does not judge.
+// A list's backing array and live count resolve off the corlib List class,
+// and the read returns the live count's elements, never the backing capacity's,
+// which the buffer size does not judge.
 #[test]
 fn lists_resolve_through_their_own_class() {
     on_fixture(era(), |process, module| {
         let at = Address::new(BASE + 0x3F00);
+        let offsets = module.get_list_offsets(process, at).unwrap();
+        let read = module.read_list::<i32, 4>(process, offsets, at).unwrap();
+        assert_eq!(read.as_slice(), [5, 6, 7]);
+    });
+}
+
+#[test]
+fn lists_derived_from_corlibs_list_resolve() {
+    on_fixture(era(), |process, module| {
+        let at = Address::new(BASE + 0x4F00);
         let offsets = module.get_list_offsets(process, at).unwrap();
         let read = module.read_list::<i32, 4>(process, offsets, at).unwrap();
         assert_eq!(read.as_slice(), [5, 6, 7]);
@@ -488,6 +531,9 @@ fn objects_that_are_not_lists_answer_nothing() {
     on_fixture(era(), |process, module| {
         assert!(module
             .get_list_offsets(process, Address::new(BASE + 0x3F10))
+            .is_none());
+        assert!(module
+            .get_list_offsets(process, Address::new(BASE + 0x4F08))
             .is_none());
     });
 }

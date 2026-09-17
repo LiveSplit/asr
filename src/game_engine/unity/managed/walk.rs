@@ -261,11 +261,24 @@ impl Walk {
     }
 
     /// Resolves where a list keeps its backing array and live count, off the
-    /// list object's own class. Corlib names both fields the same across
-    /// every generation the offsets tables cover; a class naming either
-    /// differently is not a list and misses cleanly.
+    /// `System.Collections.Generic.List` class in the object's parent chain.
+    /// Corlib names both fields the same across every generation the offsets
+    /// tables cover. This also supports classes derived from `List` without
+    /// accepting an unrelated class that happens to use the same field names.
     pub fn list_offsets(&self, process: &Process, object: Address) -> Option<ListOffsets> {
-        let class = self.object_class(process, object)?;
+        let mut class = self.object_class(process, object)?;
+
+        loop {
+            if self.class_name::<CSTR>(process, class)?.matches("List`1")
+                && self
+                    .class_namespace::<CSTR>(process, class)?
+                    .matches("System.Collections.Generic")
+            {
+                break;
+            }
+
+            class = self.parent(process, class)?;
+        }
 
         let field_count = self.runtime.field_count(process, self.pointer_size, class);
         let fields = process
