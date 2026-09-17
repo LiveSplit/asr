@@ -51,6 +51,11 @@ fn image(version: Version) -> Vec<u8> {
         (0x1A40, "System.Collections.Generic"),
         (0x1A80, "DerivedDictionary"),
         (0x1AC0, "DictionaryLookalike"),
+        (0x1B00, "_slots"),
+        (0x1B40, "_lastIndex"),
+        (0x1B80, "HashSet`1"),
+        (0x1BC0, "DerivedHashSet"),
+        (0x1C00, "HashSetLookalike"),
     ];
     for (at, text) in strings {
         put(&mut i, at, text.as_bytes());
@@ -106,6 +111,62 @@ fn image(version: Version) -> Vec<u8> {
             put(&mut i, at + 4 * word as u64, &value.to_le_bytes());
         }
     }
+
+    // A hash set, its slot class the entry class without the key claim: two
+    // live values around a freed slot, the high-water mark past the count.
+    ptr(&mut i, 0x20, BASE + 0x900);
+    ptr(&mut i, 0x900, BASE + 0xA00);
+    ptr(&mut i, 0xA00 + 0x10, BASE + 0x1B80);
+    ptr(&mut i, 0xA00 + 0x18, BASE + 0x1A40);
+    put(&mut i, 0xA00 + field_count_at, &4_u16.to_le_bytes());
+    ptr(&mut i, 0xA00 + 0x80, BASE + 0xB40);
+    field(&mut i, 0xB40, BASE + 0x1800, 0, 0x10);
+    field(&mut i, 0xB60, BASE + 0x1B00, BASE + 0x500, 0x18);
+    field(&mut i, 0xB80, BASE + 0x1880, 0, 0x20);
+    field(&mut i, 0xBA0, BASE + 0x1B40, 0, 0x24);
+    ptr(&mut i, 0x918, BASE + 0xC00);
+    put(&mut i, 0x920, &2_i32.to_le_bytes());
+    put(&mut i, 0x924, &3_i32.to_le_bytes());
+    put(&mut i, 0xC18, &4_u32.to_le_bytes());
+    for (index, entry) in [(111, -1, 0, 7), (-1, -1, 0, 0), (222, -1, 0, 9)]
+        .into_iter()
+        .enumerate()
+    {
+        let at = 0xC20 + 0x10 * index as u64;
+        let (hash, next, key, value): (i32, i32, i32, i32) = entry;
+        for (word, value) in [hash, next, key, value].into_iter().enumerate() {
+            put(&mut i, at + 4 * word as u64, &value.to_le_bytes());
+        }
+    }
+
+    // A derived hash set inherits the collection fields from the corlib
+    // HashSet class rather than declaring them itself.
+    ptr(&mut i, 0xD00 + 0x10, BASE + 0x1BC0);
+    ptr(&mut i, 0xD00 + 0x18, BASE + 0x1A40);
+    ptr(&mut i, 0xD00 + 0x58, BASE + 0xA00);
+    ptr(&mut i, 0xE00, BASE + 0xD00);
+    ptr(&mut i, 0xE00 + 0x18, BASE + 0xC00);
+    put(&mut i, 0xE00 + 0x20, &2_i32.to_le_bytes());
+    put(&mut i, 0xE00 + 0x24, &3_i32.to_le_bytes());
+    ptr(&mut i, 0x28, BASE + 0xE00);
+
+    // Matching private field names do not make an unrelated class a hash
+    // set.
+    ptr(&mut i, 0xF00 + 0x10, BASE + 0x1C00);
+    ptr(&mut i, 0xF00 + 0x18, BASE + 0x1A40);
+    put(&mut i, 0xF00 + field_count_at, &4_u16.to_le_bytes());
+    ptr(&mut i, 0xF00 + 0x80, BASE + 0x1040);
+    field(&mut i, 0x1040, BASE + 0x1800, 0, 0x10);
+    field(&mut i, 0x1060, BASE + 0x1B00, BASE + 0x500, 0x18);
+    field(&mut i, 0x1080, BASE + 0x1880, 0, 0x20);
+    field(&mut i, 0x10A0, BASE + 0x1B40, 0, 0x24);
+    ptr(&mut i, 0x1100, BASE + 0xF00);
+    ptr(&mut i, 0x30, BASE + 0x1100);
+
+    // A newly constructed hash set has zero counts and no backing slots
+    // array until its first insertion.
+    ptr(&mut i, 0x1200, BASE + 0xA00);
+    ptr(&mut i, 0x38, BASE + 0x1200);
 
     // A derived dictionary inherits the collection fields from the corlib
     // Dictionary class rather than declaring them itself.
@@ -214,6 +275,51 @@ fn dictionaries_without_allocated_backing_read_empty() {
             .read_dictionary::<i32, i32, 0>(process, offsets, slot)
             .unwrap();
         assert!(pairs.is_empty());
+    });
+}
+
+#[test]
+fn hash_sets_read_their_live_values() {
+    on_fixture(Version::V2019, |process, module| {
+        let slot = Address::new(BASE + 0x20);
+        let offsets = module.get_hash_set_offsets(process, slot).unwrap();
+        let values = module
+            .read_hash_set::<i32, 8>(process, offsets, slot)
+            .unwrap();
+        assert_eq!(values.as_slice(), [7, 9]);
+    });
+}
+
+#[test]
+fn hash_sets_derived_from_corlibs_hash_set_resolve() {
+    on_fixture(Version::V2019, |process, module| {
+        let slot = Address::new(BASE + 0x28);
+        let offsets = module.get_hash_set_offsets(process, slot).unwrap();
+        let values = module
+            .read_hash_set::<i32, 8>(process, offsets, slot)
+            .unwrap();
+        assert_eq!(values.as_slice(), [7, 9]);
+    });
+}
+
+#[test]
+fn hash_set_shaped_objects_are_not_hash_sets() {
+    on_fixture(Version::V2019, |process, module| {
+        assert!(module
+            .get_hash_set_offsets(process, Address::new(BASE + 0x30))
+            .is_none());
+    });
+}
+
+#[test]
+fn hash_sets_without_allocated_backing_read_empty() {
+    on_fixture(Version::V2019, |process, module| {
+        let slot = Address::new(BASE + 0x38);
+        let offsets = module.get_hash_set_offsets(process, slot).unwrap();
+        let values = module
+            .read_hash_set::<i32, 0>(process, offsets, slot)
+            .unwrap();
+        assert!(values.is_empty());
     });
 }
 

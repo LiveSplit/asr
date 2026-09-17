@@ -26,7 +26,7 @@ mod readers_tests;
 #[cfg(all(test, not(target_family = "wasm")))]
 mod walk_tests;
 
-use super::{managed, DictionaryOffsets, ListOffsets, ManagedString};
+use super::{managed, DictionaryOffsets, HashSetOffsets, ListOffsets, ManagedString};
 
 /// Represents access to a Unity game that is using the IL2CPP backend.
 pub struct Module {
@@ -409,6 +409,49 @@ impl Module {
         self.walk().dictionary_offsets(process, object)
     }
 
+    /// Resolves where a `HashSet` keeps its backing slots, live count, and
+    /// high-water mark, and how one slot lays out. The address must store a
+    /// managed reference to a `System.Collections.Generic.HashSet`;
+    /// subclasses are supported by finding that class in the object's
+    /// hierarchy.
+    ///
+    /// The answer is a small `Copy` value worth storing, like a field offset:
+    /// resolution walks class metadata, while reading it later costs only a
+    /// handful of process reads. The slot layout depends on the hash set's
+    /// concrete value type, so the result must only be reused for the same
+    /// hash set type.
+    ///
+    /// This returns `None` for objects that are not hash sets, targets still
+    /// initializing their metadata, and runtime profiles that lack the
+    /// additional layout metadata required for hash set resolution.
+    pub fn get_hash_set_offsets(&self, process: &Process, at: Address) -> Option<HashSetOffsets> {
+        let object = process
+            .read_pointer(at, self.pointer_size)
+            .ok()
+            .filter(|address| !address.is_null())?;
+
+        self.walk().hash_set_offsets(process, object)
+    }
+
+    /// Reads a managed `HashSet`'s live values through the reference stored
+    /// at the given address, with the offsets
+    /// [`get_hash_set_offsets`](Self::get_hash_set_offsets) resolved. The
+    /// walk runs to the high-water mark rather than the live count, since
+    /// freed slots sit inside it; `N` bounds the live values, and the live
+    /// tally has to balance against the count exactly or the read fails. The
+    /// value type is the caller's claim, as with
+    /// [`read_array`](Self::read_array). Managed references are read as
+    /// [`Address32`](crate::Address32) or [`Address64`](crate::Address64),
+    /// according to [`get_pointer_size`](Self::get_pointer_size).
+    pub fn read_hash_set<T: CheckedBitPattern, const N: usize>(
+        &self,
+        process: &Process,
+        offsets: HashSetOffsets,
+        at: Address,
+    ) -> Result<ArrayVec<T, N>, Error> {
+        managed::read_hash_set(process, self.pointer_size, offsets, at)
+    }
+
     /// Reads a managed `Dictionary`'s live pairs through the reference
     /// stored at the given address, with the offsets
     /// [`get_dictionary_offsets`](Self::get_dictionary_offsets) resolved.
@@ -523,6 +566,23 @@ impl Module {
         at: Address,
     ) -> DictionaryOffsets {
         retry(|| self.get_dictionary_offsets(process, at)).await
+    }
+
+    /// Resolves where a `HashSet` keeps its backing slots, live count, and
+    /// high-water mark, and how one slot lays out from the hash set's class
+    /// hierarchy.
+    ///
+    /// This is the `await`able version of the
+    /// [`get_hash_set_offsets`](Self::get_hash_set_offsets) function,
+    /// yielding back to the runtime between each try. This waits indefinitely
+    /// if the active runtime profile lacks the layout metadata needed for
+    /// hash set resolution.
+    pub async fn wait_get_hash_set_offsets(
+        &self,
+        process: &Process,
+        at: Address,
+    ) -> HashSetOffsets {
+        retry(|| self.get_hash_set_offsets(process, at)).await
     }
 }
 

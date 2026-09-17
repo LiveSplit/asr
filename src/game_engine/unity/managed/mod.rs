@@ -16,8 +16,8 @@ mod walk;
 pub use cursor::{Assemblies, Classes};
 pub use pointer::PointerPath;
 pub use readers::{
-    read_array, read_dictionary, read_list, read_string, DictionaryOffsets, EntryLayout,
-    ListOffsets,
+    read_array, read_dictionary, read_hash_set, read_list, read_string, DictionaryOffsets,
+    EntryLayout, HashSetOffsets, ListOffsets, SlotLayout,
 };
 pub use runtime::{Il2CppRuntime, MonoRuntime, Runtime};
 pub use string::ManagedString;

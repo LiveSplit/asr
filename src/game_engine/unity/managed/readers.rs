@@ -145,13 +145,53 @@ fn freed(hash: u32, next: i32) -> bool {
 
 /// What a member may span before it runs into the member behind it, or the
 /// entry's end.
-fn room(layout: &EntryLayout, member: u32) -> u32 {
-    [layout.hash, layout.next, layout.key, layout.value]
-        .into_iter()
+fn room(members: &[u32], stride: u32, member: u32) -> u32 {
+    members
+        .iter()
+        .copied()
         .filter(|&other| other > member)
         .min()
-        .unwrap_or(layout.stride)
+        .unwrap_or(stride)
         - member
+}
+
+/// Walks the counted entries in chunks of the scratch, handing each live
+/// one's bytes on and skipping the freed by their marks.
+fn scan_entries(
+    process: &Process,
+    elements: Address,
+    total: usize,
+    stride: usize,
+    hash: u32,
+    next: u32,
+    mut live: impl FnMut(&[u8]) -> Result<(), Error>,
+) -> Result<(), Error> {
+    let per_chunk = ENTRY_SCRATCH / stride;
+    let mut scratch = [0; ENTRY_SCRATCH];
+
+    let mut index = 0;
+    while index < total {
+        let taken = per_chunk.min(total - index);
+        let bytes = &mut scratch[..taken * stride];
+        process.read_into_slice(elements + (index * stride) as u64, bytes)?;
+
+        for entry in bytes.chunks_exact(stride) {
+            let word = |member: u32| {
+                let member = member as usize;
+                entry[member..member + 4].try_into().expect("four bytes")
+            };
+            if !freed(
+                u32::from_le_bytes(word(hash)),
+                i32::from_le_bytes(word(next)),
+            ) {
+                live(entry)?;
+            }
+        }
+
+        index += taken;
+    }
+
+    Ok(())
 }
 
 /// Reads a managed dictionary's live pairs through the reference stored at
@@ -168,8 +208,9 @@ pub fn read_dictionary<K: CheckedBitPattern, V: CheckedBitPattern, const N: usiz
     at: Address,
 ) -> Result<ArrayVec<(K, V), N>, Error> {
     let layout = &offsets.layout;
-    if size_of::<K>() as u32 > room(layout, layout.key)
-        || size_of::<V>() as u32 > room(layout, layout.value)
+    let members = [layout.hash, layout.next, layout.key, layout.value];
+    if size_of::<K>() as u32 > room(&members, layout.stride, layout.key)
+        || size_of::<V>() as u32 > room(&members, layout.stride, layout.value)
     {
         return Err(Error {});
     }
@@ -212,39 +253,124 @@ pub fn read_dictionary<K: CheckedBitPattern, V: CheckedBitPattern, const N: usiz
         return Err(Error {});
     }
 
-    // The entries bulk-read in chunks of the scratch, each entry judged by
-    // its marks and its pair lifted out element-wise.
-    let elements = entries + header + 2 * pointer_size as u64;
-    let stride = layout.stride as usize;
-    let per_chunk = ENTRY_SCRATCH / stride;
-    let mut scratch = [0; ENTRY_SCRATCH];
-
     let mut out = ArrayVec::new();
-    let mut index = 0;
-    while index < count as usize {
-        let taken = per_chunk.min(count as usize - index);
-        let bytes = &mut scratch[..taken * stride];
-        process.read_into_slice(elements + (index * stride) as u64, bytes)?;
-
-        for entry in bytes.chunks_exact(stride) {
+    scan_entries(
+        process,
+        entries + header + 2 * pointer_size as u64,
+        count as usize,
+        layout.stride as usize,
+        layout.hash,
+        layout.next,
+        |entry| {
             let at = |member: u32, len: usize| &entry[member as usize..member as usize + len];
-            let hash = u32::from_le_bytes(at(layout.hash, 4).try_into().expect("four bytes"));
-            let next = i32::from_le_bytes(at(layout.next, 4).try_into().expect("four bytes"));
-            if freed(hash, next) {
-                continue;
-            }
-
             let key = bytemuck::checked::try_pod_read_unaligned(at(layout.key, size_of::<K>()))
                 .map_err(|_| Error {})?;
             let value = bytemuck::checked::try_pod_read_unaligned(at(layout.value, size_of::<V>()))
                 .map_err(|_| Error {})?;
-            out.try_push((key, value)).map_err(|_| Error {})?;
-        }
-
-        index += taken;
-    }
+            out.try_push((key, value)).map_err(|_| Error {})
+        },
+    )?;
 
     if out.len() != live {
+        return Err(Error {});
+    }
+    Ok(out)
+}
+
+/// How one hash set slot lays out, measured from the slot's own start: the
+/// entry layout without a key.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct SlotLayout {
+    pub(crate) stride: u32,
+    pub(crate) hash: u32,
+    pub(crate) next: u32,
+    pub(crate) value: u32,
+}
+
+/// Where a hash set keeps its backing slots, live count, and high-water
+/// mark, and how one slot lays out, resolved once from the set's class
+/// hierarchy and held by the caller, so the per-tick read costs reads rather
+/// than a metadata walk. The slot layout depends on the concrete value type,
+/// so offsets must only be reused for the same hash set type.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct HashSetOffsets {
+    pub(crate) slots: u32,
+    pub(crate) count: u32,
+    pub(crate) last_index: u32,
+    pub(crate) layout: SlotLayout,
+}
+
+/// Reads a managed hash set's live values through the reference stored at
+/// the given address, with the offsets a resolution handed out earlier.
+/// The walk runs to the high-water mark rather than the live count, since
+/// freed slots sit inside it; the buffer judges the live values, and the
+/// live tally has to balance against the count exactly. The value type is
+/// the caller's claim, refused where it outgrows the slot's room.
+pub fn read_hash_set<T: CheckedBitPattern, const N: usize>(
+    process: &Process,
+    pointer_size: PointerSize,
+    offsets: HashSetOffsets,
+    at: Address,
+) -> Result<ArrayVec<T, N>, Error> {
+    let layout = &offsets.layout;
+    let members = [layout.hash, layout.next, layout.value];
+    if size_of::<T>() as u32 > room(&members, layout.stride, layout.value) {
+        return Err(Error {});
+    }
+
+    let object = process
+        .read_pointer(at, pointer_size)
+        .ok()
+        .filter(|address| !address.is_null())
+        .ok_or(Error {})?;
+
+    let count = process.read::<i32>(object + offsets.count)?;
+    let last = process.read::<i32>(object + offsets.last_index)?;
+    let (count, last) = match (u32::try_from(count), u32::try_from(last)) {
+        (Ok(count), Ok(last)) if count <= last && last <= MOST_ENTRIES => (count, last),
+        _ => return Err(Error {}),
+    };
+    if count as usize > N {
+        return Err(Error {});
+    }
+
+    // A hash set constructed without capacity has no backing arrays until
+    // its first insertion. That is the canonical empty representation, not
+    // an unreadable hash set.
+    if last == 0 {
+        return Ok(ArrayVec::new());
+    }
+
+    let slots = process
+        .read_pointer(object + offsets.slots, pointer_size)
+        .ok()
+        .filter(|address| !address.is_null())
+        .ok_or(Error {})?;
+
+    let header = object_header(pointer_size);
+    let backing = process
+        .read_pointer(slots + header + pointer_size as u64, pointer_size)?
+        .value();
+    if u64::from(last) > backing {
+        return Err(Error {});
+    }
+
+    let mut out = ArrayVec::new();
+    scan_entries(
+        process,
+        slots + header + 2 * pointer_size as u64,
+        last as usize,
+        layout.stride as usize,
+        layout.hash,
+        layout.next,
+        |slot| {
+            let bytes = &slot[layout.value as usize..layout.value as usize + size_of::<T>()];
+            let value = bytemuck::checked::try_pod_read_unaligned(bytes).map_err(|_| Error {})?;
+            out.try_push(value).map_err(|_| Error {})
+        },
+    )?;
+
+    if out.len() != count as usize {
         return Err(Error {});
     }
     Ok(out)
