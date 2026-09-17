@@ -3,6 +3,7 @@
 
 #[cfg(feature = "alloc")]
 use crate::file_format::macho;
+use arrayvec::ArrayVec;
 use bytemuck::CheckedBitPattern;
 
 use crate::{
@@ -29,7 +30,7 @@ mod readers_tests;
 #[cfg(all(test, not(target_family = "wasm")))]
 mod walk_tests;
 
-use super::{managed, BinaryFormat, ManagedArray, ManagedString};
+use super::{managed, BinaryFormat, ManagedString};
 
 /// Represents access to a Unity game that is using the standard Mono backend.
 pub struct Module {
@@ -351,7 +352,7 @@ impl Module {
 
     /// Reads a managed array of value elements through the reference stored
     /// at the given address. The array carries its own length, so no count
-    /// is passed; `N` bounds how many elements the returned [`ManagedArray`]
+    /// is passed; `N` bounds how many elements the returned [`ArrayVec`]
     /// holds, and an array claiming more than that fails rather than
     /// truncates, as does a null reference. The element type is the caller's
     /// claim and has to match the target's own element layout: a managed
@@ -361,7 +362,7 @@ impl Module {
         &self,
         process: &Process,
         at: Address,
-    ) -> Result<ManagedArray<T, N>, Error> {
+    ) -> Result<ArrayVec<T, N>, Error> {
         managed::read_array(process, self.pointer_size, at)
     }
 

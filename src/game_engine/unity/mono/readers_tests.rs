@@ -2,7 +2,6 @@
 //! objects. The readers are pointer-size ABI, not walk work, so the fixtures
 //! are tiny blobs rather than the walk's class fixtures.
 
-use super::super::ManagedArray;
 use super::{BinaryFormat, Module, MonoOffsets, Version};
 use crate::runtime::mock::with_process;
 use crate::{Address, PointerSize, Process};
@@ -150,14 +149,8 @@ fn arrays_resolve_through_their_reference() {
         assert_eq!(read.as_slice(), [7, 8, 9]);
         assert_eq!(read.len(), 3);
         assert_eq!(read[1], 8);
-        assert_eq!(
-            read,
-            ManagedArray::<i32, 8>::from_elements(&[7, 8, 9]).unwrap()
-        );
-        assert_ne!(
-            read,
-            ManagedArray::<i32, 8>::from_elements(&[7, 8]).unwrap()
-        );
+        assert_eq!(read.as_slice(), [7, 8, 9]);
+        assert_ne!(read.as_slice(), [7, 8]);
     });
 }
 

@@ -1,7 +1,8 @@
+use arrayvec::ArrayVec;
 use bytemuck::CheckedBitPattern;
 use core::mem::MaybeUninit;
 
-use super::{ManagedArray, ManagedString};
+use super::ManagedString;
 use crate::{Address, Error, PointerSize, Process};
 
 /// How many bytes a managed object's two header words occupy. The readers
@@ -51,7 +52,7 @@ pub fn read_array<T: CheckedBitPattern, const N: usize>(
     process: &Process,
     pointer_size: PointerSize,
     at: Address,
-) -> Result<ManagedArray<T, N>, Error> {
+) -> Result<ArrayVec<T, N>, Error> {
     let object = process
         .read_pointer(at, pointer_size)
         .ok()
@@ -78,5 +79,9 @@ pub fn read_array<T: CheckedBitPattern, const N: usize>(
         &mut elements[..length],
     )?;
 
-    ManagedArray::from_elements(elements).ok_or(Error {})
+    let mut array = ArrayVec::new();
+    array
+        .try_extend_from_slice(elements)
+        .map_err(|_| Error {})?;
+    Ok(array)
 }
