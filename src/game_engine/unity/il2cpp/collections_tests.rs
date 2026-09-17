@@ -3,6 +3,7 @@
 //! generic instance reached through the instantiation's cached class, which
 //! is the route every corlib dictionary takes.
 
+use super::super::managed::DictionaryShape;
 use super::{IL2CPPOffsets, Module, Version};
 use crate::runtime::mock::with_process;
 use crate::{Address, PointerSize, Process};
@@ -219,14 +220,23 @@ fn dictionaries_resolve_through_the_cached_class() {
         let offsets = module
             .get_dictionary_offsets(process, Address::new(BASE))
             .unwrap();
-        assert_eq!(offsets.entries, 0x18);
-        assert_eq!(offsets.count, 0x20);
-        assert_eq!(offsets.free_count, 0x24);
-        assert_eq!(offsets.layout.stride, 0x10);
-        assert_eq!(offsets.layout.hash, 0x0);
-        assert_eq!(offsets.layout.next, 0x4);
-        assert_eq!(offsets.layout.key, 0x8);
-        assert_eq!(offsets.layout.value, 0xC);
+        let DictionaryShape::Entries {
+            entries,
+            count,
+            free_count,
+            layout,
+        } = offsets.shape
+        else {
+            panic!("the entries shape resolves");
+        };
+        assert_eq!(entries, 0x18);
+        assert_eq!(count, 0x20);
+        assert_eq!(free_count, 0x24);
+        assert_eq!(layout.stride, 0x10);
+        assert_eq!(layout.hash, 0x0);
+        assert_eq!(layout.next, 0x4);
+        assert_eq!(layout.key, 0x8);
+        assert_eq!(layout.value, 0xC);
     });
 }
 
