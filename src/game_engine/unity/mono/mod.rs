@@ -3,12 +3,15 @@
 
 #[cfg(feature = "alloc")]
 use crate::file_format::macho;
+use arrayvec::ArrayVec;
+use bytemuck::CheckedBitPattern;
+
 use crate::{
     file_format::{elf, pe},
     future::retry,
     print_limited,
     signature::Signature,
-    Address, Address32, PointerSize, Process,
+    Address, Address32, Error, PointerSize, Process,
 };
 
 mod builds;
@@ -23,9 +26,11 @@ pub use pointer::UnityPointer;
 mod offsets;
 use offsets::MonoOffsets;
 #[cfg(all(test, not(target_family = "wasm")))]
+mod readers_tests;
+#[cfg(all(test, not(target_family = "wasm")))]
 mod walk_tests;
 
-use super::{managed, BinaryFormat};
+use super::{managed, BinaryFormat, ManagedString};
 
 /// Represents access to a Unity game that is using the standard Mono backend.
 pub struct Module {
@@ -327,6 +332,38 @@ impl Module {
     /// `Assembly-CSharp` [image](Image).
     pub fn get_default_image(&self, process: &Process) -> Option<Image> {
         self.get_image(process, "Assembly-CSharp")
+    }
+
+    /// Reads a managed string through the reference stored at the given
+    /// address, such as the end of a pointer path or a slot in a static
+    /// table. The string carries its own character count, so no length is
+    /// passed, and the returned [`ManagedString`] holds exactly that many
+    /// UTF-16 units, a nul character among them like any other. `N` bounds
+    /// how many units the string holds, and a string claiming more than that
+    /// fails rather than truncates, as do a negative count and a null
+    /// reference.
+    pub fn read_string<const N: usize>(
+        &self,
+        process: &Process,
+        at: Address,
+    ) -> Result<ManagedString<N>, Error> {
+        managed::read_string(process, self.pointer_size, at)
+    }
+
+    /// Reads a managed array of value elements through the reference stored
+    /// at the given address. The array carries its own length, so no count
+    /// is passed; `N` bounds how many elements the returned [`ArrayVec`]
+    /// holds, and an array claiming more than that fails rather than
+    /// truncates, as does a null reference. The element type is the caller's
+    /// claim and has to match the target's own element layout: a managed
+    /// `char` is a `u16` here, a `bool` a single byte, and Rust's `char` and
+    /// `usize` never match. Reference elements have no portable claim.
+    pub fn read_array<T: CheckedBitPattern, const N: usize>(
+        &self,
+        process: &Process,
+        at: Address,
+    ) -> Result<ArrayVec<T, N>, Error> {
+        managed::read_array(process, self.pointer_size, at)
     }
 
     /// Attaches to a Unity game that is using the standard Mono backend. This

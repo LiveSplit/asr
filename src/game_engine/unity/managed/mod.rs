@@ -8,12 +8,16 @@
 
 mod cursor;
 mod pointer;
+mod readers;
 mod runtime;
+mod string;
 mod walk;
 
 pub use cursor::{Assemblies, Classes};
 pub use pointer::PointerPath;
+pub use readers::{read_array, read_string};
 pub use runtime::{Il2CppRuntime, MonoRuntime, Runtime};
+pub use string::ManagedString;
 pub use walk::Walk;
 
 use crate::{string::ArrayCString, Address, PointerSize, Process};
