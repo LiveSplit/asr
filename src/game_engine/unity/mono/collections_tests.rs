@@ -3,6 +3,7 @@
 //! live object and walks classes and fields only, so the fixtures stay their
 //! own small blobs.
 
+use super::super::managed::{DictionaryShape, SetShape};
 use super::{BinaryFormat, Module, MonoOffsets, Version};
 use crate::runtime::mock::with_process;
 use crate::{Address, PointerSize, Process};
@@ -76,9 +77,11 @@ fn object(image: &mut [u8], at: u64, vtable: u64, class: u64) {
 }
 
 fn image() -> Vec<u8> {
-    let mut i = vec![0; 0x4000];
+    let mut i = vec![0; 0x5000];
 
     let strings = [
+        (0x1F00, "Next"),
+        (0x1F40, "links"),
         (0x2000, "_buckets"),
         (0x2040, "_entries"),
         (0x2080, "_count"),
@@ -108,6 +111,10 @@ fn image() -> Vec<u8> {
         (0x2680, "HashSet`1"),
         (0x26C0, "DerivedHashSet"),
         (0x2700, "HashSetLookalike"),
+        (0x4C00, "touchedSlots"),
+        (0x4C40, "HashCode"),
+        (0x4C80, "slots"),
+        (0x4CC0, "touched"),
     ];
     for (at, text) in strings {
         put(&mut i, at, text.as_bytes());
@@ -131,6 +138,9 @@ fn image() -> Vec<u8> {
     ptr(&mut i, 0x58, BASE + 0x3800);
     ptr(&mut i, 0x60, BASE + 0x3C00);
     ptr(&mut i, 0x68, BASE + 0x3D00);
+    ptr(&mut i, 0x70, BASE + 0x4000);
+    ptr(&mut i, 0x78, BASE + 0x4800);
+    ptr(&mut i, 0x80, BASE + 0x4B00);
 
     // The healthy dictionary in the modern naming generation: its entries
     // field's type is a SzArray whose data names the entry class directly.
@@ -270,6 +280,74 @@ fn image() -> Vec<u8> {
     // array until its first insertion.
     object(&mut i, 0x3D00, 0x3D40, 0x3000);
 
+    // The oldest corlib's parallel-arrays dictionary: four arrays side by
+    // side, links carrying the live flag in their stored hashes, and a Link
+    // class saying which of its two ints is which.
+    object(&mut i, 0x4000, 0x4040, 0x4100);
+    ptr(&mut i, 0x4100 + 0x48, BASE + 0x2400);
+    ptr(&mut i, 0x4100 + 0x50, BASE + 0x2440);
+    put(&mut i, 0x4100 + 0x100, &6_i32.to_le_bytes());
+    ptr(&mut i, 0x4100 + 0x98, BASE + 0x4240);
+    field(&mut i, 0x4240, 0, BASE + 0x2300, 0x10); // table
+    field(&mut i, 0x4260, BASE + 0x4300, BASE + 0x2340, 0x18); // linkSlots
+    field(&mut i, 0x4280, 0, BASE + 0x2380, 0x20); // keySlots
+    field(&mut i, 0x42A0, 0, BASE + 0x23C0, 0x28); // valueSlots
+    field(&mut i, 0x42C0, 0, BASE + 0x4C00, 0x30); // touchedSlots
+    field(&mut i, 0x42E0, 0, BASE + 0x2280, 0x34); // count
+    ptr(&mut i, 0x4300, BASE + 0x4400); // the links' type: SzArray of Link
+    put(&mut i, 0x430A, &[0x1D]);
+    put(&mut i, 0x4400 + 0x1C, &0x18_i32.to_le_bytes());
+    put(&mut i, 0x4400 + 0x100, &2_i32.to_le_bytes());
+    ptr(&mut i, 0x4400 + 0x98, BASE + 0x4540);
+    field(&mut i, 0x4540, 0, BASE + 0x4C40, 0x10); // HashCode
+    field(&mut i, 0x4560, 0, BASE + 0x1F00, 0x14); // Next
+
+    ptr(&mut i, 0x4018, BASE + 0x4600);
+    ptr(&mut i, 0x4020, BASE + 0x4680);
+    ptr(&mut i, 0x4028, BASE + 0x4700);
+    put(&mut i, 0x4030, &3_i32.to_le_bytes());
+    put(&mut i, 0x4034, &2_i32.to_le_bytes());
+    put(&mut i, 0x4618, &4_u32.to_le_bytes());
+    for (index, hash) in [0x8000_0001_u32, 0x0000_0002, 0x8000_0003]
+        .into_iter()
+        .enumerate()
+    {
+        put(&mut i, 0x4620 + 8 * index as u64, &hash.to_le_bytes());
+        put(&mut i, 0x4624 + 8 * index as u64, &(-1_i32).to_le_bytes());
+    }
+    put(&mut i, 0x4698, &4_u32.to_le_bytes());
+    for (index, key) in [10_i32, 99, 20].into_iter().enumerate() {
+        put(&mut i, 0x46A0 + 4 * index as u64, &key.to_le_bytes());
+    }
+    put(&mut i, 0x4718, &4_u32.to_le_bytes());
+    for (index, value) in [100_i32, 999, 200].into_iter().enumerate() {
+        put(&mut i, 0x4720 + 4 * index as u64, &value.to_le_bytes());
+    }
+
+    // The parallel hash set, sharing the links and reusing the key array as
+    // its values.
+    object(&mut i, 0x4800, 0x4840, 0x4900);
+    ptr(&mut i, 0x4900 + 0x48, BASE + 0x2680);
+    ptr(&mut i, 0x4900 + 0x50, BASE + 0x2440);
+    put(&mut i, 0x4900 + 0x100, &5_i32.to_le_bytes());
+    ptr(&mut i, 0x4900 + 0x98, BASE + 0x4A40);
+    field(&mut i, 0x4A40, 0, BASE + 0x2300, 0x10); // table
+    field(&mut i, 0x4A60, BASE + 0x4300, BASE + 0x1F40, 0x18); // links
+    field(&mut i, 0x4A80, 0, BASE + 0x4C80, 0x20); // slots
+    field(&mut i, 0x4AA0, 0, BASE + 0x4CC0, 0x28); // touched
+    field(&mut i, 0x4AC0, 0, BASE + 0x2280, 0x2C); // count
+    ptr(&mut i, 0x4818, BASE + 0x4600);
+    ptr(&mut i, 0x4820, BASE + 0x4680);
+    put(&mut i, 0x4828, &3_i32.to_le_bytes());
+    put(&mut i, 0x482C, &2_i32.to_le_bytes());
+
+    // A parallel set claiming three live values over the same two.
+    object(&mut i, 0x4B00, 0x4B40, 0x4900);
+    ptr(&mut i, 0x4B18, BASE + 0x4600);
+    ptr(&mut i, 0x4B20, BASE + 0x4680);
+    put(&mut i, 0x4B28, &3_i32.to_le_bytes());
+    put(&mut i, 0x4B2C, &3_i32.to_le_bytes());
+
     i
 }
 
@@ -302,14 +380,23 @@ fn dictionaries_resolve_in_both_naming_generations() {
         for at in [BASE, BASE + 0x8] {
             let slot = Address::new(at);
             let offsets = module.get_dictionary_offsets(process, slot).unwrap();
-            assert_eq!(offsets.entries, 0x18);
-            assert_eq!(offsets.count, 0x20);
-            assert_eq!(offsets.free_count, 0x24);
-            assert_eq!(offsets.layout.stride, 0x10);
-            assert_eq!(offsets.layout.hash, 0x0);
-            assert_eq!(offsets.layout.next, 0x4);
-            assert_eq!(offsets.layout.key, 0x8);
-            assert_eq!(offsets.layout.value, 0xC);
+            let DictionaryShape::Entries {
+                entries,
+                count,
+                free_count,
+                layout,
+            } = offsets.shape
+            else {
+                panic!("the entries shape resolves");
+            };
+            assert_eq!(entries, 0x18);
+            assert_eq!(count, 0x20);
+            assert_eq!(free_count, 0x24);
+            assert_eq!(layout.stride, 0x10);
+            assert_eq!(layout.hash, 0x0);
+            assert_eq!(layout.next, 0x4);
+            assert_eq!(layout.key, 0x8);
+            assert_eq!(layout.value, 0xC);
         }
     });
 }
@@ -441,13 +528,22 @@ fn hash_sets_resolve_in_both_naming_generations() {
         for at in [BASE + 0x40, BASE + 0x48] {
             let slot = Address::new(at);
             let offsets = module.get_hash_set_offsets(process, slot).unwrap();
-            assert_eq!(offsets.slots, 0x18);
-            assert_eq!(offsets.count, 0x20);
-            assert_eq!(offsets.last_index, 0x24);
-            assert_eq!(offsets.layout.stride, 0x10);
-            assert_eq!(offsets.layout.hash, 0x0);
-            assert_eq!(offsets.layout.next, 0x4);
-            assert_eq!(offsets.layout.value, 0xC);
+            let SetShape::Slots {
+                slots,
+                count,
+                last_index,
+                layout,
+            } = offsets.shape
+            else {
+                panic!("the slots shape resolves");
+            };
+            assert_eq!(slots, 0x18);
+            assert_eq!(count, 0x20);
+            assert_eq!(last_index, 0x24);
+            assert_eq!(layout.stride, 0x10);
+            assert_eq!(layout.hash, 0x0);
+            assert_eq!(layout.next, 0x4);
+            assert_eq!(layout.value, 0xC);
         }
     });
 }
@@ -477,6 +573,32 @@ fn unbalanced_set_tallies_refuse() {
     });
 }
 
+// The oldest corlib's dictionary keeps four arrays side by side; the same
+// call resolves it and the same call reads it.
+#[test]
+fn parallel_dictionaries_resolve_and_read() {
+    on_fixture(|process, module| {
+        let slot = Address::new(BASE + 0x70);
+        let offsets = module.get_dictionary_offsets(process, slot).unwrap();
+        let pairs = module
+            .read_dictionary::<i32, i32, 8>(process, offsets, slot)
+            .unwrap();
+        assert_eq!(pairs.as_slice(), [(10, 100), (20, 200)]);
+    });
+}
+
+#[test]
+fn parallel_hash_sets_resolve_and_read() {
+    on_fixture(|process, module| {
+        let slot = Address::new(BASE + 0x78);
+        let offsets = module.get_hash_set_offsets(process, slot).unwrap();
+        let values = module
+            .read_hash_set::<i32, 8>(process, offsets, slot)
+            .unwrap();
+        assert_eq!(values.as_slice(), [10, 20]);
+    });
+}
+
 #[test]
 fn hash_sets_derived_from_corlibs_hash_set_resolve() {
     on_fixture(|process, module| {
@@ -486,6 +608,17 @@ fn hash_sets_derived_from_corlibs_hash_set_resolve() {
             .read_hash_set::<i32, 8>(process, offsets, slot)
             .unwrap();
         assert_eq!(values.as_slice(), [7, 9]);
+    });
+}
+
+#[test]
+fn unbalanced_parallel_tallies_refuse() {
+    on_fixture(|process, module| {
+        let slot = Address::new(BASE + 0x80);
+        let offsets = module.get_hash_set_offsets(process, slot).unwrap();
+        assert!(module
+            .read_hash_set::<i32, 8>(process, offsets, slot)
+            .is_err());
     });
 }
 

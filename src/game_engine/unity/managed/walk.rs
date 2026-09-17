@@ -1,5 +1,5 @@
 use super::super::{get_backing_name, CSTR};
-use super::readers::ENTRY_SCRATCH;
+use super::readers::{DictionaryShape, SetShape, ENTRY_SCRATCH, LINK_STRIDE};
 use super::{
     ClassRef, ClimbStop, DictionaryOffsets, EntryLayout, FieldRef, HashSetOffsets, ImageRef,
     ListOffsets, Runtime, SlotLayout, WalkOffsets,
@@ -325,27 +325,54 @@ impl Walk {
         process: &Process,
         object: Address,
     ) -> Option<DictionaryOffsets> {
-        let (fields, stride, [hash, next, key, value]) = self.collection_shape(
+        let class = self.corlib_class(process, object, "Dictionary`2")?;
+
+        if let Some((fields, stride, [hash, next, key, value])) = self.collection_shape(
             process,
-            object,
-            "Dictionary`2",
+            class,
             [
                 ["_buckets", "_entries", "_count", "_freeCount"],
                 ["buckets", "entries", "count", "freeCount"],
             ],
             ["hashCode", "next", "key", "value"],
-        )?;
+        ) {
+            return Some(DictionaryOffsets {
+                shape: DictionaryShape::Entries {
+                    entries: fields[1],
+                    count: fields[2],
+                    free_count: fields[3],
+                    layout: EntryLayout {
+                        stride,
+                        hash,
+                        next,
+                        key,
+                        value,
+                    },
+                },
+            });
+        }
 
+        let (fields, link_hash) = self.parallel_shape(
+            process,
+            class,
+            [
+                "table",
+                "linkSlots",
+                "keySlots",
+                "valueSlots",
+                "touchedSlots",
+                "count",
+            ],
+            1,
+        )?;
         Some(DictionaryOffsets {
-            entries: fields[1],
-            count: fields[2],
-            free_count: fields[3],
-            layout: EntryLayout {
-                stride,
-                hash,
-                next,
-                key,
-                value,
+            shape: DictionaryShape::Parallel {
+                link_slots: fields[1],
+                key_slots: fields[2],
+                value_slots: fields[3],
+                touched: fields[4],
+                count: fields[5],
+                link_hash,
             },
         })
     }
@@ -357,64 +384,146 @@ impl Walk {
     /// are one-based in both naming generations, unlike the dictionary's
     /// split, though nothing here reads them.
     pub fn hash_set_offsets(&self, process: &Process, object: Address) -> Option<HashSetOffsets> {
-        let (fields, stride, [hash, next, value]) = self.collection_shape(
+        let class = self.corlib_class(process, object, "HashSet`1")?;
+
+        if let Some((fields, stride, [hash, next, value])) = self.collection_shape(
             process,
-            object,
-            "HashSet`1",
+            class,
             [
                 ["_buckets", "_slots", "_count", "_lastIndex"],
                 ["m_buckets", "m_slots", "m_count", "m_lastIndex"],
             ],
             ["hashCode", "next", "value"],
-        )?;
+        ) {
+            return Some(HashSetOffsets {
+                shape: SetShape::Slots {
+                    slots: fields[1],
+                    count: fields[2],
+                    last_index: fields[3],
+                    layout: SlotLayout {
+                        stride,
+                        hash,
+                        next,
+                        value,
+                    },
+                },
+            });
+        }
 
+        let (fields, link_hash) = self.parallel_shape(
+            process,
+            class,
+            ["table", "links", "slots", "touched", "count"],
+            1,
+        )?;
         Some(HashSetOffsets {
-            slots: fields[1],
-            count: fields[2],
-            last_index: fields[3],
-            layout: SlotLayout {
-                stride,
-                hash,
-                next,
-                value,
+            shape: SetShape::Parallel {
+                links: fields[1],
+                slots: fields[2],
+                touched: fields[3],
+                count: fields[4],
+                link_hash,
             },
         })
     }
 
-    // The shape the keyed collections share: the corlib class found in the
-    // object's parent chain, so a derived collection resolves and a lookalike
-    // with the same field names does not; four named fields on that class,
-    // the second the backing array, whose element class arrives through the
-    // field's type; the stride from that class's instance size, boxed header
-    // removed; and the named members folded by the header, since their
-    // offsets are recorded as if boxed. The first two members are the int
-    // words and end inside the stride; the rest are element slots and start
-    // inside it. A target still starting up answers nothing rather than a
-    // wrong shape.
-    fn collection_shape<const MEMBERS: usize>(
-        &self,
-        process: &Process,
-        object: Address,
-        corlib_class: &str,
-        generations: [[&str; 4]; 2],
-        member_names: [&str; MEMBERS],
-    ) -> Option<([u32; 4], u32, [u32; MEMBERS])> {
+    // The corlib collection class of the given name in the object's parent
+    // chain, so a derived collection resolves and a lookalike with the same
+    // field names does not.
+    fn corlib_class(&self, process: &Process, object: Address, name: &str) -> Option<ClassRef> {
         let mut class = self.object_class(process, object)?;
 
         loop {
-            if self
-                .class_name::<CSTR>(process, class)?
-                .matches(corlib_class)
+            if self.class_name::<CSTR>(process, class)?.matches(name)
                 && self
                     .class_namespace::<CSTR>(process, class)?
                     .matches("System.Collections.Generic")
             {
-                break;
+                return Some(class);
             }
 
             class = self.parent(process, class)?;
         }
+    }
 
+    // The oldest corlib's parallel-arrays shape: the named fields on the
+    // collection's class, the Link element class through the links field's
+    // type, and which of the link's two ints holds the stored hash. The
+    // link has to be exactly two ints, in either order.
+    fn parallel_shape<const FIELDS: usize>(
+        &self,
+        process: &Process,
+        class: ClassRef,
+        names: [&str; FIELDS],
+        links_index: usize,
+    ) -> Option<([u32; FIELDS], u32)> {
+        let mut found = [None; FIELDS];
+        let mut links = None;
+        self.each_own_field(process, class, |name, field, offset| {
+            for (slot, member) in names.into_iter().enumerate() {
+                if name.matches(member) {
+                    found[slot] = Some(offset);
+                    if slot == links_index {
+                        links = Some(field);
+                    }
+                }
+            }
+        });
+        if found.iter().any(Option::is_none) {
+            return None;
+        }
+        let fields = found.map(|offset| offset.expect("checked above"));
+
+        let link_type = process
+            .read_pointer(
+                links?.address + self.offsets.field.type_?,
+                self.pointer_size,
+            )
+            .ok()
+            .filter(|address| !address.is_null())?;
+        let link_class = self
+            .runtime
+            .class_from_type(process, self.pointer_size, link_type)?;
+
+        let header = 2 * self.pointer_size as u32;
+        let size = process
+            .read::<i32>(link_class.address + self.offsets.class.instance_size?)
+            .ok()?;
+        if u32::try_from(size).ok()?.checked_sub(header)? != LINK_STRIDE {
+            return None;
+        }
+
+        let mut members = [None; 2];
+        self.each_own_field(process, link_class, |name, _, offset| {
+            for (slot, member) in ["HashCode", "Next"].into_iter().enumerate() {
+                if name.matches(member) {
+                    members[slot] = offset.checked_sub(header);
+                }
+            }
+        });
+        match (members[0], members[1]) {
+            (Some(hash), Some(next)) if (hash, next) == (0, 4) || (hash, next) == (4, 0) => {
+                Some((fields, hash))
+            }
+            _ => None,
+        }
+    }
+
+    // The shape the keyed collections share: four named fields on the
+    // collection's class, the second the backing array, whose element class
+    // arrives through the field's type; the stride from that class's
+    // instance size, boxed header removed; and the named members folded by
+    // the header, since their offsets are recorded as if boxed. The first
+    // two members are the int words and end inside the stride; the rest are
+    // element slots and start inside it. A target still starting up answers
+    // nothing rather than a wrong shape.
+    fn collection_shape<const MEMBERS: usize>(
+        &self,
+        process: &Process,
+        class: ClassRef,
+        generations: [[&str; 4]; 2],
+        member_names: [&str; MEMBERS],
+    ) -> Option<([u32; 4], u32, [u32; MEMBERS])> {
         let mut found = [None; 4];
         let mut backing = None;
         self.each_own_field(process, class, |name, field, offset| {

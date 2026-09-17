@@ -69,18 +69,44 @@ pub struct EntryLayout {
     pub(crate) value: u32,
 }
 
-/// Where a dictionary keeps its backing entries and live counts, and how
-/// one entry lays out, resolved once from the dictionary's class hierarchy
+/// Where a dictionary keeps its backing storage and live counts, and how
+/// its entries lay out, resolved once from the dictionary's class hierarchy
 /// and held by the caller, so the per-tick read costs reads rather than a
 /// metadata walk. The entry layout depends on the concrete key and value
 /// types, so offsets must only be reused for the same dictionary type.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DictionaryOffsets {
-    pub(crate) entries: u32,
-    pub(crate) count: u32,
-    pub(crate) free_count: u32,
-    pub(crate) layout: EntryLayout,
+    pub(crate) shape: DictionaryShape,
 }
+
+/// The corlib generations lay dictionaries out two ways: one entries array
+/// of structs with buckets beside it, or, in the oldest corlib, four
+/// arrays side by side whose links carry a live flag in their stored
+/// hashes.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum DictionaryShape {
+    Entries {
+        entries: u32,
+        count: u32,
+        free_count: u32,
+        layout: EntryLayout,
+    },
+    Parallel {
+        link_slots: u32,
+        key_slots: u32,
+        value_slots: u32,
+        touched: u32,
+        count: u32,
+        link_hash: u32,
+    },
+}
+
+/// The flag the parallel shape sets in a link's stored hash while its slot
+/// is live.
+pub(crate) const LIVE_FLAG: u32 = 0x8000_0000;
+
+/// One parallel link spans two ints.
+pub(crate) const LINK_STRIDE: u32 = 8;
 
 /// Reads a managed list's live elements through the reference stored at the
 /// given address, with the offsets a resolution handed out earlier. The
@@ -194,6 +220,65 @@ fn scan_entries(
     Ok(())
 }
 
+/// Dereferences a backing array whose length has to reach the counted
+/// entries, answering where its elements start.
+fn array_elements(
+    process: &Process,
+    pointer_size: PointerSize,
+    object: Address,
+    field: u32,
+    reach: u32,
+) -> Result<Address, Error> {
+    let array = process
+        .read_pointer(object + field, pointer_size)
+        .ok()
+        .filter(|address| !address.is_null())
+        .ok_or(Error {})?;
+
+    let header = object_header(pointer_size);
+    let length = process
+        .read_pointer(array + header + pointer_size as u64, pointer_size)?
+        .value();
+    if u64::from(reach) > length {
+        return Err(Error {});
+    }
+
+    Ok(array + header + 2 * pointer_size as u64)
+}
+
+/// Walks the parallel links in chunks, handing on each index whose stored
+/// hash carries the live flag.
+fn scan_links(
+    process: &Process,
+    links: Address,
+    touched: usize,
+    link_hash: u32,
+    mut live: impl FnMut(usize) -> Result<(), Error>,
+) -> Result<(), Error> {
+    let stride = LINK_STRIDE as usize;
+    let per_chunk = ENTRY_SCRATCH / stride;
+    let mut scratch = [0; ENTRY_SCRATCH];
+
+    let mut index = 0;
+    while index < touched {
+        let taken = per_chunk.min(touched - index);
+        let bytes = &mut scratch[..taken * stride];
+        process.read_into_slice(links + (index * stride) as u64, bytes)?;
+
+        for (offset, link) in bytes.chunks_exact(stride).enumerate() {
+            let member = link_hash as usize;
+            let hash = u32::from_le_bytes(link[member..member + 4].try_into().expect("four bytes"));
+            if hash & LIVE_FLAG != 0 {
+                live(index + offset)?;
+            }
+        }
+
+        index += taken;
+    }
+
+    Ok(())
+}
+
 /// Reads a managed dictionary's live pairs through the reference stored at
 /// the given address, with the offsets a resolution handed out earlier.
 /// The buffer judges the live pairs, never the counted entries or the
@@ -207,73 +292,108 @@ pub fn read_dictionary<K: CheckedBitPattern, V: CheckedBitPattern, const N: usiz
     offsets: DictionaryOffsets,
     at: Address,
 ) -> Result<ArrayVec<(K, V), N>, Error> {
-    let layout = &offsets.layout;
-    let members = [layout.hash, layout.next, layout.key, layout.value];
-    if size_of::<K>() as u32 > room(&members, layout.stride, layout.key)
-        || size_of::<V>() as u32 > room(&members, layout.stride, layout.value)
-    {
-        return Err(Error {});
-    }
-
     let object = process
         .read_pointer(at, pointer_size)
         .ok()
         .filter(|address| !address.is_null())
         .ok_or(Error {})?;
 
-    let count = process.read::<i32>(object + offsets.count)?;
-    let free = process.read::<i32>(object + offsets.free_count)?;
-    let (count, free) = match (u32::try_from(count), u32::try_from(free)) {
-        (Ok(count), Ok(free)) if free <= count && count <= MOST_ENTRIES => (count, free),
-        _ => return Err(Error {}),
-    };
-    let live = (count - free) as usize;
-    if live > N {
-        return Err(Error {});
-    }
-
-    // A dictionary constructed without capacity has no backing arrays until
-    // its first insertion. That is the canonical empty representation, not
-    // an unreadable dictionary.
-    if count == 0 {
-        return Ok(ArrayVec::new());
-    }
-
-    let entries = process
-        .read_pointer(object + offsets.entries, pointer_size)
-        .ok()
-        .filter(|address| !address.is_null())
-        .ok_or(Error {})?;
-
-    let header = object_header(pointer_size);
-    let backing = process
-        .read_pointer(entries + header + pointer_size as u64, pointer_size)?
-        .value();
-    if u64::from(count) > backing {
-        return Err(Error {});
-    }
-
     let mut out = ArrayVec::new();
-    scan_entries(
-        process,
-        entries + header + 2 * pointer_size as u64,
-        count as usize,
-        layout.stride as usize,
-        layout.hash,
-        layout.next,
-        |entry| {
-            let at = |member: u32, len: usize| &entry[member as usize..member as usize + len];
-            let key = bytemuck::checked::try_pod_read_unaligned(at(layout.key, size_of::<K>()))
-                .map_err(|_| Error {})?;
-            let value = bytemuck::checked::try_pod_read_unaligned(at(layout.value, size_of::<V>()))
-                .map_err(|_| Error {})?;
-            out.try_push((key, value)).map_err(|_| Error {})
-        },
-    )?;
+    match offsets.shape {
+        DictionaryShape::Entries {
+            entries,
+            count,
+            free_count,
+            layout,
+        } => {
+            let members = [layout.hash, layout.next, layout.key, layout.value];
+            if size_of::<K>() as u32 > room(&members, layout.stride, layout.key)
+                || size_of::<V>() as u32 > room(&members, layout.stride, layout.value)
+            {
+                return Err(Error {});
+            }
 
-    if out.len() != live {
-        return Err(Error {});
+            let counted = process.read::<i32>(object + count)?;
+            let free = process.read::<i32>(object + free_count)?;
+            let (counted, free) = match (u32::try_from(counted), u32::try_from(free)) {
+                (Ok(counted), Ok(free)) if free <= counted && counted <= MOST_ENTRIES => {
+                    (counted, free)
+                }
+                _ => return Err(Error {}),
+            };
+            let live = (counted - free) as usize;
+            if live > N {
+                return Err(Error {});
+            }
+
+            // A dictionary constructed without capacity has no backing arrays
+            // until its first insertion. That is the canonical empty
+            // representation, not an unreadable dictionary.
+            if counted == 0 {
+                return Ok(out);
+            }
+
+            let elements = array_elements(process, pointer_size, object, entries, counted)?;
+            scan_entries(
+                process,
+                elements,
+                counted as usize,
+                layout.stride as usize,
+                layout.hash,
+                layout.next,
+                |entry| {
+                    let at =
+                        |member: u32, len: usize| &entry[member as usize..member as usize + len];
+                    let key =
+                        bytemuck::checked::try_pod_read_unaligned(at(layout.key, size_of::<K>()))
+                            .map_err(|_| Error {})?;
+                    let value =
+                        bytemuck::checked::try_pod_read_unaligned(at(layout.value, size_of::<V>()))
+                            .map_err(|_| Error {})?;
+                    out.try_push((key, value)).map_err(|_| Error {})
+                },
+            )?;
+
+            if out.len() != live {
+                return Err(Error {});
+            }
+        }
+        DictionaryShape::Parallel {
+            link_slots,
+            key_slots,
+            value_slots,
+            touched,
+            count,
+            link_hash,
+        } => {
+            let reached = process.read::<i32>(object + touched)?;
+            let counted = process.read::<i32>(object + count)?;
+            let (reached, counted) = match (u32::try_from(reached), u32::try_from(counted)) {
+                (Ok(reached), Ok(counted)) if counted <= reached && reached <= MOST_ENTRIES => {
+                    (reached, counted)
+                }
+                _ => return Err(Error {}),
+            };
+            if counted as usize > N {
+                return Err(Error {});
+            }
+
+            let links = array_elements(process, pointer_size, object, link_slots, reached)?;
+            let keys = array_elements(process, pointer_size, object, key_slots, reached)?;
+            let values = array_elements(process, pointer_size, object, value_slots, reached)?;
+
+            scan_links(process, links, reached as usize, link_hash, |index| {
+                let key = process.read(keys + (index * size_of::<K>()) as u64)?;
+                let value = process.read(values + (index * size_of::<V>()) as u64)?;
+                out.try_push((key, value)).map_err(|_| Error {})
+            })?;
+
+            if out.len() != counted as usize {
+                return Err(Error {});
+            }
+        }
     }
+
     Ok(out)
 }
 
@@ -287,17 +407,32 @@ pub struct SlotLayout {
     pub(crate) value: u32,
 }
 
-/// Where a hash set keeps its backing slots, live count, and high-water
-/// mark, and how one slot lays out, resolved once from the set's class
+/// Where a hash set keeps its backing storage, live count, and high-water
+/// mark, and how its slots lay out, resolved once from the set's class
 /// hierarchy and held by the caller, so the per-tick read costs reads rather
 /// than a metadata walk. The slot layout depends on the concrete value type,
 /// so offsets must only be reused for the same hash set type.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct HashSetOffsets {
-    pub(crate) slots: u32,
-    pub(crate) count: u32,
-    pub(crate) last_index: u32,
-    pub(crate) layout: SlotLayout,
+    pub(crate) shape: SetShape,
+}
+
+/// The hash set's two corlib layouts, mirroring the dictionary's.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum SetShape {
+    Slots {
+        slots: u32,
+        count: u32,
+        last_index: u32,
+        layout: SlotLayout,
+    },
+    Parallel {
+        links: u32,
+        slots: u32,
+        touched: u32,
+        count: u32,
+        link_hash: u32,
+    },
 }
 
 /// Reads a managed hash set's live values through the reference stored at
@@ -312,67 +447,98 @@ pub fn read_hash_set<T: CheckedBitPattern, const N: usize>(
     offsets: HashSetOffsets,
     at: Address,
 ) -> Result<ArrayVec<T, N>, Error> {
-    let layout = &offsets.layout;
-    let members = [layout.hash, layout.next, layout.value];
-    if size_of::<T>() as u32 > room(&members, layout.stride, layout.value) {
-        return Err(Error {});
-    }
-
     let object = process
         .read_pointer(at, pointer_size)
         .ok()
         .filter(|address| !address.is_null())
         .ok_or(Error {})?;
 
-    let count = process.read::<i32>(object + offsets.count)?;
-    let last = process.read::<i32>(object + offsets.last_index)?;
-    let (count, last) = match (u32::try_from(count), u32::try_from(last)) {
-        (Ok(count), Ok(last)) if count <= last && last <= MOST_ENTRIES => (count, last),
-        _ => return Err(Error {}),
-    };
-    if count as usize > N {
-        return Err(Error {});
-    }
-
-    // A hash set constructed without capacity has no backing arrays until
-    // its first insertion. That is the canonical empty representation, not
-    // an unreadable hash set.
-    if last == 0 {
-        return Ok(ArrayVec::new());
-    }
-
-    let slots = process
-        .read_pointer(object + offsets.slots, pointer_size)
-        .ok()
-        .filter(|address| !address.is_null())
-        .ok_or(Error {})?;
-
-    let header = object_header(pointer_size);
-    let backing = process
-        .read_pointer(slots + header + pointer_size as u64, pointer_size)?
-        .value();
-    if u64::from(last) > backing {
-        return Err(Error {});
-    }
-
     let mut out = ArrayVec::new();
-    scan_entries(
-        process,
-        slots + header + 2 * pointer_size as u64,
-        last as usize,
-        layout.stride as usize,
-        layout.hash,
-        layout.next,
-        |slot| {
-            let bytes = &slot[layout.value as usize..layout.value as usize + size_of::<T>()];
-            let value = bytemuck::checked::try_pod_read_unaligned(bytes).map_err(|_| Error {})?;
-            out.try_push(value).map_err(|_| Error {})
-        },
-    )?;
+    match offsets.shape {
+        SetShape::Slots {
+            slots,
+            count,
+            last_index,
+            layout,
+        } => {
+            let members = [layout.hash, layout.next, layout.value];
+            if size_of::<T>() as u32 > room(&members, layout.stride, layout.value) {
+                return Err(Error {});
+            }
 
-    if out.len() != count as usize {
-        return Err(Error {});
+            let counted = process.read::<i32>(object + count)?;
+            let last = process.read::<i32>(object + last_index)?;
+            let (counted, last) = match (u32::try_from(counted), u32::try_from(last)) {
+                (Ok(counted), Ok(last)) if counted <= last && last <= MOST_ENTRIES => {
+                    (counted, last)
+                }
+                _ => return Err(Error {}),
+            };
+            if counted as usize > N {
+                return Err(Error {});
+            }
+
+            // A hash set constructed without capacity has no backing arrays
+            // until its first insertion. That is the canonical empty
+            // representation, not an unreadable hash set.
+            if last == 0 {
+                return Ok(out);
+            }
+
+            let elements = array_elements(process, pointer_size, object, slots, last)?;
+            scan_entries(
+                process,
+                elements,
+                last as usize,
+                layout.stride as usize,
+                layout.hash,
+                layout.next,
+                |slot| {
+                    let bytes =
+                        &slot[layout.value as usize..layout.value as usize + size_of::<T>()];
+                    let value =
+                        bytemuck::checked::try_pod_read_unaligned(bytes).map_err(|_| Error {})?;
+                    out.try_push(value).map_err(|_| Error {})
+                },
+            )?;
+
+            if out.len() != counted as usize {
+                return Err(Error {});
+            }
+        }
+        SetShape::Parallel {
+            links,
+            slots,
+            touched,
+            count,
+            link_hash,
+        } => {
+            let reached = process.read::<i32>(object + touched)?;
+            let counted = process.read::<i32>(object + count)?;
+            let (reached, counted) = match (u32::try_from(reached), u32::try_from(counted)) {
+                (Ok(reached), Ok(counted)) if counted <= reached && reached <= MOST_ENTRIES => {
+                    (reached, counted)
+                }
+                _ => return Err(Error {}),
+            };
+            if counted as usize > N {
+                return Err(Error {});
+            }
+
+            let links = array_elements(process, pointer_size, object, links, reached)?;
+            let values = array_elements(process, pointer_size, object, slots, reached)?;
+
+            scan_links(process, links, reached as usize, link_hash, |index| {
+                let value = process.read(values + (index * size_of::<T>()) as u64)?;
+                out.try_push(value).map_err(|_| Error {})
+            })?;
+
+            if out.len() != counted as usize {
+                return Err(Error {});
+            }
+        }
     }
+
     Ok(out)
 }
 
