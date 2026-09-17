@@ -314,8 +314,9 @@ impl Walk {
     }
 
     /// Resolves where a dictionary keeps its backing entries and live
-    /// counts, and how one entry lays out, off the dictionary object's own
-    /// class. Both corlib naming generations answer; the buckets field has
+    /// counts, and how one entry lays out, off the
+    /// `System.Collections.Generic.Dictionary` class in the object's parent
+    /// chain. Both corlib naming generations answer; the buckets field has
     /// to exist for the shape to be this one, though nothing here reads it.
     /// The parallel-arrays shape the oldest corlib used carries other names
     /// and misses cleanly.
@@ -324,7 +325,21 @@ impl Walk {
         process: &Process,
         object: Address,
     ) -> Option<DictionaryOffsets> {
-        let class = self.object_class(process, object)?;
+        let mut class = self.object_class(process, object)?;
+
+        loop {
+            if self
+                .class_name::<CSTR>(process, class)?
+                .matches("Dictionary`2")
+                && self
+                    .class_namespace::<CSTR>(process, class)?
+                    .matches("System.Collections.Generic")
+            {
+                break;
+            }
+
+            class = self.parent(process, class)?;
+        }
 
         let mut found = [None; 4];
         self.each_own_field(process, class, |name, field, offset| {

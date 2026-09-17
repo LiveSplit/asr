@@ -387,12 +387,19 @@ impl Module {
     }
 
     /// Resolves where a `Dictionary` keeps its backing entries and live
-    /// counts, and how one entry lays out, off the class the dictionary
-    /// object at the given address names as its own. The answer is a small
-    /// `Copy` value worth storing, like a field offset: resolution walks
-    /// class metadata, where the read itself is a handful of reads. An
-    /// object whose class is not this dictionary shape, and a target still
-    /// starting up, both miss.
+    /// counts, and how one entry lays out. The address must store a managed
+    /// reference to a `System.Collections.Generic.Dictionary`; subclasses
+    /// are supported by finding that class in the object's hierarchy.
+    ///
+    /// The answer is a small `Copy` value worth storing, like a field offset:
+    /// resolution walks class metadata, while reading it later costs only a
+    /// handful of process reads. The entry layout depends on the dictionary's
+    /// concrete key and value types, so the result must only be reused for the
+    /// same dictionary type.
+    ///
+    /// This returns `None` for objects that are not dictionaries, targets
+    /// still initializing their metadata, and runtime profiles that lack the
+    /// additional layout metadata required for dictionary resolution.
     pub fn get_dictionary_offsets(
         &self,
         process: &Process,
@@ -414,7 +421,10 @@ impl Module {
     /// that cannot balance against the counts fails rather than answering
     /// wrong pairs. The key and value types are the caller's claims, as
     /// with [`read_array`](Self::read_array), refused where a claim
-    /// outgrows the room its member has inside one entry.
+    /// outgrows the room its member has inside one entry. Managed references
+    /// are read as [`Address32`] or
+    /// [`Address64`](crate::Address64), according to
+    /// [`get_pointer_size`](Self::get_pointer_size).
     pub fn read_dictionary<K: CheckedBitPattern, V: CheckedBitPattern, const N: usize>(
         &self,
         process: &Process,
@@ -503,12 +513,14 @@ impl Module {
     }
 
     /// Resolves where a `Dictionary` keeps its backing entries and live
-    /// counts, and how one entry lays out, off the class the dictionary
-    /// object at the given address names as its own.
+    /// counts, and how one entry lays out from the dictionary's class
+    /// hierarchy.
     ///
     /// This is the `await`able version of the
     /// [`get_dictionary_offsets`](Self::get_dictionary_offsets) function,
-    /// yielding back to the runtime between each try.
+    /// yielding back to the runtime between each try. This waits indefinitely
+    /// if the active runtime profile lacks the layout metadata needed for
+    /// dictionary resolution.
     pub async fn wait_get_dictionary_offsets(
         &self,
         process: &Process,

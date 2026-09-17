@@ -60,7 +60,7 @@ pub(crate) const ENTRY_SCRATCH: usize = 1024;
 
 /// How one dictionary entry lays out, measured from the entry's own start:
 /// the stored hash, the chain link, and the key and value slots.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct EntryLayout {
     pub(crate) stride: u32,
     pub(crate) hash: u32,
@@ -70,10 +70,11 @@ pub struct EntryLayout {
 }
 
 /// Where a dictionary keeps its backing entries and live counts, and how
-/// one entry lays out, resolved once off the dictionary's own class and
-/// held by the caller, so the per-tick read costs reads rather than a
-/// metadata walk.
-#[derive(Copy, Clone)]
+/// one entry lays out, resolved once from the dictionary's class hierarchy
+/// and held by the caller, so the per-tick read costs reads rather than a
+/// metadata walk. The entry layout depends on the concrete key and value
+/// types, so offsets must only be reused for the same dictionary type.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DictionaryOffsets {
     pub(crate) entries: u32,
     pub(crate) count: u32,
@@ -188,6 +189,13 @@ pub fn read_dictionary<K: CheckedBitPattern, V: CheckedBitPattern, const N: usiz
     let live = (count - free) as usize;
     if live > N {
         return Err(Error {});
+    }
+
+    // A dictionary constructed without capacity has no backing arrays until
+    // its first insertion. That is the canonical empty representation, not
+    // an unreadable dictionary.
+    if count == 0 {
+        return Ok(ArrayVec::new());
     }
 
     let entries = process

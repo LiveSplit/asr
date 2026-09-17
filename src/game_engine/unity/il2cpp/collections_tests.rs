@@ -36,7 +36,7 @@ fn image(version: Version) -> Vec<u8> {
         Version::V2019 => 0x11C,
         _ => 0x124,
     };
-    let mut i = vec![0; 0x2000];
+    let mut i = vec![0; 0x3000];
 
     let strings = [
         (0x1800, "_buckets"),
@@ -47,6 +47,10 @@ fn image(version: Version) -> Vec<u8> {
         (0x1940, "next"),
         (0x1980, "key"),
         (0x19C0, "value"),
+        (0x1A00, "Dictionary`2"),
+        (0x1A40, "System.Collections.Generic"),
+        (0x1A80, "DerivedDictionary"),
+        (0x1AC0, "DictionaryLookalike"),
     ];
     for (at, text) in strings {
         put(&mut i, at, text.as_bytes());
@@ -55,7 +59,12 @@ fn image(version: Version) -> Vec<u8> {
     // The slot, the dictionary object heading with its class, and the class's
     // four fields: field_count at +0x11C, fields behind +0x80.
     ptr(&mut i, 0x0, BASE + 0x100);
+    ptr(&mut i, 0x8, BASE + 0x2200);
+    ptr(&mut i, 0x10, BASE + 0x2600);
+    ptr(&mut i, 0x18, BASE + 0x2700);
     ptr(&mut i, 0x100, BASE + 0x200);
+    ptr(&mut i, 0x200 + 0x10, BASE + 0x1A00);
+    ptr(&mut i, 0x200 + 0x18, BASE + 0x1A40);
     put(&mut i, 0x200 + field_count_at, &4_u16.to_le_bytes());
     ptr(&mut i, 0x200 + 0x80, BASE + 0x340);
     field(&mut i, 0x340, BASE + 0x1800, 0, 0x10);
@@ -97,6 +106,32 @@ fn image(version: Version) -> Vec<u8> {
             put(&mut i, at + 4 * word as u64, &value.to_le_bytes());
         }
     }
+
+    // A derived dictionary inherits the collection fields from the corlib
+    // Dictionary class rather than declaring them itself.
+    ptr(&mut i, 0x2000 + 0x10, BASE + 0x1A80);
+    ptr(&mut i, 0x2000 + 0x18, BASE + 0x1A40);
+    ptr(&mut i, 0x2000 + 0x58, BASE + 0x200);
+    ptr(&mut i, 0x2200, BASE + 0x2000);
+    ptr(&mut i, 0x2200 + 0x18, BASE + 0x800);
+    put(&mut i, 0x2200 + 0x20, &3_i32.to_le_bytes());
+    put(&mut i, 0x2200 + 0x24, &1_i32.to_le_bytes());
+
+    // Matching private field names do not make an unrelated class a
+    // dictionary.
+    ptr(&mut i, 0x2300 + 0x10, BASE + 0x1AC0);
+    ptr(&mut i, 0x2300 + 0x18, BASE + 0x1A40);
+    put(&mut i, 0x2300 + field_count_at, &4_u16.to_le_bytes());
+    ptr(&mut i, 0x2300 + 0x80, BASE + 0x2480);
+    field(&mut i, 0x2480, BASE + 0x1800, 0, 0x10);
+    field(&mut i, 0x24A0, BASE + 0x1840, BASE + 0x500, 0x18);
+    field(&mut i, 0x24C0, BASE + 0x1880, 0, 0x20);
+    field(&mut i, 0x24E0, BASE + 0x18C0, 0, 0x24);
+    ptr(&mut i, 0x2600, BASE + 0x2300);
+
+    // A newly constructed dictionary has zero counts and no backing entries
+    // array until its first insertion.
+    ptr(&mut i, 0x2700, BASE + 0x200);
 
     i
 }
@@ -146,6 +181,39 @@ fn dictionaries_read_their_live_pairs() {
             .read_dictionary::<i32, i32, 8>(process, offsets, slot)
             .unwrap();
         assert_eq!(pairs.as_slice(), [(10, 100), (20, 200)]);
+    });
+}
+
+#[test]
+fn dictionaries_derived_from_corlibs_dictionary_resolve() {
+    on_fixture(Version::V2019, |process, module| {
+        let slot = Address::new(BASE + 0x8);
+        let offsets = module.get_dictionary_offsets(process, slot).unwrap();
+        let pairs = module
+            .read_dictionary::<i32, i32, 8>(process, offsets, slot)
+            .unwrap();
+        assert_eq!(pairs.as_slice(), [(10, 100), (20, 200)]);
+    });
+}
+
+#[test]
+fn dictionary_shaped_objects_are_not_dictionaries() {
+    on_fixture(Version::V2019, |process, module| {
+        assert!(module
+            .get_dictionary_offsets(process, Address::new(BASE + 0x10))
+            .is_none());
+    });
+}
+
+#[test]
+fn dictionaries_without_allocated_backing_read_empty() {
+    on_fixture(Version::V2019, |process, module| {
+        let slot = Address::new(BASE + 0x18);
+        let offsets = module.get_dictionary_offsets(process, slot).unwrap();
+        let pairs = module
+            .read_dictionary::<i32, i32, 0>(process, offsets, slot)
+            .unwrap();
+        assert!(pairs.is_empty());
     });
 }
 

@@ -34,6 +34,8 @@ fn field(image: &mut [u8], at: u64, type_: u64, name: u64, offset: i32) {
 // A dictionary class: field_count at +0x100, fields behind +0x98. The names
 // arrive in the caller's order with their instance offsets.
 fn dictionary_class(image: &mut [u8], class: u64, fields: u64, names: [u64; 4], entries_type: u64) {
+    ptr(image, class + 0x48, BASE + 0x2400);
+    ptr(image, class + 0x50, BASE + 0x2440);
     put(image, class + 0x100, &4_i32.to_le_bytes());
     ptr(image, class + 0x98, BASE + fields);
     field(image, fields, 0, names[0], 0x10); // the buckets array
@@ -61,7 +63,7 @@ fn object(image: &mut [u8], at: u64, vtable: u64, class: u64) {
 }
 
 fn image() -> Vec<u8> {
-    let mut i = vec![0; 0x2800];
+    let mut i = vec![0; 0x3400];
 
     let strings = [
         (0x2000, "_buckets"),
@@ -80,6 +82,10 @@ fn image() -> Vec<u8> {
         (0x2340, "linkSlots"),
         (0x2380, "keySlots"),
         (0x23C0, "valueSlots"),
+        (0x2400, "Dictionary`2"),
+        (0x2440, "System.Collections.Generic"),
+        (0x2480, "DerivedDictionary"),
+        (0x24C0, "DictionaryLookalike"),
     ];
     for (at, text) in strings {
         put(&mut i, at, text.as_bytes());
@@ -94,6 +100,9 @@ fn image() -> Vec<u8> {
     ptr(&mut i, 0x10, BASE + 0xB00);
     ptr(&mut i, 0x18, BASE + 0xB80);
     ptr(&mut i, 0x20, BASE + 0x1A00);
+    ptr(&mut i, 0x28, BASE + 0x2980);
+    ptr(&mut i, 0x30, BASE + 0x2D40);
+    ptr(&mut i, 0x38, BASE + 0x2E00);
 
     // The healthy dictionary in the modern naming generation: its entries
     // field's type is a SzArray whose data names the entry class directly.
@@ -149,6 +158,26 @@ fn image() -> Vec<u8> {
     entry(&mut i, 0x1E30, -1, -1, 0, 0);
     entry(&mut i, 0x1E40, 2222, -1, 3, 4);
     entry(&mut i, 0x1E50, 0, 0, 0, 0);
+
+    // A derived dictionary inherits the collection fields from the corlib
+    // Dictionary class rather than declaring them itself.
+    ptr(&mut i, 0x2800 + 0x30, BASE + 0x200);
+    ptr(&mut i, 0x2800 + 0x48, BASE + 0x2480);
+    ptr(&mut i, 0x2800 + 0x50, BASE + 0x2440);
+    object(&mut i, 0x2980, 0x2940, 0x2800);
+    ptr(&mut i, 0x2980 + 0x18, BASE + 0x1D00);
+    put(&mut i, 0x2980 + 0x20, &3_i32.to_le_bytes());
+    put(&mut i, 0x2980 + 0x24, &1_i32.to_le_bytes());
+
+    // Matching private field names do not make an unrelated class a
+    // dictionary.
+    dictionary_class(&mut i, 0x2B00, 0x2C40, modern, BASE + 0x500);
+    ptr(&mut i, 0x2B00 + 0x48, BASE + 0x24C0);
+    object(&mut i, 0x2D40, 0x2D00, 0x2B00);
+
+    // A newly constructed dictionary has zero counts and no backing entries
+    // array until its first insertion.
+    object(&mut i, 0x2E00, 0x140, 0x200);
 
     i
 }
@@ -237,6 +266,39 @@ fn dictionaries_read_their_live_pairs() {
             .read_dictionary::<i32, i32, 8>(process, offsets, slot)
             .unwrap();
         assert_eq!(pairs.as_slice(), [(10, 100), (20, 200)]);
+    });
+}
+
+#[test]
+fn dictionaries_derived_from_corlibs_dictionary_resolve() {
+    on_fixture(|process, module| {
+        let slot = Address::new(BASE + 0x28);
+        let offsets = module.get_dictionary_offsets(process, slot).unwrap();
+        let pairs = module
+            .read_dictionary::<i32, i32, 8>(process, offsets, slot)
+            .unwrap();
+        assert_eq!(pairs.as_slice(), [(10, 100), (20, 200)]);
+    });
+}
+
+#[test]
+fn dictionary_shaped_objects_are_not_dictionaries() {
+    on_fixture(|process, module| {
+        assert!(module
+            .get_dictionary_offsets(process, Address::new(BASE + 0x30))
+            .is_none());
+    });
+}
+
+#[test]
+fn dictionaries_without_allocated_backing_read_empty() {
+    on_fixture(|process, module| {
+        let slot = Address::new(BASE + 0x38);
+        let offsets = module.get_dictionary_offsets(process, slot).unwrap();
+        let pairs = module
+            .read_dictionary::<i32, i32, 0>(process, offsets, slot)
+            .unwrap();
+        assert!(pairs.is_empty());
     });
 }
 
