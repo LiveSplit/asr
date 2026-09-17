@@ -24,7 +24,7 @@ mod readers_tests;
 #[cfg(all(test, not(target_family = "wasm")))]
 mod walk_tests;
 
-use super::{managed, ManagedString};
+use super::{managed, ListOffsets, ManagedString};
 
 /// Represents access to a Unity game that is using the IL2CPP backend.
 pub struct Module {
@@ -354,6 +354,37 @@ impl Module {
         managed::read_array(process, self.pointer_size, at)
     }
 
+    /// Resolves where a `List` keeps its backing array and live count, finding
+    /// `System.Collections.Generic.List` in the class hierarchy of the object
+    /// at the given address. The answer is a small `Copy` value worth storing,
+    /// like a field offset: resolution walks class metadata, where the read
+    /// itself is a handful of reads. An object that is not a list misses.
+    pub fn get_list_offsets(&self, process: &Process, at: Address) -> Option<ListOffsets> {
+        let object = process
+            .read_pointer(at, self.pointer_size)
+            .ok()
+            .filter(|address| !address.is_null())?;
+
+        self.walk().list_offsets(process, object)
+    }
+
+    /// Reads a managed `List` of value elements through the reference stored
+    /// at the given address, with the offsets
+    /// [`get_list_offsets`](Self::get_list_offsets) resolved. The list's
+    /// live count is read, never its backing capacity; `N` bounds the
+    /// count, and a count past the buffer or past the backing array's own
+    /// length fails rather than truncates, as does a null reference. The
+    /// element type is the caller's claim, as with
+    /// [`read_array`](Self::read_array).
+    pub fn read_list<T: CheckedBitPattern, const N: usize>(
+        &self,
+        process: &Process,
+        offsets: ListOffsets,
+        at: Address,
+    ) -> Result<ArrayVec<T, N>, Error> {
+        managed::read_list(process, self.pointer_size, offsets, at)
+    }
+
     /// Attaches to a Unity game that is using the IL2CPP backend. This function
     /// automatically detects the [IL2CPP version](Version). If you know the
     /// version in advance or it fails detecting it, use
@@ -403,6 +434,16 @@ impl Module {
     /// to the runtime between each try.
     pub async fn wait_get_default_image(&self, process: &Process) -> Image {
         retry(|| self.get_default_image(process)).await
+    }
+
+    /// Resolves where a `List` keeps its backing array and live count from the
+    /// class hierarchy of the list object at the given address.
+    ///
+    /// This is the `await`able version of the
+    /// [`get_list_offsets`](Self::get_list_offsets) function, yielding back
+    /// to the runtime between each try.
+    pub async fn wait_get_list_offsets(&self, process: &Process, at: Address) -> ListOffsets {
+        retry(|| self.get_list_offsets(process, at)).await
     }
 }
 

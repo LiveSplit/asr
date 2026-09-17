@@ -45,6 +45,66 @@ pub fn read_string<const N: usize>(
     ManagedString::from_units(&units[..count]).ok_or(Error {})
 }
 
+/// Where a list keeps its backing array and live count, resolved once from
+/// the list's class hierarchy and held by the caller, so the per-tick read
+/// costs reads rather than a metadata walk.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ListOffsets {
+    pub(crate) items: u32,
+    pub(crate) size: u32,
+}
+
+/// Reads a managed list's live elements through the reference stored at the
+/// given address, with the offsets a resolution handed out earlier. The
+/// count is judged by the buffer, the backing array's capacity is not, and
+/// a count past the backing's own length is a torn resize and refuses.
+pub fn read_list<T: CheckedBitPattern, const N: usize>(
+    process: &Process,
+    pointer_size: PointerSize,
+    offsets: ListOffsets,
+    at: Address,
+) -> Result<ArrayVec<T, N>, Error> {
+    let object = process
+        .read_pointer(at, pointer_size)
+        .ok()
+        .filter(|address| !address.is_null())
+        .ok_or(Error {})?;
+
+    let size = process.read::<i32>(object + offsets.size)?;
+    let size = usize::try_from(size)
+        .ok()
+        .filter(|&size| size <= N)
+        .ok_or(Error {})?;
+
+    let items = process
+        .read_pointer(object + offsets.items, pointer_size)
+        .ok()
+        .filter(|address| !address.is_null())
+        .ok_or(Error {})?;
+
+    let header = object_header(pointer_size);
+    let backing = process
+        .read_pointer(items + header + pointer_size as u64, pointer_size)?
+        .value();
+    if usize::try_from(backing)
+        .ok()
+        .filter(|&backing| size <= backing)
+        .is_none()
+    {
+        return Err(Error {});
+    }
+
+    let mut elements = [const { MaybeUninit::<T>::uninit() }; N];
+    let elements = process.read_into_uninit_slice(
+        items + header + 2 * pointer_size as u64,
+        &mut elements[..size],
+    )?;
+
+    let mut out = ArrayVec::new();
+    out.try_extend_from_slice(elements).map_err(|_| Error {})?;
+    Ok(out)
+}
+
 /// Reads a managed array of value elements through the reference stored at
 /// the given address. The layout is runtime ABI: past the object header sit
 /// the bounds word, the length, and the elements inline.
