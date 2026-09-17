@@ -1,8 +1,8 @@
 use super::super::{get_backing_name, CSTR};
 use super::readers::ENTRY_SCRATCH;
 use super::{
-    ClassRef, ClimbStop, DictionaryOffsets, EntryLayout, FieldRef, ImageRef, ListOffsets, Runtime,
-    WalkOffsets,
+    ClassRef, ClimbStop, DictionaryOffsets, EntryLayout, FieldRef, HashSetOffsets, ImageRef,
+    ListOffsets, Runtime, SlotLayout, WalkOffsets,
 };
 use crate::{string::ArrayCString, Address, PointerSize, Process};
 
@@ -325,12 +325,86 @@ impl Walk {
         process: &Process,
         object: Address,
     ) -> Option<DictionaryOffsets> {
+        let (fields, stride, [hash, next, key, value]) = self.collection_shape(
+            process,
+            object,
+            "Dictionary`2",
+            [
+                ["_buckets", "_entries", "_count", "_freeCount"],
+                ["buckets", "entries", "count", "freeCount"],
+            ],
+            ["hashCode", "next", "key", "value"],
+        )?;
+
+        Some(DictionaryOffsets {
+            entries: fields[1],
+            count: fields[2],
+            free_count: fields[3],
+            layout: EntryLayout {
+                stride,
+                hash,
+                next,
+                key,
+                value,
+            },
+        })
+    }
+
+    /// Resolves where a hash set keeps its backing slots, live count, and
+    /// high-water mark, and how one slot lays out, off the
+    /// `System.Collections.Generic.HashSet` class in the object's parent
+    /// chain. A slot is a dictionary entry without a key; the bucket heads
+    /// are one-based in both naming generations, unlike the dictionary's
+    /// split, though nothing here reads them.
+    pub fn hash_set_offsets(&self, process: &Process, object: Address) -> Option<HashSetOffsets> {
+        let (fields, stride, [hash, next, value]) = self.collection_shape(
+            process,
+            object,
+            "HashSet`1",
+            [
+                ["_buckets", "_slots", "_count", "_lastIndex"],
+                ["m_buckets", "m_slots", "m_count", "m_lastIndex"],
+            ],
+            ["hashCode", "next", "value"],
+        )?;
+
+        Some(HashSetOffsets {
+            slots: fields[1],
+            count: fields[2],
+            last_index: fields[3],
+            layout: SlotLayout {
+                stride,
+                hash,
+                next,
+                value,
+            },
+        })
+    }
+
+    // The shape the keyed collections share: the corlib class found in the
+    // object's parent chain, so a derived collection resolves and a lookalike
+    // with the same field names does not; four named fields on that class,
+    // the second the backing array, whose element class arrives through the
+    // field's type; the stride from that class's instance size, boxed header
+    // removed; and the named members folded by the header, since their
+    // offsets are recorded as if boxed. The first two members are the int
+    // words and end inside the stride; the rest are element slots and start
+    // inside it. A target still starting up answers nothing rather than a
+    // wrong shape.
+    fn collection_shape<const MEMBERS: usize>(
+        &self,
+        process: &Process,
+        object: Address,
+        corlib_class: &str,
+        generations: [[&str; 4]; 2],
+        member_names: [&str; MEMBERS],
+    ) -> Option<([u32; 4], u32, [u32; MEMBERS])> {
         let mut class = self.object_class(process, object)?;
 
         loop {
             if self
                 .class_name::<CSTR>(process, class)?
-                .matches("Dictionary`2")
+                .matches(corlib_class)
                 && self
                     .class_namespace::<CSTR>(process, class)?
                     .matches("System.Collections.Generic")
@@ -342,77 +416,66 @@ impl Walk {
         }
 
         let mut found = [None; 4];
+        let mut backing = None;
         self.each_own_field(process, class, |name, field, offset| {
-            let generations = [
-                ["_buckets", "_entries", "_count", "_freeCount"],
-                ["buckets", "entries", "count", "freeCount"],
-            ];
             for generation in generations {
                 for (slot, member) in generation.into_iter().enumerate() {
                     if name.matches(member) {
-                        found[slot] = Some((field, offset));
+                        found[slot] = Some(offset);
+                        if slot == 1 {
+                            backing = Some(field);
+                        }
                     }
                 }
             }
         });
-        let (Some(_), Some(entries), Some(count), Some(free_count)) =
-            (found[0], found[1], found[2], found[3])
-        else {
+        if found.iter().any(Option::is_none) {
             return None;
-        };
+        }
+        let fields = found.map(|offset| offset.expect("checked above"));
 
-        // The entry class arrives through the entries field's own type, and
-        // its instance size, boxed header removed, is the entry stride.
-        let entry_type = process
+        let element_type = process
             .read_pointer(
-                entries.0.address + self.offsets.field.type_?,
+                backing?.address + self.offsets.field.type_?,
                 self.pointer_size,
             )
             .ok()
             .filter(|address| !address.is_null())?;
-        let entry_class = self
-            .runtime
-            .class_from_type(process, self.pointer_size, entry_type)?;
+        let element_class =
+            self.runtime
+                .class_from_type(process, self.pointer_size, element_type)?;
 
         let header = 2 * self.pointer_size as u32;
         let size = process
-            .read::<i32>(entry_class.address + self.offsets.class.instance_size?)
+            .read::<i32>(element_class.address + self.offsets.class.instance_size?)
             .ok()?;
         let stride = u32::try_from(size)
             .ok()?
             .checked_sub(header)
             .filter(|&stride| stride > 0 && stride as usize <= ENTRY_SCRATCH)?;
 
-        // The members' offsets are recorded as if boxed; folding them by the
-        // header measures them from the entry's own start.
-        let mut members = [None; 4];
-        self.each_own_field(process, entry_class, |name, _, offset| {
-            for (slot, member) in ["hashCode", "next", "key", "value"].into_iter().enumerate() {
+        let mut members = [None; MEMBERS];
+        self.each_own_field(process, element_class, |name, _, offset| {
+            for (slot, member) in member_names.into_iter().enumerate() {
                 if name.matches(member) {
                     members[slot] = offset.checked_sub(header);
                 }
             }
         });
-        let (Some(hash), Some(next), Some(key), Some(value)) =
-            (members[0], members[1], members[2], members[3])
-        else {
+        if members.iter().any(Option::is_none) {
             return None;
-        };
+        }
+        let members = members.map(|offset| offset.expect("checked above"));
 
         let ends_inside = |member: u32| member.checked_add(4).is_some_and(|end| end <= stride);
-        let holds = ends_inside(hash) && ends_inside(next) && key < stride && value < stride;
-        holds.then_some(DictionaryOffsets {
-            entries: entries.1,
-            count: count.1,
-            free_count: free_count.1,
-            layout: EntryLayout {
-                stride,
-                hash,
-                next,
-                key,
-                value,
-            },
-        })
+        let holds = members
+            .iter()
+            .enumerate()
+            .all(|(slot, &member)| match slot {
+                0 | 1 => ends_inside(member),
+                _ => member < stride,
+            });
+        holds.then_some((fields, stride, members))
     }
 
     // Hands every field the class itself declares to the callback, with its
