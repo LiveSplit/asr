@@ -26,11 +26,13 @@ pub use pointer::UnityPointer;
 mod offsets;
 use offsets::MonoOffsets;
 #[cfg(all(test, not(target_family = "wasm")))]
+mod collections_tests;
+#[cfg(all(test, not(target_family = "wasm")))]
 mod readers_tests;
 #[cfg(all(test, not(target_family = "wasm")))]
 mod walk_tests;
 
-use super::{managed, BinaryFormat, ListOffsets, ManagedString};
+use super::{managed, BinaryFormat, DictionaryOffsets, ListOffsets, ManagedString};
 
 /// Represents access to a Unity game that is using the standard Mono backend.
 pub struct Module {
@@ -281,6 +283,8 @@ impl Module {
                 class_kind: self.offsets.class.class_kind,
                 generic_class: self.offsets.generic.generic_class,
                 container_class: self.offsets.generic.container_class,
+                type_data: self.offsets.type_words.data,
+                type_kind: self.offsets.type_words.kind,
                 runtime_info: self.offsets.class.runtime_info,
                 vtable_size: self.offsets.class.vtable_size.into(),
                 vtable: self.offsets.v_table.vtable.into(),
@@ -297,10 +301,12 @@ impl Module {
                     namespace: self.offsets.class.namespace.into(),
                     parent: self.offsets.class.parent.into(),
                     declaring: self.offsets.class.nested_in,
+                    instance_size: self.offsets.class.instance_size,
                     fields: self.offsets.class.fields.into(),
                 },
                 field: managed::FieldOffsets {
                     name: self.offsets.field.name.into(),
+                    type_: self.offsets.field.type_,
                     offset: self.offsets.field.offset.into(),
                     stride: self.offsets.field.alignment.into(),
                 },
@@ -380,6 +386,54 @@ impl Module {
         self.walk().list_offsets(process, object)
     }
 
+    /// Resolves where a `Dictionary` keeps its backing entries and live
+    /// counts, and how one entry lays out. The address must store a managed
+    /// reference to a `System.Collections.Generic.Dictionary`; subclasses
+    /// are supported by finding that class in the object's hierarchy.
+    ///
+    /// The answer is a small `Copy` value worth storing, like a field offset:
+    /// resolution walks class metadata, while reading it later costs only a
+    /// handful of process reads. The entry layout depends on the dictionary's
+    /// concrete key and value types, so the result must only be reused for the
+    /// same dictionary type.
+    ///
+    /// This returns `None` for objects that are not dictionaries, targets
+    /// still initializing their metadata, and runtime profiles that lack the
+    /// additional layout metadata required for dictionary resolution.
+    pub fn get_dictionary_offsets(
+        &self,
+        process: &Process,
+        at: Address,
+    ) -> Option<DictionaryOffsets> {
+        let object = process
+            .read_pointer(at, self.pointer_size)
+            .ok()
+            .filter(|address| !address.is_null())?;
+
+        self.walk().dictionary_offsets(process, object)
+    }
+
+    /// Reads a managed `Dictionary`'s live pairs through the reference
+    /// stored at the given address, with the offsets
+    /// [`get_dictionary_offsets`](Self::get_dictionary_offsets) resolved.
+    /// `N` bounds the live pairs, never the counted entries or the backing
+    /// capacity; freed entries are skipped by their marks, and a live tally
+    /// that cannot balance against the counts fails rather than answering
+    /// wrong pairs. The key and value types are the caller's claims, as
+    /// with [`read_array`](Self::read_array), refused where a claim
+    /// outgrows the room its member has inside one entry. Managed references
+    /// are read as [`Address32`] or
+    /// [`Address64`](crate::Address64), according to
+    /// [`get_pointer_size`](Self::get_pointer_size).
+    pub fn read_dictionary<K: CheckedBitPattern, V: CheckedBitPattern, const N: usize>(
+        &self,
+        process: &Process,
+        offsets: DictionaryOffsets,
+        at: Address,
+    ) -> Result<ArrayVec<(K, V), N>, Error> {
+        managed::read_dictionary(process, self.pointer_size, offsets, at)
+    }
+
     /// Reads a managed `List` of value elements through the reference stored
     /// at the given address, with the offsets
     /// [`get_list_offsets`](Self::get_list_offsets) resolved. The list's
@@ -456,5 +510,22 @@ impl Module {
     /// to the runtime between each try.
     pub async fn wait_get_list_offsets(&self, process: &Process, at: Address) -> ListOffsets {
         retry(|| self.get_list_offsets(process, at)).await
+    }
+
+    /// Resolves where a `Dictionary` keeps its backing entries and live
+    /// counts, and how one entry lays out from the dictionary's class
+    /// hierarchy.
+    ///
+    /// This is the `await`able version of the
+    /// [`get_dictionary_offsets`](Self::get_dictionary_offsets) function,
+    /// yielding back to the runtime between each try. This waits indefinitely
+    /// if the active runtime profile lacks the layout metadata needed for
+    /// dictionary resolution.
+    pub async fn wait_get_dictionary_offsets(
+        &self,
+        process: &Process,
+        at: Address,
+    ) -> DictionaryOffsets {
+        retry(|| self.get_dictionary_offsets(process, at)).await
     }
 }

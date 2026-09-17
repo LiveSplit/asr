@@ -15,7 +15,10 @@ mod walk;
 
 pub use cursor::{Assemblies, Classes};
 pub use pointer::PointerPath;
-pub use readers::{read_array, read_list, read_string, ListOffsets};
+pub use readers::{
+    read_array, read_dictionary, read_list, read_string, DictionaryOffsets, EntryLayout,
+    ListOffsets,
+};
 pub use runtime::{Il2CppRuntime, MonoRuntime, Runtime};
 pub use string::ManagedString;
 pub use walk::Walk;
@@ -39,20 +42,24 @@ pub struct AssemblyOffsets {
     pub image: u16,
 }
 
-/// Where a class keeps its names, its parent, its field array, and, when it
-/// was measured, the class it is nested in.
+/// Where a class keeps its names, its parent, its field array, and, when
+/// they were measured, the class it is nested in and what one instance
+/// occupies.
 pub struct ClassOffsets {
     pub name: u16,
     pub namespace: u16,
     pub parent: u16,
     pub declaring: Option<u16>,
+    pub instance_size: Option<u16>,
     pub fields: u16,
 }
 
-/// Where a field entry keeps its name and offset, and the size of one entry in
-/// a class's field array, whatever each runtime's own offsets call it.
+/// Where a field entry keeps its name, its type, and its offset, and the
+/// size of one entry in a class's field array, whatever each runtime's own
+/// offsets call it.
 pub struct FieldOffsets {
     pub name: u16,
+    pub type_: Option<u16>,
     pub offset: u16,
     pub stride: u16,
 }

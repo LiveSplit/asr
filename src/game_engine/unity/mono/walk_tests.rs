@@ -5,7 +5,7 @@
 
 use super::offsets::{
     AssemblyOffsets, ClassOffsets, FieldInfoOffsets, GenericOffsets, HashTableOffsets,
-    ImageOffsets, MonoVTableOffsets,
+    ImageOffsets, MonoVTableOffsets, TypeOffsets,
 };
 use super::{builds, BinaryFormat, Module, MonoOffsets, UnityPointer, Version};
 use crate::file_format::pe::DebugId;
@@ -392,6 +392,7 @@ fn nested_lookups_without_a_measured_offset_answer_nothing() {
         },
         class: ClassOffsets {
             class_kind: None,
+            instance_size: None,
             parent: 0x30,
             nested_in: None,
             name: 0x48,
@@ -406,7 +407,12 @@ fn nested_lookups_without_a_measured_offset_answer_nothing() {
             generic_class: None,
             container_class: None,
         },
+        type_words: TypeOffsets {
+            data: None,
+            kind: None,
+        },
         field: FieldInfoOffsets {
+            type_: None,
             name: 0x8,
             offset: 0x18,
             alignment: 0x20,

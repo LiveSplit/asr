@@ -14,6 +14,18 @@ pub enum Runtime {
 const CLASS_KIND_MASK: u8 = 0x7;
 const GENERIC_INSTANCE_KIND: u8 = 3;
 
+/// The element kinds a type's kind byte carries that the type route walks
+/// through: a single-dimensional array's data leads on toward its element,
+/// and a generic instance's data is the instantiation descriptor.
+const SZARRAY: u8 = 0x1D;
+const GENERIC_INSTANCE: u8 = 0x15;
+
+/// Whether a type of this element kind names a class at all. End, Void,
+/// Ptr, ByRef, Var, multidimensional Array, FnPtr, and MVar do not.
+const fn names_a_class(kind: u8) -> bool {
+    !matches!(kind, 0x00 | 0x01 | 0x0F | 0x10 | 0x13 | 0x14 | 0x1B | 0x1E)
+}
+
 /// Mono keeps its assemblies in a glib list, its classes in each image's hash
 /// table, and its statics behind the class's vtable.
 pub struct MonoRuntime {
@@ -26,6 +38,8 @@ pub struct MonoRuntime {
     pub class_kind: Option<u16>,
     pub generic_class: Option<u16>,
     pub container_class: Option<u16>,
+    pub type_data: Option<u16>,
+    pub type_kind: Option<u16>,
     pub runtime_info: u16,
     pub vtable_size: u16,
     pub vtable: u16,
@@ -46,6 +60,9 @@ pub struct Il2CppRuntime {
     pub handle_is_inline: bool,
     pub field_count: u16,
     pub static_fields: u16,
+    pub cached_class: Option<u16>,
+    pub type_data: Option<u16>,
+    pub type_kind: Option<u16>,
 }
 
 impl MonoRuntime {
@@ -170,6 +187,72 @@ impl Runtime {
             .read_pointer(slot, pointer_size)
             .ok()
             .filter(|address| !address.is_null())
+    }
+
+    /// Resolves the class a field's type names, for the kinds a collection's
+    /// backing field presents: an array of a class the runtimes already
+    /// inflated. Kinds that name no class, and the table-resolved plain
+    /// definitions IL2CPP keeps behind an index or a handle, answer nothing.
+    pub fn class_from_type(
+        &self,
+        process: &Process,
+        pointer_size: PointerSize,
+        type_address: Address,
+    ) -> Option<ClassRef> {
+        match self {
+            // Mono's data names the class itself, an array's element class
+            // included. A generic instance's data is the instantiation
+            // descriptor rather than a class, and no collections trace
+            // presents one here: the array hop already landed on the
+            // inflated class.
+            Self::Mono(mono) => {
+                let (data, kind) = (mono.type_data?, mono.type_kind?);
+                let kind = process.read::<u8>(type_address + kind).ok()?;
+                if !names_a_class(kind) || kind == GENERIC_INSTANCE {
+                    return None;
+                }
+
+                process
+                    .read_pointer(type_address + data, pointer_size)
+                    .ok()
+                    .filter(|address| !address.is_null())
+                    .map(ClassRef::new)
+            }
+            // IL2CPP's array data is the element's own type, walked onward;
+            // a generic instance's descriptor caches the class it resolved
+            // to. Deeper array nesting than this is garbage.
+            Self::Il2Cpp(il2cpp) => {
+                let (data, kind, cached) =
+                    (il2cpp.type_data?, il2cpp.type_kind?, il2cpp.cached_class?);
+
+                let mut at = type_address;
+                for _ in 0..8 {
+                    let element = process.read::<u8>(at + kind).ok()?;
+                    if !names_a_class(element) {
+                        return None;
+                    }
+
+                    let data = process
+                        .read_pointer(at + data, pointer_size)
+                        .ok()
+                        .filter(|address| !address.is_null())?;
+
+                    match element {
+                        SZARRAY => at = data,
+                        GENERIC_INSTANCE => {
+                            return process
+                                .read_pointer(data + cached, pointer_size)
+                                .ok()
+                                .filter(|address| !address.is_null())
+                                .map(ClassRef::new)
+                        }
+                        _ => return None,
+                    }
+                }
+
+                None
+            }
+        }
     }
 
     /// Reads the class a live object belongs to, which is how a polymorphic

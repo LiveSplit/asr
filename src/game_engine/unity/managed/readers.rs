@@ -1,6 +1,6 @@
 use arrayvec::ArrayVec;
 use bytemuck::CheckedBitPattern;
-use core::mem::MaybeUninit;
+use core::mem::{size_of, MaybeUninit};
 
 use super::ManagedString;
 use crate::{Address, Error, PointerSize, Process};
@@ -54,6 +54,34 @@ pub struct ListOffsets {
     pub(crate) size: u32,
 }
 
+/// The most bytes one entry may span: past this a claimed layout is
+/// garbage, and at most this many are read per chunk.
+pub(crate) const ENTRY_SCRATCH: usize = 1024;
+
+/// How one dictionary entry lays out, measured from the entry's own start:
+/// the stored hash, the chain link, and the key and value slots.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct EntryLayout {
+    pub(crate) stride: u32,
+    pub(crate) hash: u32,
+    pub(crate) next: u32,
+    pub(crate) key: u32,
+    pub(crate) value: u32,
+}
+
+/// Where a dictionary keeps its backing entries and live counts, and how
+/// one entry lays out, resolved once from the dictionary's class hierarchy
+/// and held by the caller, so the per-tick read costs reads rather than a
+/// metadata walk. The entry layout depends on the concrete key and value
+/// types, so offsets must only be reused for the same dictionary type.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct DictionaryOffsets {
+    pub(crate) entries: u32,
+    pub(crate) count: u32,
+    pub(crate) free_count: u32,
+    pub(crate) layout: EntryLayout,
+}
+
 /// Reads a managed list's live elements through the reference stored at the
 /// given address, with the offsets a resolution handed out earlier. The
 /// count is judged by the buffer, the backing array's capacity is not, and
@@ -102,6 +130,123 @@ pub fn read_list<T: CheckedBitPattern, const N: usize>(
 
     let mut out = ArrayVec::new();
     out.try_extend_from_slice(elements).map_err(|_| Error {})?;
+    Ok(out)
+}
+
+/// The most entries a dictionary may claim: a torn header must not buy a
+/// scan proportional to whatever it says.
+const MOST_ENTRIES: u32 = 1 << 20;
+
+/// The freed-entry marks: some runtimes write the mark over the stored
+/// hash, others link the chain word below the empty value.
+fn freed(hash: u32, next: i32) -> bool {
+    hash == u32::MAX || next < -1
+}
+
+/// What a member may span before it runs into the member behind it, or the
+/// entry's end.
+fn room(layout: &EntryLayout, member: u32) -> u32 {
+    [layout.hash, layout.next, layout.key, layout.value]
+        .into_iter()
+        .filter(|&other| other > member)
+        .min()
+        .unwrap_or(layout.stride)
+        - member
+}
+
+/// Reads a managed dictionary's live pairs through the reference stored at
+/// the given address, with the offsets a resolution handed out earlier.
+/// The buffer judges the live pairs, never the counted entries or the
+/// backing capacity; freed entries are skipped by their marks, and a live
+/// tally that cannot balance against the counts fails rather than
+/// answering wrong pairs. The key and value types are the caller's claims,
+/// refused where a claim outgrows its member's room.
+pub fn read_dictionary<K: CheckedBitPattern, V: CheckedBitPattern, const N: usize>(
+    process: &Process,
+    pointer_size: PointerSize,
+    offsets: DictionaryOffsets,
+    at: Address,
+) -> Result<ArrayVec<(K, V), N>, Error> {
+    let layout = &offsets.layout;
+    if size_of::<K>() as u32 > room(layout, layout.key)
+        || size_of::<V>() as u32 > room(layout, layout.value)
+    {
+        return Err(Error {});
+    }
+
+    let object = process
+        .read_pointer(at, pointer_size)
+        .ok()
+        .filter(|address| !address.is_null())
+        .ok_or(Error {})?;
+
+    let count = process.read::<i32>(object + offsets.count)?;
+    let free = process.read::<i32>(object + offsets.free_count)?;
+    let (count, free) = match (u32::try_from(count), u32::try_from(free)) {
+        (Ok(count), Ok(free)) if free <= count && count <= MOST_ENTRIES => (count, free),
+        _ => return Err(Error {}),
+    };
+    let live = (count - free) as usize;
+    if live > N {
+        return Err(Error {});
+    }
+
+    // A dictionary constructed without capacity has no backing arrays until
+    // its first insertion. That is the canonical empty representation, not
+    // an unreadable dictionary.
+    if count == 0 {
+        return Ok(ArrayVec::new());
+    }
+
+    let entries = process
+        .read_pointer(object + offsets.entries, pointer_size)
+        .ok()
+        .filter(|address| !address.is_null())
+        .ok_or(Error {})?;
+
+    let header = object_header(pointer_size);
+    let backing = process
+        .read_pointer(entries + header + pointer_size as u64, pointer_size)?
+        .value();
+    if u64::from(count) > backing {
+        return Err(Error {});
+    }
+
+    // The entries bulk-read in chunks of the scratch, each entry judged by
+    // its marks and its pair lifted out element-wise.
+    let elements = entries + header + 2 * pointer_size as u64;
+    let stride = layout.stride as usize;
+    let per_chunk = ENTRY_SCRATCH / stride;
+    let mut scratch = [0; ENTRY_SCRATCH];
+
+    let mut out = ArrayVec::new();
+    let mut index = 0;
+    while index < count as usize {
+        let taken = per_chunk.min(count as usize - index);
+        let bytes = &mut scratch[..taken * stride];
+        process.read_into_slice(elements + (index * stride) as u64, bytes)?;
+
+        for entry in bytes.chunks_exact(stride) {
+            let at = |member: u32, len: usize| &entry[member as usize..member as usize + len];
+            let hash = u32::from_le_bytes(at(layout.hash, 4).try_into().expect("four bytes"));
+            let next = i32::from_le_bytes(at(layout.next, 4).try_into().expect("four bytes"));
+            if freed(hash, next) {
+                continue;
+            }
+
+            let key = bytemuck::checked::try_pod_read_unaligned(at(layout.key, size_of::<K>()))
+                .map_err(|_| Error {})?;
+            let value = bytemuck::checked::try_pod_read_unaligned(at(layout.value, size_of::<V>()))
+                .map_err(|_| Error {})?;
+            out.try_push((key, value)).map_err(|_| Error {})?;
+        }
+
+        index += taken;
+    }
+
+    if out.len() != live {
+        return Err(Error {});
+    }
     Ok(out)
 }
 
