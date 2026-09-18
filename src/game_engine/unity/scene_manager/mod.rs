@@ -219,13 +219,13 @@ impl SceneManager {
 
     /// Returns the number of currently loaded scenes in the attached game.
     pub fn get_scene_count(&self, process: &Process) -> Result<u32, Error> {
-        process.read(self.scene_count())
+        process.read(self.loaded_scenes() + self.size_of_ptr().wrapping_mul(2))
     }
 
     // The loaded scenes are a dynamic array: the pointer to the scenes
     // first, the allocation label next, then the count.
-    fn scene_count(&self) -> Address {
-        self.address + self.profile.manager.scenes + self.size_of_ptr().wrapping_mul(2)
+    fn loaded_scenes(&self) -> Address {
+        self.address + self.profile.manager.scenes
     }
 
     /// Iterates over all the currently loaded scenes in the attached game.
@@ -233,25 +233,15 @@ impl SceneManager {
         &'a self,
         process: &'a Process,
     ) -> impl DoubleEndedIterator<Item = Scene> + 'a {
-        let (num_scenes, addr): (usize, Address) = match self.pointer_size {
-            PointerSize::Bit64 => {
-                let [first, _, third] = process
-                    .read::<[u64; 3]>(self.scene_count())
-                    .unwrap_or_default();
-                (first as usize, Address::new(third))
-            }
-            _ => {
-                let [first, _, third] = process
-                    .read::<[u32; 3]>(self.scene_count())
-                    .unwrap_or_default();
-                (first as usize, Address::new(third as _))
-            }
-        };
+        let scenes = process
+            .read_pointer(self.loaded_scenes(), self.pointer_size)
+            .unwrap_or_default();
+        let count = self.get_scene_count(process).unwrap_or_default() as usize;
 
-        (0..num_scenes).filter_map(move |index| {
+        (0..count).filter_map(move |index| {
             process
                 .read_pointer(
-                    addr + (index as u64).wrapping_mul(self.size_of_ptr()),
+                    scenes + (index as u64).wrapping_mul(self.size_of_ptr()),
                     self.pointer_size,
                 )
                 .ok()

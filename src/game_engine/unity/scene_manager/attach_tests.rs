@@ -2,9 +2,10 @@
 //! the anchor of the build is scanned in the engine module, every match
 //! must name one global, and the global holds the manager.
 
-use super::{builds, SceneManager};
-use crate::{runtime::mock::with_modules, Address, PointerSize};
+use super::{builds, Scene, SceneManager};
+use crate::{runtime::mock::with_modules, Address, PointerSize, Process};
 use std::vec;
+use std::vec::Vec;
 
 const BASE: u64 = 0x7FF6_1000_0000;
 
@@ -148,4 +149,41 @@ fn a_null_manager_does_not_attach() {
     anchor_x64(&mut image, 0x100, BASE + 0x800);
 
     assert!(attach(&image, PointerSize::Bit64).is_none());
+}
+
+// The manager keeps its loaded scenes in a dynamic array at 0x8, with the
+// pointer first and the size two pointers in. The next array starts at 0x28.
+#[test]
+fn scenes_come_from_the_loaded_scene_array() {
+    let mut image = vec![0; 0x2000];
+    anchor_x64(&mut image, 0x100, BASE + 0x800);
+    put(&mut image, 0x800, &(BASE + 0x900).to_le_bytes());
+    put(&mut image, 0x900 + 0x8, &(BASE + 0xA00).to_le_bytes());
+    put(&mut image, 0x900 + 0x18, &2_u64.to_le_bytes());
+    put(&mut image, 0x900 + 0x28, &(BASE + 0xB00).to_le_bytes());
+    put(&mut image, 0xA00, &(BASE + 0xC00).to_le_bytes());
+    put(&mut image, 0xA08, &(BASE + 0xD00).to_le_bytes());
+    put(&mut image, 0xB00, &(BASE + 0xE00).to_le_bytes());
+    put(&mut image, 0xB08, &(BASE + 0xE00).to_le_bytes());
+
+    let scenes: Vec<Address> = with_modules(
+        &[(BASE, &image)],
+        &[("UnityPlayer.dll", BASE, MODULE)],
+        |process: &Process| {
+            let profile = &builds::nearest((6000, 3, 21, 9777), PointerSize::Bit64)
+                .unwrap()
+                .profile;
+            let manager =
+                SceneManager::attach_with(process, (Address::new(BASE), MODULE), profile).unwrap();
+            assert_eq!(manager.get_scene_count(process).unwrap(), 2);
+            manager
+                .scenes(process)
+                .map(|scene: Scene| scene.address())
+                .collect()
+        },
+    );
+    assert_eq!(
+        scenes,
+        [Address::new(BASE + 0xC00), Address::new(BASE + 0xD00)]
+    );
 }
