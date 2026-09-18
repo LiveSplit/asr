@@ -41,6 +41,7 @@ fn image() -> Vec<u8> {
     ptr(&mut i, 0x28, BASE + 0x500); // a healthy i32 array
     ptr(&mut i, 0x30, BASE + 0x600); // an array claiming more than a buffer holds
     ptr(&mut i, 0x38, BASE + 0x700); // a u16 array
+    ptr(&mut i, 0x40, BASE + 0x800); // a string array with a null element
 
     put(&mut i, 0x100 + 0x10, &9_i32.to_le_bytes());
     utf16(&mut i, 0x100 + 0x14, "Chapter 3");
@@ -70,6 +71,15 @@ fn image() -> Vec<u8> {
 
     put(&mut i, 0x700 + 0x18, &5_u32.to_le_bytes());
     utf16(&mut i, 0x700 + 0x20, "melon");
+
+    put(&mut i, 0x900 + 0x10, &5_i32.to_le_bytes());
+    utf16(&mut i, 0x900 + 0x14, "Docks");
+
+    // The reference array's slots hold the two string objects around a null
+    // element.
+    put(&mut i, 0x800 + 0x18, &3_u32.to_le_bytes());
+    ptr(&mut i, 0x800 + 0x20, BASE + 0x100);
+    ptr(&mut i, 0x800 + 0x30, BASE + 0x900);
 
     i
 }
@@ -180,7 +190,8 @@ fn array_lengths_past_the_buffer_refuse() {
 }
 
 // The 32-bit layout halves the header, the reference width, and the length
-// slot.
+// slot. The reference array's slots are 4 bytes wide with garbage right
+// behind them, so a wide stride reads loudly wrong addresses.
 #[test]
 fn readers_resolve_on_32_bit_targets() {
     let mut i = vec![0; 0x1000];
@@ -191,6 +202,10 @@ fn readers_resolve_on_32_bit_targets() {
     put(&mut i, 0x200 + 0xC, &2_u32.to_le_bytes());
     put(&mut i, 0x200 + 0x10, &21_i32.to_le_bytes());
     put(&mut i, 0x200 + 0x14, &22_i32.to_le_bytes());
+    put(&mut i, 0x10, &((BASE + 0x300) as u32).to_le_bytes());
+    put(&mut i, 0x300 + 0xC, &2_u32.to_le_bytes());
+    put(&mut i, 0x300 + 0x10, &((BASE + 0x100) as u32).to_le_bytes());
+    put(&mut i, 0x300 + 0x18, &u32::MAX.to_le_bytes());
 
     with_process(&[(BASE, &i)], |process| {
         let module = module(PointerSize::Bit32);
@@ -203,5 +218,68 @@ fn readers_resolve_on_32_bit_targets() {
             .read_array::<i32, 4>(process, Address::new(BASE + 0x8))
             .unwrap();
         assert_eq!(read.as_slice(), [21, 22]);
+
+        let read = module
+            .read_reference_array::<4>(process, Address::new(BASE + 0x10))
+            .unwrap();
+        assert_eq!(read.as_slice(), [Address::new(BASE + 0x100), Address::NULL]);
+
+        let read = module.read_string_object::<8>(process, read[0]).unwrap();
+        assert!(read.matches_str("Ridge"));
+    });
+}
+
+// Null elements are data: they come back as null addresses at their
+// positions, since positions carry meaning and filtering is the caller's
+// one-liner. Only a null array reference refuses.
+#[test]
+fn reference_arrays_preserve_null_elements_in_place() {
+    on_fixture(|process, module| {
+        let read = module
+            .read_reference_array::<8>(process, Address::new(BASE + 0x40))
+            .unwrap();
+        assert_eq!(
+            read.as_slice(),
+            [
+                Address::new(BASE + 0x100),
+                Address::NULL,
+                Address::new(BASE + 0x900),
+            ]
+        );
+    });
+}
+
+#[test]
+fn reference_array_lengths_past_the_buffer_refuse() {
+    on_fixture(|process, module| {
+        assert!(module
+            .read_reference_array::<2>(process, Address::new(BASE + 0x40))
+            .is_err());
+        assert!(module
+            .read_reference_array::<8>(process, Address::new(BASE + 0x18))
+            .is_err());
+    });
+}
+
+// The object-address form composes over a reference array's elements; a
+// null address refuses at the element, with the index in hand.
+#[test]
+fn string_objects_read_at_their_addresses() {
+    on_fixture(|process, module| {
+        let objects = module
+            .read_reference_array::<8>(process, Address::new(BASE + 0x40))
+            .unwrap();
+
+        let read = module
+            .read_string_object::<16>(process, objects[0])
+            .unwrap();
+        assert!(read.matches_str("Chapter 3"));
+        assert!(module
+            .read_string_object::<16>(process, objects[1])
+            .is_err());
+        let read = module
+            .read_string_object::<16>(process, objects[2])
+            .unwrap();
+        assert!(read.matches_str("Docks"));
     });
 }

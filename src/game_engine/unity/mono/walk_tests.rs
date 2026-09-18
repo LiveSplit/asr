@@ -240,13 +240,22 @@ fn image() -> Vec<u8> {
     ptr(&mut i, 0x3B00 + 0x10, BASE + 0x3A00);
     put(&mut i, 0x3B00 + 0x18, &99_i32.to_le_bytes());
 
+    // A reference list shares the class too; its backing holds an object
+    // address and a null element.
+    ptr(&mut i, 0x3E50, BASE + 0x3950);
+    ptr(&mut i, 0x3E50 + 0x10, BASE + 0x3E80);
+    put(&mut i, 0x3E50 + 0x18, &2_i32.to_le_bytes());
+    put(&mut i, 0x3E80 + 0x18, &4_u32.to_le_bytes());
+    ptr(&mut i, 0x3E80 + 0x20, BASE + 0x1900);
+
     ptr(&mut i, 0x3C00, BASE + 0x3C50); // an Inventory object, not a list
     ptr(&mut i, 0x3C50, BASE + 0x2D00);
 
-    // The slots holding the three references.
+    // The slots holding the four references.
     ptr(&mut i, 0x3F00, BASE + 0x3900);
     ptr(&mut i, 0x3F08, BASE + 0x3B00);
     ptr(&mut i, 0x3F10, BASE + 0x3C00);
+    ptr(&mut i, 0x3F18, BASE + 0x3E50);
 
     // A derived list inherits the two fields from List rather than declaring
     // them again.
@@ -527,6 +536,30 @@ fn list_counts_past_their_backing_refuse() {
         let at = Address::new(BASE + 0x3F08);
         let offsets = module.get_list_offsets(process, at).unwrap();
         assert!(module.read_list::<i32, 128>(process, offsets, at).is_err());
+    });
+}
+
+// A reference list hands back its elements' object addresses at the
+// target's width, a null element preserved at its position; the same
+// torn-resize refusal guards the count.
+#[test]
+fn reference_lists_resolve_their_element_addresses() {
+    on_fixture(era(), |process, module| {
+        let at = Address::new(BASE + 0x3F18);
+        let offsets = module.get_list_offsets(process, at).unwrap();
+        let read = module
+            .read_reference_list::<4>(process, offsets, at)
+            .unwrap();
+        assert_eq!(
+            read.as_slice(),
+            [Address::new(BASE + 0x1900), Address::NULL]
+        );
+
+        let at = Address::new(BASE + 0x3F08);
+        let offsets = module.get_list_offsets(process, at).unwrap();
+        assert!(module
+            .read_reference_list::<128>(process, offsets, at)
+            .is_err());
     });
 }
 
