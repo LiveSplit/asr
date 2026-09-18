@@ -355,94 +355,174 @@ impl MonoOffsets {
                 },
                 v_table: MonoVTableOffsets { vtable: 0x28 },
             }),
-            (BinaryFormat::ELF | BinaryFormat::MachO, Version::V3, PointerSize::Bit64) => {
-                Some(&Self {
-                    assembly: AssemblyOffsets {
-                        aname: Some(0x10),
-                        image: 0x60,
-                    },
-                    image: ImageOffsets {
-                        assembly_name: None,
-                        class_cache: 0x4D0,
-                    },
-                    hash_table: HashTableOffsets {
-                        size: 0x18,
-                        table: 0x20,
-                    },
-                    class: ClassOffsets {
-                        class_kind: None,
-                        instance_size: None,
-                        parent: 0x28,
-                        nested_in: None,
-                        name: 0x40,
-                        namespace: 0x48,
-                        vtable_size: 0x54,
-                        fields: 0x90,
-                        runtime_info: 0xC8,
-                        field_count: 0xF8,
-                        next_class_cache: 0x100,
-                    },
-                    generic: GenericOffsets {
-                        generic_class: None,
-                        container_class: None,
-                    },
-                    type_words: TypeOffsets {
-                        data: None,
-                        kind: None,
-                    },
-                    field: FieldInfoOffsets {
-                        type_: None,
-                        name: 0x8,
-                        offset: 0x18,
-                        alignment: 0x20,
-                    },
-                    v_table: MonoVTableOffsets { vtable: 0x48 },
-                })
-            }
-            (BinaryFormat::ELF | BinaryFormat::MachO, Version::V2, PointerSize::Bit64) => {
-                Some(&Self {
-                    assembly: AssemblyOffsets {
-                        aname: Some(0x10),
-                        image: 0x60,
-                    },
-                    image: ImageOffsets {
-                        assembly_name: None,
-                        class_cache: 0x4C0,
-                    },
-                    hash_table: HashTableOffsets {
-                        size: 0x18,
-                        table: 0x20,
-                    },
-                    class: ClassOffsets {
-                        class_kind: None,
-                        instance_size: None,
-                        parent: 0x28,
-                        nested_in: None,
-                        name: 0x40,
-                        namespace: 0x48,
-                        vtable_size: 0x54,
-                        fields: 0x90,
-                        runtime_info: 0xC8,
-                        field_count: 0xF8,
-                        next_class_cache: 0x100,
-                    },
-                    generic: GenericOffsets {
-                        generic_class: None,
-                        container_class: None,
-                    },
-                    type_words: TypeOffsets {
-                        data: None,
-                        kind: None,
-                    },
-                    field: FieldInfoOffsets {
-                        type_: None,
-                        name: 0x8,
-                        offset: 0x18,
-                        alignment: 0x20,
-                    },
-                    v_table: MonoVTableOffsets { vtable: 0x40 },
-                })
-            }
+            (BinaryFormat::ELF, Version::V3, PointerSize::Bit64) => Some(&Self {
+                assembly: AssemblyOffsets {
+                    aname: Some(0x10),
+                    image: 0x60,
+                },
+                image: ImageOffsets {
+                    assembly_name: None,
+                    class_cache: 0x4D0,
+                },
+                hash_table: HashTableOffsets {
+                    size: 0x18,
+                    table: 0x20,
+                },
+                class: ClassOffsets {
+                    class_kind: Some(0x1B),    // 2021.3 through 6000.7
+                    instance_size: Some(0x1C), // 2021.3 through 6000.7
+                    parent: 0x28,
+                    nested_in: Some(0x30), // 2021.3 through 6000.7
+                    name: 0x40,
+                    namespace: 0x48,
+                    vtable_size: 0x54,
+                    fields: 0x90,
+                    runtime_info: 0xC8,
+                    field_count: 0xF8,
+                    next_class_cache: 0x100,
+                },
+                generic: GenericOffsets {
+                    generic_class: Some(0xE8),  // 2021.3 through 6000.7
+                    container_class: Some(0x0), // 2021.3 through 6000.7
+                },
+                type_words: TypeOffsets {
+                    data: Some(0x0), // 2021.3 through 6000.7
+                    kind: Some(0xA), // 2021.3 through 6000.7
+                },
+                field: FieldInfoOffsets {
+                    type_: Some(0x0), // 2021.3 through 6000.7
+                    name: 0x8,
+                    offset: 0x18,
+                    alignment: 0x20,
+                },
+                v_table: MonoVTableOffsets { vtable: 0x48 },
+            }),
+            (BinaryFormat::MachO, Version::V3, PointerSize::Bit64) => Some(&Self {
+                assembly: AssemblyOffsets {
+                    aname: Some(0x10),
+                    image: 0x60,
+                },
+                image: ImageOffsets {
+                    assembly_name: None,
+                    class_cache: 0x4D0,
+                },
+                hash_table: HashTableOffsets {
+                    size: 0x18,
+                    table: 0x20,
+                },
+                class: ClassOffsets {
+                    class_kind: None,
+                    instance_size: None,
+                    parent: 0x28,
+                    nested_in: None,
+                    name: 0x40,
+                    namespace: 0x48,
+                    vtable_size: 0x54,
+                    fields: 0x90,
+                    runtime_info: 0xC8,
+                    field_count: 0xF8,
+                    next_class_cache: 0x100,
+                },
+                generic: GenericOffsets {
+                    generic_class: None,
+                    container_class: None,
+                },
+                type_words: TypeOffsets {
+                    data: None,
+                    kind: None,
+                },
+                field: FieldInfoOffsets {
+                    type_: None,
+                    name: 0x8,
+                    offset: 0x18,
+                    alignment: 0x20,
+                },
+                v_table: MonoVTableOffsets { vtable: 0x48 },
+            }),
+            (BinaryFormat::ELF, Version::V2, PointerSize::Bit64) => Some(&Self {
+                assembly: AssemblyOffsets {
+                    aname: Some(0x10),
+                    image: 0x60,
+                },
+                image: ImageOffsets {
+                    assembly_name: None,
+                    class_cache: 0x4C0,
+                },
+                hash_table: HashTableOffsets {
+                    size: 0x18,
+                    table: 0x20,
+                },
+                class: ClassOffsets {
+                    class_kind: Some(0x24),    // 2018.4, 2019.4
+                    instance_size: Some(0x1C), // 2018.4, 2019.4
+                    parent: 0x28,
+                    nested_in: Some(0x30), // 2018.4, 2019.4
+                    name: 0x40,
+                    namespace: 0x48,
+                    vtable_size: 0x54,
+                    fields: 0x90,
+                    runtime_info: 0xC8,
+                    field_count: 0xF8,
+                    next_class_cache: 0x100,
+                },
+                generic: GenericOffsets {
+                    generic_class: Some(0xE8),  // 2018.4, 2019.4
+                    container_class: Some(0x0), // 2018.4, 2019.4
+                },
+                type_words: TypeOffsets {
+                    data: Some(0x0), // 2018.4, 2019.4
+                    kind: Some(0xA), // 2018.4, 2019.4
+                },
+                field: FieldInfoOffsets {
+                    type_: Some(0x0), // 2018.4, 2019.4
+                    name: 0x8,
+                    offset: 0x18,
+                    alignment: 0x20,
+                },
+                v_table: MonoVTableOffsets { vtable: 0x40 },
+            }),
+            (BinaryFormat::MachO, Version::V2, PointerSize::Bit64) => Some(&Self {
+                assembly: AssemblyOffsets {
+                    aname: Some(0x10),
+                    image: 0x60,
+                },
+                image: ImageOffsets {
+                    assembly_name: None,
+                    class_cache: 0x4C0,
+                },
+                hash_table: HashTableOffsets {
+                    size: 0x18,
+                    table: 0x20,
+                },
+                class: ClassOffsets {
+                    class_kind: None,
+                    instance_size: None,
+                    parent: 0x28,
+                    nested_in: None,
+                    name: 0x40,
+                    namespace: 0x48,
+                    vtable_size: 0x54,
+                    fields: 0x90,
+                    runtime_info: 0xC8,
+                    field_count: 0xF8,
+                    next_class_cache: 0x100,
+                },
+                generic: GenericOffsets {
+                    generic_class: None,
+                    container_class: None,
+                },
+                type_words: TypeOffsets {
+                    data: None,
+                    kind: None,
+                },
+                field: FieldInfoOffsets {
+                    type_: None,
+                    name: 0x8,
+                    offset: 0x18,
+                    alignment: 0x20,
+                },
+                v_table: MonoVTableOffsets { vtable: 0x40 },
+            }),
             (BinaryFormat::ELF | BinaryFormat::MachO, Version::V1Cattrs, PointerSize::Bit64) => {
                 Some(&Self {
                     assembly: AssemblyOffsets {
