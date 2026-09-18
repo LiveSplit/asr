@@ -12,39 +12,35 @@ impl SceneManager {
     /// (and so on), as well as a list of `Component`s, which are classes (eg.
     /// `MonoBehaviour`) containing data we might want to retrieve for the auto
     /// splitter logic.
-    fn root_game_objects<'a>(
+    pub(super) fn root_game_objects<'a>(
         &'a self,
         process: &'a Process,
         scene: &Scene,
     ) -> impl FusedIterator<Item = Transform> + 'a {
-        let list_first = process
-            .read_pointer(scene.address + self.profile.scene.roots, self.pointer_size)
+        let head = scene.address + self.profile.scene.roots;
+        let mut current = process
+            .read_pointer(head + self.size_of_ptr(), self.pointer_size)
             .ok()
-            .filter(|val| !val.is_null());
-
-        let mut current_list = list_first;
+            .filter(|node| !node.is_null() && *node != head);
 
         iter::from_fn(move || {
-            let [first, _, third]: [Address; 3] = match self.pointer_size {
+            let node = current?;
+            let [_, next, transform]: [Address; 3] = match self.pointer_size {
                 PointerSize::Bit64 => process
-                    .read::<[Address64; 3]>(current_list?)
+                    .read::<[Address64; 3]>(node)
                     .ok()
-                    .filter(|[first, _, third]| !first.is_null() && !third.is_null())?
+                    .filter(|[_, _, transform]| !transform.is_null())?
                     .map(|a| a.into()),
                 _ => process
-                    .read::<[Address32; 3]>(current_list?)
+                    .read::<[Address32; 3]>(node)
                     .ok()
-                    .filter(|[first, _, third]| !first.is_null() && !third.is_null())?
+                    .filter(|[_, _, transform]| !transform.is_null())?
                     .map(|a| a.into()),
             };
 
-            if first == list_first? {
-                current_list = None;
-            } else {
-                current_list = Some(first);
-            }
+            current = Some(next).filter(|next| !next.is_null() && *next != head);
 
-            Some(Transform { address: third })
+            Some(Transform { address: transform })
         })
         .fuse()
     }
