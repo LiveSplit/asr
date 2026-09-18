@@ -1,5 +1,8 @@
-//! Known Unity players and the layout of their scene manager. Each entry is
-//! one measured player. The full Unity version says which player.
+//! Known Unity players and the layout of their scene manager, scenes,
+//! transforms and game objects. Each entry is one measured player. The full
+//! Unity version says which player. The offsets were read off the player's
+//! code through the functions its PDB names, and the offsets and the shapes
+//! were checked against a running player with a known scene.
 
 use super::offsets::{
     Anchor, GameObjectOffsets, ManagerOffsets, ObjectOffsets, PathShape, Profile, ReferenceShape,
@@ -352,9 +355,9 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 6000.2.12f1, x64.
+    // Unity 6000.0.84f1, x64.
     Build {
-        unity: (6000, 2, 12, 40285),
+        unity: (6000, 0, 84, 43887),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
             anchor: SCENE_COUNT_GETTER_X64,
@@ -380,6 +383,68 @@ pub(super) const BUILDS: &[Build] = &[
             },
             object: ObjectOffsets {
                 managed_reference: 0x18,
+            },
+        },
+    },
+    // Unity 6000.0.84f1, x86.
+    Build {
+        unity: (6000, 0, 84, 43887),
+        profile: Profile {
+            pointer_size: PointerSize::Bit32,
+            anchor: SCENE_AT_GETTER_X86,
+            path: PathShape::Pointer,
+            reference: ReferenceShape::RootSlot,
+            manager: ManagerOffsets {
+                scenes: 0x8,
+                active_scene: 0x28,
+                dont_destroy_on_load_scene: 0x40,
+            },
+            scene: SceneOffsets {
+                path: 0xc,
+                build_index: 0x58,
+                roots: 0x98,
+            },
+            transform: TransformOffsets {
+                game_object: 0x14,
+                children: 0x48,
+            },
+            game_object: GameObjectOffsets {
+                components: 0x14,
+                name: 0x34,
+            },
+            object: ObjectOffsets {
+                managed_reference: 0x10,
+            },
+        },
+    },
+    // Unity 6000.1.17f1, x86.
+    Build {
+        unity: (6000, 1, 17, 47571),
+        profile: Profile {
+            pointer_size: PointerSize::Bit32,
+            anchor: SCENE_AT_GETTER_X86,
+            path: PathShape::Pointer,
+            reference: ReferenceShape::RootSlot,
+            manager: ManagerOffsets {
+                scenes: 0x8,
+                active_scene: 0x28,
+                dont_destroy_on_load_scene: 0x40,
+            },
+            scene: SceneOffsets {
+                path: 0xc,
+                build_index: 0x58,
+                roots: 0x94,
+            },
+            transform: TransformOffsets {
+                game_object: 0x14,
+                children: 0x48,
+            },
+            game_object: GameObjectOffsets {
+                components: 0x14,
+                name: 0x34,
+            },
+            object: ObjectOffsets {
+                managed_reference: 0x10,
             },
         },
     },
@@ -540,8 +605,10 @@ pub(super) const BUILDS: &[Build] = &[
     },
 ];
 
-/// The layout of a Linux or Mac x64 player, which is not measured yet: the
-/// signature and the offsets the walk used before the table existed.
+/// The layout used for a Linux or Mac x64 player. Those players are not
+/// measured yet, so this keeps the signature and the offsets the walk used
+/// before the table existed. The offsets are the x64 layout of Unity 2018.4
+/// through 2022.3.
 pub(super) const ELF_AND_MACHO_X64: Profile = Profile {
     pointer_size: PointerSize::Bit64,
     anchor: Anchor {

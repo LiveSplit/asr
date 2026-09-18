@@ -69,9 +69,28 @@ fn nearest_takes_the_newest_build_at_or_below_the_major_minor() {
     let unity = |player| builds::nearest(player, PointerSize::Bit64).unwrap().unity;
     assert_eq!(unity((6000, 3, 5, 1)), (6000, 3, 21, 9777));
     assert_eq!(unity((6000, 4, 0, 62614)), (6000, 3, 21, 9777));
+    assert_eq!(unity((6000, 0, 58, 1)), (6000, 0, 84, 43887));
+    assert_eq!(unity((6000, 1, 17, 47571)), (6000, 0, 84, 43887));
+    assert_eq!(unity((6000, 2, 12, 40285)), (6000, 0, 84, 43887));
     assert_eq!(unity((2019, 4, 41, 9172)), (2018, 4, 36, 54151));
     assert_eq!(unity((7000, 0, 0, 0)), (6000, 5, 10, 54518));
     assert_eq!(unity((5, 6, 7, 0)), (2017, 4, 40, 5126));
+}
+
+// Every layout starts with an entry at the pointer size it holds for. The
+// x86 players of Unity 6000.1 keep the root list of a scene 4 bytes earlier
+// than the players of 6000.0 and 6000.2, so x86 has entries at all three
+// where x64 has one.
+#[test]
+fn x86_entries_follow_the_root_list_move_of_6000_1() {
+    let roots = |player| {
+        let build = builds::nearest(player, PointerSize::Bit32).unwrap();
+        (build.unity, build.profile.scene.roots)
+    };
+    assert_eq!(roots((6000, 0, 58, 1)), ((6000, 0, 84, 43887), 0x98));
+    assert_eq!(roots((6000, 1, 17, 47571)), ((6000, 1, 17, 47571), 0x94));
+    assert_eq!(roots((6000, 2, 12, 40285)), ((6000, 2, 12, 40285), 0x98));
+    assert_eq!(roots((6000, 3, 21, 9777)), ((6000, 3, 21, 9777), 0x98));
 }
 
 #[test]
