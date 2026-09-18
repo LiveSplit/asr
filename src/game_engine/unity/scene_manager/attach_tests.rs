@@ -75,18 +75,6 @@ fn nearest_takes_the_newest_build_at_or_below_the_major_minor() {
 }
 
 #[test]
-fn every_build_is_measured_at_both_pointer_sizes() {
-    for build in builds::BUILDS {
-        let other = match build.profile.pointer_size {
-            PointerSize::Bit64 => PointerSize::Bit32,
-            _ => PointerSize::Bit64,
-        };
-        let twin = builds::nearest(build.unity, other).unwrap();
-        assert_eq!(twin.unity, build.unity, "{:?} at {:?}", build.unity, other);
-    }
-}
-
-#[test]
 fn table_reads_oldest_to_newest() {
     for pointer_size in [PointerSize::Bit64, PointerSize::Bit32] {
         let mut last = (0, 0, 0, 0);

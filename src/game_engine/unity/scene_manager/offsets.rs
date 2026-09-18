@@ -8,6 +8,20 @@ pub(super) struct Anchor {
     pub(super) displacement: u8,
 }
 
+/// How a scene keeps its path in the 32 bytes of its path field.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(super) enum PathShape {
+    /// A pointer to the characters.
+    Pointer,
+    /// A path of up to 31 characters sits inline, with a NUL after it. A
+    /// longer path sits behind a pointer, followed by its length and its
+    /// capacity.
+    InlineNul,
+    /// Like [`InlineNul`](Self::InlineNul), but the last byte of the field
+    /// holds 31 minus the length while the path is inline.
+    InlineSpare,
+}
+
 /// The members of `RuntimeSceneManager` the walk reads. The loaded scenes
 /// are a dynamic array, with the pointer to the scenes at `scenes` and the
 /// count two pointers after it. The `DontDestroyOnLoad` scene is embedded in
@@ -47,10 +61,12 @@ pub(super) struct ObjectOffsets {
 }
 
 /// Everything the walk needs to know about one player: its pointer size, how
-/// the scene manager is found, and the offsets of the engine structs.
+/// the scene manager is found, how a scene keeps its path, and the offsets
+/// of the engine structs.
 pub(super) struct Profile {
     pub(super) pointer_size: PointerSize,
     pub(super) anchor: Anchor,
+    pub(super) path: PathShape,
     pub(super) manager: ManagerOffsets,
     pub(super) scene: SceneOffsets,
     pub(super) transform: TransformOffsets,

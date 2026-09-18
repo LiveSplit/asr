@@ -2,7 +2,7 @@
 //! one measured player. The full Unity version says which player.
 
 use super::offsets::{
-    Anchor, GameObjectOffsets, ManagerOffsets, ObjectOffsets, Profile, SceneOffsets,
+    Anchor, GameObjectOffsets, ManagerOffsets, ObjectOffsets, PathShape, Profile, SceneOffsets,
     TransformOffsets,
 };
 use crate::{signature::Signature, PointerSize};
@@ -79,6 +79,7 @@ pub(super) const BUILDS: &[Build] = &[
         profile: Profile {
             pointer_size: PointerSize::Bit64,
             anchor: PROLOGUE_LOAD_X64,
+            path: PathShape::Pointer,
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x48,
@@ -108,6 +109,7 @@ pub(super) const BUILDS: &[Build] = &[
         profile: Profile {
             pointer_size: PointerSize::Bit32,
             anchor: LOAD_AND_CLEAR_X86,
+            path: PathShape::Pointer,
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x28,
@@ -137,6 +139,7 @@ pub(super) const BUILDS: &[Build] = &[
         profile: Profile {
             pointer_size: PointerSize::Bit64,
             anchor: PROLOGUE_LOAD_X64,
+            path: PathShape::Pointer,
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x48,
@@ -166,6 +169,7 @@ pub(super) const BUILDS: &[Build] = &[
         profile: Profile {
             pointer_size: PointerSize::Bit32,
             anchor: LOAD_AND_CLEAR_X86,
+            path: PathShape::Pointer,
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x28,
@@ -189,12 +193,43 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
+    // Unity 2021.1.29f1, x64.
+    Build {
+        unity: (2021, 1, 29, 10531),
+        profile: Profile {
+            pointer_size: PointerSize::Bit64,
+            anchor: PROLOGUE_LOAD_X64,
+            path: PathShape::InlineNul,
+            manager: ManagerOffsets {
+                scenes: 0x8,
+                active_scene: 0x48,
+                dont_destroy_on_load_scene: 0x70,
+            },
+            scene: SceneOffsets {
+                path: 0x10,
+                build_index: 0x98,
+                roots: 0xb0,
+            },
+            transform: TransformOffsets {
+                game_object: 0x30,
+                children: 0x70,
+            },
+            game_object: GameObjectOffsets {
+                components: 0x30,
+                name: 0x60,
+            },
+            object: ObjectOffsets {
+                managed_reference: 0x28,
+            },
+        },
+    },
     // Unity 2022.3.0f1, x64.
     Build {
         unity: (2022, 3, 0, 4507),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
             anchor: PROLOGUE_LOAD_X64,
+            path: PathShape::InlineNul,
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x48,
@@ -224,6 +259,7 @@ pub(super) const BUILDS: &[Build] = &[
         profile: Profile {
             pointer_size: PointerSize::Bit32,
             anchor: ACTIVE_SCENE_GETTER_X86,
+            path: PathShape::Pointer,
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x28,
@@ -253,6 +289,7 @@ pub(super) const BUILDS: &[Build] = &[
         profile: Profile {
             pointer_size: PointerSize::Bit64,
             anchor: PROLOGUE_LOAD_X64,
+            path: PathShape::InlineSpare,
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x48,
@@ -282,6 +319,7 @@ pub(super) const BUILDS: &[Build] = &[
         profile: Profile {
             pointer_size: PointerSize::Bit32,
             anchor: ACTIVE_SCENE_GETTER_X86,
+            path: PathShape::Pointer,
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x28,
@@ -311,6 +349,7 @@ pub(super) const BUILDS: &[Build] = &[
         profile: Profile {
             pointer_size: PointerSize::Bit64,
             anchor: SCENE_COUNT_GETTER_X64,
+            path: PathShape::InlineSpare,
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x48,
@@ -340,6 +379,7 @@ pub(super) const BUILDS: &[Build] = &[
         profile: Profile {
             pointer_size: PointerSize::Bit32,
             anchor: SCENE_AT_GETTER_X86,
+            path: PathShape::Pointer,
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x28,
@@ -369,6 +409,7 @@ pub(super) const BUILDS: &[Build] = &[
         profile: Profile {
             pointer_size: PointerSize::Bit64,
             anchor: SCENE_COUNT_GETTER_X64,
+            path: PathShape::InlineSpare,
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x48,
@@ -398,6 +439,7 @@ pub(super) const BUILDS: &[Build] = &[
         profile: Profile {
             pointer_size: PointerSize::Bit32,
             anchor: SCENE_AT_GETTER_X86,
+            path: PathShape::Pointer,
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x28,
@@ -427,6 +469,7 @@ pub(super) const BUILDS: &[Build] = &[
         profile: Profile {
             pointer_size: PointerSize::Bit64,
             anchor: SCENE_COUNT_GETTER_X64,
+            path: PathShape::InlineSpare,
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x48,
@@ -456,6 +499,7 @@ pub(super) const BUILDS: &[Build] = &[
         profile: Profile {
             pointer_size: PointerSize::Bit32,
             anchor: SCENE_AT_GETTER_X86,
+            path: PathShape::Pointer,
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x28,
@@ -489,6 +533,7 @@ pub(super) const ELF_AND_MACHO_X64: Profile = Profile {
         signature: Signature::new("41 54 53 50 4C 8B ?5 ?? ?? ?? ?? 41 83"),
         displacement: 7,
     },
+    path: PathShape::Pointer,
     manager: ManagerOffsets {
         scenes: 0x8,
         active_scene: 0x48,

@@ -21,6 +21,9 @@ mod game_objects;
 #[cfg(all(test, not(target_family = "wasm")))]
 mod attach_tests;
 
+#[cfg(all(test, not(target_family = "wasm")))]
+mod scene_tests;
+
 mod offsets;
 
 mod transform;
