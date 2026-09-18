@@ -18,6 +18,8 @@ use crate::{
 mod builds;
 mod image;
 mod linux_builds;
+#[cfg(feature = "alloc")]
+mod mac_builds;
 pub use image::Image;
 mod class;
 pub use class::Class;
@@ -51,6 +53,8 @@ pub struct Module {
 enum Identity {
     Debug(pe::DebugId),
     Build(elf::BuildId, &'static str),
+    #[cfg(feature = "alloc")]
+    Uuid(macho::Uuid),
 }
 
 impl Identity {
@@ -76,6 +80,8 @@ impl Identity {
                     "UnityPlayer.so",
                 )),
             },
+            #[cfg(feature = "alloc")]
+            BinaryFormat::MachO => macho::uuid(process, runtime).map(Self::Uuid),
             #[allow(unreachable_patterns)]
             _ => None,
         }
@@ -91,6 +97,10 @@ impl Identity {
             Self::Build(build_id, _) => linux_builds::find(build_id.as_bytes())
                 .filter(|build| build.pointer_size == pointer_size)
                 .map(|build| (build.version, build.offsets)),
+            #[cfg(feature = "alloc")]
+            Self::Uuid(uuid) => mac_builds::find(&uuid.bytes)
+                .filter(|build| build.pointer_size == pointer_size)
+                .map(|build| (build.version, build.offsets)),
         }
     }
 }
@@ -100,6 +110,8 @@ impl fmt::Debug for Identity {
         match self {
             Self::Debug(debug_id) => write!(f, "{debug_id:?}"),
             Self::Build(build_id, module) => write!(f, "{build_id:?} in {module}"),
+            #[cfg(feature = "alloc")]
+            Self::Uuid(uuid) => write!(f, "{uuid:?}"),
         }
     }
 }
