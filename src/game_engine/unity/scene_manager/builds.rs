@@ -39,43 +39,126 @@ pub(super) fn nearest(
 }
 
 // A function that loads the global into r13 or r14 right after its
-// prologue. It hits once on every player from Unity 2017.4 through 2023.1.
+// prologue. It hits once on every player from Unity 5.6 through 2023.1.
 const PROLOGUE_LOAD_X64: Anchor = Anchor {
-    signature: Signature::new("48 83 EC 20 4C 8B ?5 ?? ?? ?? ?? 33 F6"),
+    signature: Signature::new(
+        "48 83 EC 20 4C 8B ?5 ?? ?? ?? ?? 33 F6 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ??",
+    ),
     displacement: 7,
 };
 
 // The scene count getter of Unity 6: it loads the global into rax and reads
 // the count at 0x18.
 const SCENE_COUNT_GETTER_X64: Anchor = Anchor {
-    signature: Signature::new("48 8B 05 ?? ?? ?? ?? 8B 40 18 C3 ?? ??"),
+    signature: Signature::new(
+        "48 8B 05 ?? ?? ?? ?? 8B 40 18 C3 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ??",
+    ),
     displacement: 3,
+};
+
+// The head of the function that tears the scene manager down on Unity 5.6:
+// it loads the global into ecx, checks it, calls its destructor, and frees
+// 0x58 bytes. The 0x58 tells it apart from the other teardowns that share
+// the head.
+const TEARDOWN_X86: Anchor = Anchor {
+    signature: Signature::new(
+        "8B 0D ?? ?? ?? ?? 56 8B F1 85 C9 74 08 8B 01 8B 10 6A 00 FF D2 6A 58 56",
+    ),
+    displacement: 2,
 };
 
 // A function that loads the global into eax, then pushes ebx, clears it and
 // stores eax in a local. It hits once on every player from Unity 2017.4
 // through 2021.3.
 const LOAD_AND_CLEAR_X86: Anchor = Anchor {
-    signature: Signature::new("A1 ?? ?? ?? ?? 53 33 DB 89 45 FC ?? ??"),
+    signature: Signature::new(
+        "A1 ?? ?? ?? ?? 53 33 DB 89 45 FC ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ??",
+    ),
     displacement: 1,
 };
 
 // The active scene getter of Unity 2022.3 and 2023.1: it loads the global
 // into eax and reads the active scene at 0x28.
 const ACTIVE_SCENE_GETTER_X86: Anchor = Anchor {
-    signature: Signature::new("A1 ?? ?? ?? ?? 8B 48 28 ?? ?? ?? ?? ??"),
+    signature: Signature::new(
+        "A1 ?? ?? ?? ?? 8B 48 28 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ??",
+    ),
     displacement: 1,
 };
 
 // The scene at index getter of Unity 6: it loads the global into eax and
 // compares the index with the scene count at 0x10.
 const SCENE_AT_GETTER_X86: Anchor = Anchor {
-    signature: Signature::new("A1 ?? ?? ?? ?? 3B 50 10 ?? ?? ?? ?? ??"),
+    signature: Signature::new(
+        "A1 ?? ?? ?? ?? 3B 50 10 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ??",
+    ),
     displacement: 1,
 };
 
 // The table reads from the oldest player to the newest.
 pub(super) const BUILDS: &[Build] = &[
+    // Unity 5.6.7f1, x64.
+    Build {
+        unity: (5, 6, 7, 3267),
+        profile: Profile {
+            pointer_size: PointerSize::Bit64,
+            anchor: PROLOGUE_LOAD_X64,
+            path: PathShape::Pointer,
+            reference: ReferenceShape::CachedObject,
+            manager: ManagerOffsets {
+                scenes: 0x8,
+                active_scene: 0x48,
+                dont_destroy_on_load_scene: 0x70,
+            },
+            scene: SceneOffsets {
+                path: 0x18,
+                build_index: 0xa0,
+                roots: 0xb8,
+            },
+            transform: TransformOffsets {
+                game_object: 0x30,
+                children: 0x70,
+            },
+            game_object: GameObjectOffsets {
+                components: 0x30,
+                name: 0x60,
+            },
+            object: ObjectOffsets {
+                managed_reference: 0x28,
+            },
+        },
+    },
+    // Unity 5.6.7f1, x86.
+    Build {
+        unity: (5, 6, 7, 3267),
+        profile: Profile {
+            pointer_size: PointerSize::Bit32,
+            anchor: TEARDOWN_X86,
+            path: PathShape::Pointer,
+            reference: ReferenceShape::CachedObject,
+            manager: ManagerOffsets {
+                scenes: 0x4,
+                active_scene: 0x24,
+                dont_destroy_on_load_scene: 0x38,
+            },
+            scene: SceneOffsets {
+                path: 0x10,
+                build_index: 0x74,
+                roots: 0x8c,
+            },
+            transform: TransformOffsets {
+                game_object: 0x1c,
+                children: 0x50,
+            },
+            game_object: GameObjectOffsets {
+                components: 0x1c,
+                name: 0x3c,
+            },
+            object: ObjectOffsets {
+                managed_reference: 0x18,
+            },
+        },
+    },
     // Unity 2017.4.40f1, x64.
     Build {
         unity: (2017, 4, 40, 5126),
@@ -612,7 +695,9 @@ pub(super) const BUILDS: &[Build] = &[
 pub(super) const ELF_AND_MACHO_X64: Profile = Profile {
     pointer_size: PointerSize::Bit64,
     anchor: Anchor {
-        signature: Signature::new("41 54 53 50 4C 8B ?5 ?? ?? ?? ?? 41 83"),
+        signature: Signature::new(
+            "41 54 53 50 4C 8B ?5 ?? ?? ?? ?? 41 83 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ??",
+        ),
         displacement: 7,
     },
     path: PathShape::Pointer,

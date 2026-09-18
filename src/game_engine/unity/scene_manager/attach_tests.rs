@@ -74,7 +74,8 @@ fn nearest_takes_the_newest_build_at_or_below_the_major_minor() {
     assert_eq!(unity((6000, 2, 12, 40285)), (6000, 0, 84, 43887));
     assert_eq!(unity((2019, 4, 41, 9172)), (2018, 4, 36, 54151));
     assert_eq!(unity((7000, 0, 0, 0)), (6000, 5, 10, 54518));
-    assert_eq!(unity((5, 6, 7, 0)), (2017, 4, 40, 5126));
+    assert_eq!(unity((5, 6, 7, 0)), (5, 6, 7, 3267));
+    assert_eq!(unity((5, 5, 0, 0)), (5, 6, 7, 3267));
 }
 
 // Every layout starts with an entry at the pointer size it holds for. The
@@ -192,5 +193,90 @@ fn scenes_come_from_the_loaded_scene_array() {
     assert_eq!(
         scenes,
         [Address::new(BASE + 0xC00), Address::new(BASE + 0xD00)]
+    );
+}
+
+// Unity 5.6 links the engine into the game's own executable. Its x86 anchor
+// is the head of the function that tears the manager down: the load of the
+// global, a null check, a virtual call, and the 0x58 bytes it frees, which
+// tell it apart from the other teardowns sharing the same head.
+fn anchor_5_6_x86(image: &mut [u8], at: u64, global: u64, freed: u8) {
+    put(image, at, &[0x8B, 0x0D]);
+    put(image, at + 2, &(global as u32).to_le_bytes());
+    put(
+        image,
+        at + 6,
+        &[
+            0x56, 0x8B, 0xF1, 0x85, 0xC9, 0x74, 0x08, 0x8B, 0x01, 0x8B, 0x10, 0x6A, 0x00, 0xFF,
+            0xD2, 0x6A, freed, 0x56,
+        ],
+    );
+}
+
+#[test]
+fn the_5_6_x86_anchor_needs_the_whole_teardown_head() {
+    let profile = &builds::nearest((5, 6, 7, 3267), PointerSize::Bit32)
+        .unwrap()
+        .profile;
+    let mut image = vec![0; 0x2000];
+    anchor_5_6_x86(&mut image, 0x100, BASE32 + 0x800, 0x58);
+    anchor_5_6_x86(&mut image, 0x200, BASE32 + 0x808, 0x40);
+    put(&mut image, 0x800, &((BASE32 + 0x900) as u32).to_le_bytes());
+    put(&mut image, 0x808, &((BASE32 + 0xA00) as u32).to_le_bytes());
+
+    let manager = with_modules(
+        &[(BASE32, &image)],
+        &[("game.exe", BASE32, MODULE)],
+        |process| SceneManager::attach_with(process, (Address::new(BASE32), MODULE), profile),
+    )
+    .unwrap();
+    assert_eq!(manager.address, Address::new(BASE32 + 0x900));
+}
+
+// The least of a PE header: the DOS header pointing at the COFF header, an
+// x64 machine, and an optional header carrying the size of the image.
+fn pe_header(image: &mut [u8]) {
+    put(image, 0, b"MZ");
+    put(image, 0x3C, &0x80_u32.to_le_bytes());
+    put(image, 0x80, b"PE  ");
+    put(image, 0x84, &0x8664_u16.to_le_bytes());
+    put(image, 0x94, &0xF0_u16.to_le_bytes());
+    put(image, 0x98, &0x20B_u16.to_le_bytes());
+    put(image, 0x98 + 0x38, &(MODULE as u32).to_le_bytes());
+}
+
+#[test]
+fn the_engine_module_is_the_player_when_there_is_one() {
+    let mut player = vec![0; 0x200];
+    pe_header(&mut player);
+    with_modules(
+        &[(BASE + 0x10000, &player)],
+        &[
+            ("game.exe", BASE, MODULE),
+            ("UnityPlayer.dll", BASE + 0x10000, MODULE),
+        ],
+        |process| {
+            let (range, format) = SceneManager::engine_module(process).unwrap();
+            assert_eq!(range, (Address::new(BASE + 0x10000), MODULE));
+            assert_eq!(format, super::BinaryFormat::PE);
+        },
+    );
+}
+
+// Without a player module the engine is linked into the game's executable,
+// the first module of the mock process.
+#[cfg(feature = "alloc")]
+#[test]
+fn the_engine_module_is_the_executable_when_there_is_no_player() {
+    let mut executable = vec![0; 0x200];
+    pe_header(&mut executable);
+    with_modules(
+        &[(BASE, &executable)],
+        &[("game.exe", BASE, MODULE)],
+        |process| {
+            let (range, format) = SceneManager::engine_module(process).unwrap();
+            assert_eq!(range, (Address::new(BASE), MODULE));
+            assert_eq!(format, super::BinaryFormat::PE);
+        },
     );
 }

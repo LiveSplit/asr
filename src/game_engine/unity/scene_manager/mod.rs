@@ -59,22 +59,7 @@ impl SceneManager {
     /// scene manager reads through: the build of that version, or else the
     /// newest build below it.
     pub fn attach(process: &Process) -> Option<Self> {
-        let (unity_player, format) = [
-            ("UnityPlayer.dll", BinaryFormat::PE),
-            ("UnityPlayer.so", BinaryFormat::ELF),
-            ("UnityPlayer.dylib", BinaryFormat::MachO),
-        ]
-        .into_iter()
-        .find_map(|(name, format)| match format {
-            BinaryFormat::PE => {
-                let address = process.get_module_address(name).ok()?;
-                Some((
-                    (address, pe::read_size_of_image(process, address)? as u64),
-                    format,
-                ))
-            }
-            _ => Some((process.get_module_range(name).ok()?, format)),
-        })?;
+        let (unity_player, format) = Self::engine_module(process)?;
 
         let profile = match format {
             BinaryFormat::PE => {
@@ -116,7 +101,39 @@ impl SceneManager {
         retry(|| Self::attach(process)).await
     }
 
-    /// Reads the four parts of the file version of `UnityPlayer.dll`, which
+    /// Finds the module that holds the engine: `UnityPlayer.dll` and its
+    /// Linux and Mac siblings, or the game's own executable on Unity 5.6,
+    /// which linked the engine in. Finding the executable needs its name,
+    /// so that part needs the `alloc` feature.
+    fn engine_module(process: &Process) -> Option<((Address, u64), BinaryFormat)> {
+        let player = [
+            ("UnityPlayer.dll", BinaryFormat::PE),
+            ("UnityPlayer.so", BinaryFormat::ELF),
+            ("UnityPlayer.dylib", BinaryFormat::MachO),
+        ]
+        .into_iter()
+        .find_map(|(name, format)| match format {
+            BinaryFormat::PE => {
+                let address = process.get_module_address(name).ok()?;
+                Some((
+                    (address, pe::read_size_of_image(process, address)? as u64),
+                    format,
+                ))
+            }
+            _ => Some((process.get_module_range(name).ok()?, format)),
+        });
+
+        #[cfg(feature = "alloc")]
+        let player = player.or_else(|| {
+            let executable = process.get_main_module_range().ok()?;
+            pe::MachineType::read(process, executable.0)?;
+            Some((executable, BinaryFormat::PE))
+        });
+
+        player
+    }
+
+    /// Reads the four parts of the file version of the engine module, which
     /// name the Unity version of the game.
     fn unity_version(process: &Process, unity_player: Address) -> Option<(u16, u16, u16, u16)> {
         let file_version = pe::FileVersion::read(process, unity_player)?;

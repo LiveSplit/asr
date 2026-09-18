@@ -2,9 +2,10 @@ use crate::{signature::Signature, PointerSize};
 
 /// How the scene manager global is found: the body of a function that loads
 /// the global, with the displacement of the load masked out, and where that
-/// displacement starts inside a match.
+/// displacement starts inside a match. A body shorter than the signature is
+/// padded with wildcards.
 pub(super) struct Anchor {
-    pub(super) signature: Signature<13>,
+    pub(super) signature: Signature<24>,
     pub(super) displacement: u8,
 }
 
