@@ -21,7 +21,6 @@ fn put(image: &mut [u8], at: u64, bytes: &[u8]) {
 fn manager(unity: (u16, u16, u16, u16), pointer_size: PointerSize) -> SceneManager {
     SceneManager {
         pointer_size,
-        is_il2cpp: false,
         address: Address::new(BASE),
         profile: &builds::nearest(unity, pointer_size).unwrap().profile,
     }

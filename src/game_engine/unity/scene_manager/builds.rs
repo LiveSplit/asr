@@ -2,8 +2,8 @@
 //! one measured player. The full Unity version says which player.
 
 use super::offsets::{
-    Anchor, GameObjectOffsets, ManagerOffsets, ObjectOffsets, PathShape, Profile, SceneOffsets,
-    TransformOffsets,
+    Anchor, GameObjectOffsets, ManagerOffsets, ObjectOffsets, PathShape, Profile, ReferenceShape,
+    SceneOffsets, TransformOffsets,
 };
 use crate::{signature::Signature, PointerSize};
 
@@ -80,6 +80,7 @@ pub(super) const BUILDS: &[Build] = &[
             pointer_size: PointerSize::Bit64,
             anchor: PROLOGUE_LOAD_X64,
             path: PathShape::Pointer,
+            reference: ReferenceShape::CachedObject,
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x48,
@@ -110,6 +111,7 @@ pub(super) const BUILDS: &[Build] = &[
             pointer_size: PointerSize::Bit32,
             anchor: LOAD_AND_CLEAR_X86,
             path: PathShape::Pointer,
+            reference: ReferenceShape::CachedObject,
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x28,
@@ -140,6 +142,7 @@ pub(super) const BUILDS: &[Build] = &[
             pointer_size: PointerSize::Bit64,
             anchor: PROLOGUE_LOAD_X64,
             path: PathShape::Pointer,
+            reference: ReferenceShape::CachedObject,
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x48,
@@ -170,6 +173,7 @@ pub(super) const BUILDS: &[Build] = &[
             pointer_size: PointerSize::Bit32,
             anchor: LOAD_AND_CLEAR_X86,
             path: PathShape::Pointer,
+            reference: ReferenceShape::CachedObject,
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x28,
@@ -200,6 +204,7 @@ pub(super) const BUILDS: &[Build] = &[
             pointer_size: PointerSize::Bit64,
             anchor: PROLOGUE_LOAD_X64,
             path: PathShape::InlineNul,
+            reference: ReferenceShape::CachedObject,
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x48,
@@ -230,6 +235,7 @@ pub(super) const BUILDS: &[Build] = &[
             pointer_size: PointerSize::Bit64,
             anchor: PROLOGUE_LOAD_X64,
             path: PathShape::InlineNul,
+            reference: ReferenceShape::CachedObject,
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x48,
@@ -260,6 +266,7 @@ pub(super) const BUILDS: &[Build] = &[
             pointer_size: PointerSize::Bit32,
             anchor: ACTIVE_SCENE_GETTER_X86,
             path: PathShape::Pointer,
+            reference: ReferenceShape::CachedObject,
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x28,
@@ -290,6 +297,7 @@ pub(super) const BUILDS: &[Build] = &[
             pointer_size: PointerSize::Bit64,
             anchor: PROLOGUE_LOAD_X64,
             path: PathShape::InlineSpare,
+            reference: ReferenceShape::RootSlot,
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x48,
@@ -320,6 +328,7 @@ pub(super) const BUILDS: &[Build] = &[
             pointer_size: PointerSize::Bit32,
             anchor: ACTIVE_SCENE_GETTER_X86,
             path: PathShape::Pointer,
+            reference: ReferenceShape::RootSlot,
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x28,
@@ -350,6 +359,7 @@ pub(super) const BUILDS: &[Build] = &[
             pointer_size: PointerSize::Bit64,
             anchor: SCENE_COUNT_GETTER_X64,
             path: PathShape::InlineSpare,
+            reference: ReferenceShape::RootSlot,
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x48,
@@ -380,6 +390,7 @@ pub(super) const BUILDS: &[Build] = &[
             pointer_size: PointerSize::Bit32,
             anchor: SCENE_AT_GETTER_X86,
             path: PathShape::Pointer,
+            reference: ReferenceShape::RootSlot,
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x28,
@@ -410,6 +421,7 @@ pub(super) const BUILDS: &[Build] = &[
             pointer_size: PointerSize::Bit64,
             anchor: SCENE_COUNT_GETTER_X64,
             path: PathShape::InlineSpare,
+            reference: ReferenceShape::RootSlot,
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x48,
@@ -440,6 +452,7 @@ pub(super) const BUILDS: &[Build] = &[
             pointer_size: PointerSize::Bit32,
             anchor: SCENE_AT_GETTER_X86,
             path: PathShape::Pointer,
+            reference: ReferenceShape::RootSlot,
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x28,
@@ -470,6 +483,7 @@ pub(super) const BUILDS: &[Build] = &[
             pointer_size: PointerSize::Bit64,
             anchor: SCENE_COUNT_GETTER_X64,
             path: PathShape::InlineSpare,
+            reference: ReferenceShape::RootSlot,
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x48,
@@ -500,6 +514,7 @@ pub(super) const BUILDS: &[Build] = &[
             pointer_size: PointerSize::Bit32,
             anchor: SCENE_AT_GETTER_X86,
             path: PathShape::Pointer,
+            reference: ReferenceShape::RootSlot,
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x28,
@@ -534,6 +549,7 @@ pub(super) const ELF_AND_MACHO_X64: Profile = Profile {
         displacement: 7,
     },
     path: PathShape::Pointer,
+    reference: ReferenceShape::CachedObject,
     manager: ManagerOffsets {
         scenes: 0x8,
         active_scene: 0x48,

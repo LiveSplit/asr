@@ -27,6 +27,9 @@ mod scene_tests;
 #[cfg(all(test, not(target_family = "wasm")))]
 mod roots_tests;
 
+#[cfg(all(test, not(target_family = "wasm")))]
+mod components_tests;
+
 mod offsets;
 
 mod transform;
@@ -46,7 +49,6 @@ use super::{BinaryFormat, CSTR};
 /// the traditional class lookup in games with no useful static references.
 pub struct SceneManager {
     pointer_size: PointerSize,
-    is_il2cpp: bool,
     address: Address,
     profile: &'static Profile,
 }
@@ -159,8 +161,6 @@ impl SceneManager {
             return None;
         }
 
-        let is_il2cpp = process.get_module_address("GameAssembly.dll").is_ok();
-
         // Dereferencing one level because this pointer never changes as long as the game is open.
         // It might not seem a lot, but it helps make things a bit faster when querying for scene stuff.
         let address = process
@@ -170,7 +170,6 @@ impl SceneManager {
 
         Some(Self {
             pointer_size,
-            is_il2cpp,
             address,
             profile,
         })

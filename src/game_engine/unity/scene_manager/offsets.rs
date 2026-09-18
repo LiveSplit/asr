@@ -22,6 +22,16 @@ pub(super) enum PathShape {
     InlineSpare,
 }
 
+/// How a component reaches its managed object through the managed reference
+/// of its `Object` base.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(super) enum ReferenceShape {
+    /// The reference holds the managed object.
+    CachedObject,
+    /// The reference points at a slot that holds the managed object.
+    RootSlot,
+}
+
 /// The members of `RuntimeSceneManager` the walk reads. The loaded scenes
 /// are a dynamic array, with the pointer to the scenes at `scenes` and the
 /// count two pointers after it. The `DontDestroyOnLoad` scene is embedded in
@@ -55,18 +65,18 @@ pub(super) struct GameObjectOffsets {
 }
 
 /// The members of `Object` the walk reads, which every component starts
-/// with. The managed reference leads to the managed object of the component.
+/// with. The managed reference leads to the managed object of the component
+/// by the [`ReferenceShape`] of the build.
 pub(super) struct ObjectOffsets {
     pub(super) managed_reference: u8,
 }
 
-/// Everything the walk needs to know about one player: its pointer size, how
-/// the scene manager is found, how a scene keeps its path, and the offsets
-/// of the engine structs.
+/// What the walk needs to know about one player.
 pub(super) struct Profile {
     pub(super) pointer_size: PointerSize,
     pub(super) anchor: Anchor,
     pub(super) path: PathShape,
+    pub(super) reference: ReferenceShape,
     pub(super) manager: ManagerOffsets,
     pub(super) scene: SceneOffsets,
     pub(super) transform: TransformOffsets,

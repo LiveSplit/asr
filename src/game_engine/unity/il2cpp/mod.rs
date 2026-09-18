@@ -4,8 +4,8 @@ use arrayvec::ArrayVec;
 use bytemuck::CheckedBitPattern;
 
 use crate::{
-    file_format::pe, future::retry, print_limited, signature::Signature, Address, Error,
-    PointerSize, Process,
+    file_format::pe, future::retry, print_limited, signature::Signature, string::ArrayCString,
+    Address, Error, PointerSize, Process,
 };
 
 mod builds;
@@ -240,6 +240,18 @@ impl Module {
     /// [`Address32`](crate::Address32) or [`Address64`](crate::Address64).
     pub fn get_pointer_size(&self) -> PointerSize {
         self.pointer_size
+    }
+
+    /// Reads the name of the class of a live object. The scene manager uses
+    /// this to tell the components of a game object apart.
+    pub(super) fn object_class_name<const N: usize>(
+        &self,
+        process: &Process,
+        object: Address,
+    ) -> Option<ArrayCString<N>> {
+        let walk = self.walk();
+        let class = walk.object_class(process, object)?;
+        walk.class_name(process, class)
     }
 
     fn walk(&self) -> managed::Walk {

@@ -22,7 +22,6 @@ fn ptr(image: &mut [u8], at: u64, target: u64) {
 fn manager() -> SceneManager {
     SceneManager {
         pointer_size: PointerSize::Bit64,
-        is_il2cpp: false,
         address: Address::new(BASE),
         profile: &builds::nearest((6000, 3, 21, 9777), PointerSize::Bit64)
             .unwrap()
