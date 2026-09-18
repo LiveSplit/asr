@@ -13,14 +13,16 @@ mod image;
 pub use image::Image;
 mod class;
 pub use class::Class;
-mod version;
-pub use version::Version;
 mod pointer;
 pub use pointer::UnityPointer;
 mod offsets;
-use offsets::IL2CPPOffsets;
+pub use offsets::{
+    AssemblyOffsets, ClassOffsets, FieldInfoOffsets, GenericOffsets, ImageOffsets, Profile,
+    TypeOffsets, TypeStart,
+};
 #[cfg(all(test, not(target_family = "wasm")))]
 mod collections_tests;
+pub mod profiles;
 #[cfg(all(test, not(target_family = "wasm")))]
 mod readers_tests;
 #[cfg(all(test, not(target_family = "wasm")))]
@@ -32,66 +34,47 @@ use super::{managed, DictionaryOffsets, HashSetOffsets, ListOffsets, ManagedStri
 pub struct Module {
     assemblies: Address,
     type_info_definition_table: Address,
-    version: Version,
-    offsets: &'static IL2CPPOffsets,
+    profile: Profile,
     pointer_size: PointerSize,
 }
 
 impl Module {
-    /// Tries attaching to a Unity game that is using the IL2CPP backend. If
-    /// the game's metadata and Unity versions name a measured build, this
-    /// function uses that build's offsets. Otherwise this function detects
-    /// the [IL2CPP version](Version). If you know the version in advance or
-    /// it fails detecting it, use [`attach`](Self::attach) instead.
+    /// Tries attaching to a Unity game that is using the IL2CPP backend. The
+    /// game gets the offsets of the measured build nearest to its Unity
+    /// version, its own build when someone measured that version.
     pub fn attach_auto_detect(process: &Process) -> Option<Self> {
         let il2cpp_module = Self::find_runtime_module(process)?;
         let pointer_size = pe::MachineType::read(process, il2cpp_module.0)?.pointer_size()?;
+        let unity = Self::unity_version(process)?;
+        let build = builds::nearest(unity, pointer_size)?;
 
-        let unity = Self::unity_version(process);
-        let metadata = Self::metadata_version(process);
-
-        match (unity, metadata) {
-            (Some(unity), Some(metadata)) => {
-                if let Some(build) = builds::find(metadata, unity, pointer_size) {
-                    let module = Self::attach_with(
-                        process,
-                        il2cpp_module,
-                        pointer_size,
-                        build.version,
-                        &build.offsets,
-                    )?;
-                    print_limited::<128>(&format_args!(
-                        "known il2cpp build: metadata {metadata}, unity {}.{}.{}.{}",
-                        unity.0, unity.1, unity.2, unity.3,
-                    ));
-                    return Some(module);
-                }
-                print_limited::<128>(&format_args!(
-                    "unknown il2cpp build: metadata {metadata}, unity {}.{}.{}.{}",
-                    unity.0, unity.1, unity.2, unity.3,
-                ));
-            }
-            // The game maps its metadata after GameAssembly.dll. A player
-            // with a measured build waits for it, since attaching now would
-            // take the version table's offsets and keep them.
-            (Some(unity), None) if builds::measured(unity, pointer_size) => return None,
-            _ => {}
-        }
-
-        let version = Version::detect(process)?;
-        Self::attach(process, version)
+        let module = Self::attach_with(process, il2cpp_module, build.profile)?;
+        print_limited::<128>(&format_args!(
+            "il2cpp: unity {}.{}.{}.{} takes the build measured on {}.{}.{}.{}",
+            unity.0,
+            unity.1,
+            unity.2,
+            unity.3,
+            build.unity.0,
+            build.unity.1,
+            build.unity.2,
+            build.unity.3,
+        ));
+        Some(module)
     }
 
     /// Tries attaching to a Unity game that is using the IL2CPP backend with
-    /// the [IL2CPP version](Version) provided. The version needs to be
-    /// correct for this function to work. If you don't know the version in
-    /// advance, use [`attach_auto_detect`](Self::attach_auto_detect) instead.
-    pub fn attach(process: &Process, version: Version) -> Option<Self> {
+    /// the provided measured [`Profile`]. The profile's pointer width must
+    /// match the target process. Use a built-in [`profiles`] constant for a
+    /// known player, or construct a custom profile for another measured
+    /// layout. If the target is not known in advance, use
+    /// [`attach_auto_detect`](Self::attach_auto_detect) instead.
+    pub fn attach(process: &Process, profile: Profile) -> Option<Self> {
         let il2cpp_module = Self::find_runtime_module(process)?;
         let pointer_size = pe::MachineType::read(process, il2cpp_module.0)?.pointer_size()?;
-        let offsets = IL2CPPOffsets::new(version, pointer_size)?;
+        (pointer_size == profile.pointer_size).then_some(())?;
 
-        Self::attach_with(process, il2cpp_module, pointer_size, version, offsets)
+        Self::attach_with(process, il2cpp_module, profile)
     }
 
     fn find_runtime_module(process: &Process) -> Option<(Address, u64)> {
@@ -113,24 +96,12 @@ impl Module {
         ))
     }
 
-    /// Reads the version of the game's metadata. The mapped
-    /// `global-metadata.dat` starts with a sanity value, then the version.
-    fn metadata_version(process: &Process) -> Option<u32> {
-        process.memory_ranges().find_map(|range| {
-            let [sanity, version] = process.read::<[u32; 2]>(range.address().ok()?).ok()?;
-            // Versions are small numbers. Unity 6 renumbered them and reaches
-            // the low hundreds.
-            (sanity == 0xFAB1_1BAF && (16..=999).contains(&version)).then_some(version)
-        })
-    }
-
     fn attach_with(
         process: &Process,
         il2cpp_module: (Address, u64),
-        pointer_size: PointerSize,
-        version: Version,
-        offsets: &'static IL2CPPOffsets,
+        profile: Profile,
     ) -> Option<Self> {
+        let pointer_size = profile.pointer_size;
         let (assemblies, type_info_definition_table) = match pointer_size {
             PointerSize::Bit64 => Self::globals_x64(process, il2cpp_module)?,
             PointerSize::Bit32 => Self::globals_x86(process, il2cpp_module)?,
@@ -140,8 +111,7 @@ impl Module {
         Some(Self {
             assemblies,
             type_info_definition_table,
-            version,
-            offsets,
+            profile,
             pointer_size,
         })
     }
@@ -273,38 +243,43 @@ impl Module {
     }
 
     fn walk(&self) -> managed::Walk {
+        let (metadata_handle, handle_is_inline) = match self.profile.image.type_start {
+            TypeStart::Inline(at) => (at, true),
+            TypeStart::Handle(at) => (at, false),
+        };
+
         managed::Walk {
             runtime: managed::Runtime::Il2Cpp(managed::Il2CppRuntime {
                 assemblies: self.assemblies,
                 type_info_definition_table: self.type_info_definition_table,
-                type_count: self.offsets.image.type_count.into(),
-                metadata_handle: self.offsets.image.metadata_handle.into(),
-                handle_is_inline: matches!(self.version, Version::Base | Version::V2019),
-                field_count: self.offsets.class.field_count,
-                static_fields: self.offsets.class.static_fields.into(),
-                cached_class: self.offsets.generic.cached_class,
-                type_data: self.offsets.type_words.data,
-                type_kind: self.offsets.type_words.kind,
+                type_count: self.profile.image.type_count.into(),
+                metadata_handle: metadata_handle.into(),
+                handle_is_inline,
+                field_count: self.profile.class.field_count,
+                static_fields: self.profile.class.static_fields.into(),
+                cached_class: self.profile.generic.cached_class,
+                type_data: self.profile.type_.data,
+                type_kind: self.profile.type_.kind,
             }),
             offsets: managed::WalkOffsets {
                 assembly: managed::AssemblyOffsets {
-                    name_in_image: self.offsets.image.assembly_name.map(u16::from),
-                    name_in_assembly: self.offsets.assembly.aname.map(u16::from),
-                    image: self.offsets.assembly.image.into(),
+                    name_in_image: self.profile.image.assembly_name.map(u16::from),
+                    name_in_assembly: self.profile.assembly.name.map(u16::from),
+                    image: self.profile.assembly.image.into(),
                 },
                 class: managed::ClassOffsets {
-                    name: self.offsets.class.name.into(),
-                    namespace: self.offsets.class.namespace.into(),
-                    parent: self.offsets.class.parent.into(),
-                    declaring: self.offsets.class.declaring_type,
-                    instance_size: self.offsets.class.instance_size,
-                    fields: self.offsets.class.fields.into(),
+                    name: self.profile.class.name.into(),
+                    namespace: self.profile.class.namespace.into(),
+                    parent: self.profile.class.parent.into(),
+                    declaring: self.profile.class.declaring_type,
+                    instance_size: self.profile.class.instance_size,
+                    fields: self.profile.class.fields.into(),
                 },
                 field: managed::FieldOffsets {
-                    name: self.offsets.field.name.into(),
-                    type_: self.offsets.field.type_,
-                    offset: self.offsets.field.offset.into(),
-                    stride: self.offsets.field.struct_size.into(),
+                    name: self.profile.field.name.into(),
+                    type_: self.profile.field.type_,
+                    offset: self.profile.field.offset.into(),
+                    stride: self.profile.field.size.into(),
                 },
             },
             stop: managed::ClimbStop::UNITY,
@@ -545,10 +520,8 @@ impl Module {
         managed::read_reference_list(process, self.pointer_size, offsets, at)
     }
 
-    /// Attaches to a Unity game that is using the IL2CPP backend. This function
-    /// automatically detects the [IL2CPP version](Version). If you know the
-    /// version in advance or it fails detecting it, use
-    /// [`wait_attach`](Self::wait_attach) instead.
+    /// Attaches to a Unity game that is using the IL2CPP backend. The game
+    /// gets the offsets of the measured build nearest to its Unity version.
     ///
     /// This is the `await`able version of the
     /// [`attach_auto_detect`](Self::attach_auto_detect) function, yielding back
@@ -558,14 +531,13 @@ impl Module {
     }
 
     /// Attaches to a Unity game that is using the IL2CPP backend with the
-    /// [IL2CPP version](Version) provided. The version needs to be correct
-    /// for this function to work. If you don't know the version in advance, use
-    /// [`wait_attach_auto_detect`](Self::wait_attach_auto_detect) instead.
+    /// provided measured [`Profile`]. The profile's pointer width must match
+    /// the target process.
     ///
-    /// This is the `await`able version of the [`attach`](Self::attach)
-    /// function, yielding back to the runtime between each try.
-    pub async fn wait_attach(process: &Process, version: Version) -> Module {
-        retry(|| Self::attach(process, version)).await
+    /// This is the `await`able version of [`attach`](Self::attach), yielding
+    /// back to the runtime between each try.
+    pub async fn wait_attach(process: &Process, profile: Profile) -> Module {
+        retry(|| Self::attach(process, profile)).await
     }
 
     /// Looks for the specified binary [image](Image) inside the target process.
@@ -638,26 +610,5 @@ impl Module {
         at: Address,
     ) -> HashSetOffsets {
         retry(|| self.get_hash_set_offsets(process, at)).await
-    }
-}
-
-#[cfg(all(test, not(target_family = "wasm")))]
-mod tests {
-    use super::Module;
-    use crate::runtime::mock::with_process;
-
-    #[test]
-    fn reads_the_metadata_version_off_the_mapped_file() {
-        let mapped = [0xAF_u8, 0x1B, 0xB1, 0xFA, 39, 0, 0, 0];
-        // The sanity value with nothing sane behind it must not answer.
-        let stray = [0xAF_u8, 0x1B, 0xB1, 0xFA, 0, 0, 0, 0];
-
-        with_process(&[(0x10000, &stray), (0x20000, &mapped)], |process| {
-            assert_eq!(Module::metadata_version(process), Some(39));
-        });
-
-        with_process(&[(0x10000, &stray)], |process| {
-            assert!(Module::metadata_version(process).is_none());
-        });
     }
 }

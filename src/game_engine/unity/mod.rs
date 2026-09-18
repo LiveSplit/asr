@@ -6,12 +6,12 @@
 //! # async fn example(process: asr::Process) {
 //! use asr::{
 //!     future::retry,
-//!     game_engine::unity::il2cpp::{Module, Version},
+//!     game_engine::unity::il2cpp::Module,
 //!     Address, Address64,
 //! };
 //!
-//! // We first attach to the Mono module. Here we know that the game is using IL2CPP 2020.
-//! let module = Module::wait_attach(&process, Version::V2020).await;
+//! // We first attach to the IL2CPP module.
+//! let module = Module::wait_attach_auto_detect(&process).await;
 //! // We access the .NET DLL that the game code is in.
 //! let image = module.wait_get_default_image(&process).await;
 //!

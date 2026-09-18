@@ -4,7 +4,7 @@
 //! is the route every corlib dictionary takes.
 
 use super::super::managed::DictionaryShape;
-use super::{IL2CPPOffsets, Module, Version};
+use super::Module;
 use crate::runtime::mock::with_process;
 use crate::{Address, PointerSize, Process};
 
@@ -12,6 +12,7 @@ use std::vec;
 use std::vec::Vec;
 
 const BASE: u64 = 0x60_0000;
+const MEASURED_2019: (u16, u16, u16, u16) = (2019, 4, 41, 9172);
 
 fn put(image: &mut [u8], at: u64, bytes: &[u8]) {
     let at = at as usize;
@@ -32,11 +33,12 @@ fn field(image: &mut [u8], at: u64, name: u64, type_: u64, offset: i32) {
     put(image, at + 0x18, &offset.to_le_bytes());
 }
 
-fn image(version: Version) -> Vec<u8> {
-    let field_count_at = match version {
-        Version::V2019 => 0x11C,
-        _ => 0x124,
-    };
+fn image(unity: (u16, u16, u16, u16)) -> Vec<u8> {
+    let field_count_at = super::builds::nearest(unity, PointerSize::Bit64)
+        .unwrap()
+        .profile
+        .class
+        .field_count as u64;
     let mut i = vec![0; 0x3000];
 
     let strings = [
@@ -198,25 +200,26 @@ fn image(version: Version) -> Vec<u8> {
     i
 }
 
-fn module(version: Version) -> Module {
+fn module(unity: (u16, u16, u16, u16)) -> Module {
     Module {
         assemblies: Address::new(BASE),
         type_info_definition_table: Address::new(BASE + 0x40),
-        version,
-        offsets: IL2CPPOffsets::new(version, PointerSize::Bit64).unwrap(),
+        profile: super::builds::nearest(unity, PointerSize::Bit64)
+            .unwrap()
+            .profile,
         pointer_size: PointerSize::Bit64,
     }
 }
 
-fn on_fixture(version: Version, test: impl FnOnce(&Process, &Module)) {
-    with_process(&[(BASE, &image(version))], |process| {
-        test(process, &module(version));
+fn on_fixture(unity: (u16, u16, u16, u16), test: impl FnOnce(&Process, &Module)) {
+    with_process(&[(BASE, &image(unity))], |process| {
+        test(process, &module(unity));
     });
 }
 
 #[test]
 fn dictionaries_resolve_through_the_cached_class() {
-    on_fixture(Version::V2019, |process, module| {
+    on_fixture(MEASURED_2019, |process, module| {
         let offsets = module
             .get_dictionary_offsets(process, Address::new(BASE))
             .unwrap();
@@ -240,12 +243,9 @@ fn dictionaries_resolve_through_the_cached_class() {
     });
 }
 
-// The 2022.2-and-later fallback table carries no cached class, because the
-// measured builds inside that stretch disagree. A fallback attach misses
-// cleanly; known builds carry their own value.
 #[test]
 fn dictionaries_read_their_live_pairs() {
-    on_fixture(Version::V2019, |process, module| {
+    on_fixture(MEASURED_2019, |process, module| {
         let slot = Address::new(BASE);
         let offsets = module.get_dictionary_offsets(process, slot).unwrap();
         let pairs = module
@@ -257,7 +257,7 @@ fn dictionaries_read_their_live_pairs() {
 
 #[test]
 fn dictionaries_derived_from_corlibs_dictionary_resolve() {
-    on_fixture(Version::V2019, |process, module| {
+    on_fixture(MEASURED_2019, |process, module| {
         let slot = Address::new(BASE + 0x8);
         let offsets = module.get_dictionary_offsets(process, slot).unwrap();
         let pairs = module
@@ -269,7 +269,7 @@ fn dictionaries_derived_from_corlibs_dictionary_resolve() {
 
 #[test]
 fn dictionary_shaped_objects_are_not_dictionaries() {
-    on_fixture(Version::V2019, |process, module| {
+    on_fixture(MEASURED_2019, |process, module| {
         assert!(module
             .get_dictionary_offsets(process, Address::new(BASE + 0x10))
             .is_none());
@@ -278,7 +278,7 @@ fn dictionary_shaped_objects_are_not_dictionaries() {
 
 #[test]
 fn dictionaries_without_allocated_backing_read_empty() {
-    on_fixture(Version::V2019, |process, module| {
+    on_fixture(MEASURED_2019, |process, module| {
         let slot = Address::new(BASE + 0x18);
         let offsets = module.get_dictionary_offsets(process, slot).unwrap();
         let pairs = module
@@ -290,7 +290,7 @@ fn dictionaries_without_allocated_backing_read_empty() {
 
 #[test]
 fn hash_sets_read_their_live_values() {
-    on_fixture(Version::V2019, |process, module| {
+    on_fixture(MEASURED_2019, |process, module| {
         let slot = Address::new(BASE + 0x20);
         let offsets = module.get_hash_set_offsets(process, slot).unwrap();
         let values = module
@@ -302,7 +302,7 @@ fn hash_sets_read_their_live_values() {
 
 #[test]
 fn hash_sets_derived_from_corlibs_hash_set_resolve() {
-    on_fixture(Version::V2019, |process, module| {
+    on_fixture(MEASURED_2019, |process, module| {
         let slot = Address::new(BASE + 0x28);
         let offsets = module.get_hash_set_offsets(process, slot).unwrap();
         let values = module
@@ -314,7 +314,7 @@ fn hash_sets_derived_from_corlibs_hash_set_resolve() {
 
 #[test]
 fn hash_set_shaped_objects_are_not_hash_sets() {
-    on_fixture(Version::V2019, |process, module| {
+    on_fixture(MEASURED_2019, |process, module| {
         assert!(module
             .get_hash_set_offsets(process, Address::new(BASE + 0x30))
             .is_none());
@@ -323,21 +323,12 @@ fn hash_set_shaped_objects_are_not_hash_sets() {
 
 #[test]
 fn hash_sets_without_allocated_backing_read_empty() {
-    on_fixture(Version::V2019, |process, module| {
+    on_fixture(MEASURED_2019, |process, module| {
         let slot = Address::new(BASE + 0x38);
         let offsets = module.get_hash_set_offsets(process, slot).unwrap();
         let values = module
             .read_hash_set::<i32, 0>(process, offsets, slot)
             .unwrap();
         assert!(values.is_empty());
-    });
-}
-
-#[test]
-fn fallback_tables_without_a_cached_class_answer_nothing() {
-    on_fixture(Version::V2022, |process, module| {
-        assert!(module
-            .get_dictionary_offsets(process, Address::new(BASE))
-            .is_none());
     });
 }
