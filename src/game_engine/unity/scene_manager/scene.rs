@@ -21,7 +21,7 @@ impl Scene {
     /// Returns the build index of the scene. This index is unique to each
     /// scene in the game.
     pub fn index(&self, process: &Process, scene_manager: &SceneManager) -> Result<i32, Error> {
-        process.read(self.address + scene_manager.offsets.build_index)
+        process.read(self.address + scene_manager.profile.scene.build_index)
     }
 
     /// Returns the full asset path of the scene.
@@ -34,7 +34,7 @@ impl Scene {
     ) -> Result<ArrayCString<N>, Error> {
         process
             .read_pointer(
-                self.address + scene_manager.offsets.asset_path,
+                self.address + scene_manager.profile.scene.path,
                 scene_manager.pointer_size,
             )
             .and_then(|addr| process.read(addr))

@@ -18,10 +18,7 @@ impl SceneManager {
         scene: &Scene,
     ) -> impl FusedIterator<Item = Transform> + 'a {
         let list_first = process
-            .read_pointer(
-                scene.address + self.offsets.root_storage_container,
-                self.pointer_size,
-            )
+            .read_pointer(scene.address + self.profile.scene.roots, self.pointer_size)
             .ok()
             .filter(|val| !val.is_null());
 

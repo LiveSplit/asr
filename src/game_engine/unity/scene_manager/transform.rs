@@ -20,8 +20,8 @@ impl Transform {
             self.address,
             scene_manager.pointer_size,
             &[
-                scene_manager.offsets.game_object as u64,
-                scene_manager.offsets.game_object_name as u64,
+                scene_manager.profile.transform.game_object as u64,
+                scene_manager.profile.game_object.name as u64,
                 0x0,
             ],
         )
@@ -34,20 +34,22 @@ impl Transform {
         scene_manager: &'a SceneManager,
     ) -> Result<impl Iterator<Item = Address> + 'a, Error> {
         let game_object = process.read_pointer(
-            self.address + scene_manager.offsets.game_object,
+            self.address + scene_manager.profile.transform.game_object,
             scene_manager.pointer_size,
         )?;
 
         let (number_of_components, main_object): (usize, Address) = match scene_manager.pointer_size
         {
             PointerSize::Bit64 => {
-                let array = process
-                    .read::<[Address64; 3]>(game_object + scene_manager.offsets.game_object)?;
+                let array = process.read::<[Address64; 3]>(
+                    game_object + scene_manager.profile.game_object.components,
+                )?;
                 (array[2].value() as usize, array[0].into())
             }
             _ => {
-                let array = process
-                    .read::<[Address32; 3]>(game_object + scene_manager.offsets.game_object)?;
+                let array = process.read::<[Address32; 3]>(
+                    game_object + scene_manager.profile.game_object.components,
+                )?;
                 (array[2].value() as usize, array[0].into())
             }
         };
@@ -88,7 +90,7 @@ impl Transform {
         Ok((1..number_of_components).filter_map(move |m| {
             process
                 .read_pointer(
-                    components[m] + scene_manager.offsets.klass,
+                    components[m] + scene_manager.profile.object.managed_reference,
                     scene_manager.pointer_size,
                 )
                 .ok()
@@ -111,11 +113,19 @@ impl Transform {
                         scene_manager.pointer_size,
                         &[0x0, scene_manager.size_of_ptr().wrapping_mul(2), 0x0],
                     ),
-                    false => process.read_pointer_path(
-                        addr,
-                        scene_manager.pointer_size,
-                        &[0x0, 0x0, scene_manager.offsets.klass_name as u64, 0x0],
-                    ),
+                    false => {
+                        // The class name offset of the Mono runtime, which
+                        // belongs to the runtime module rather than here.
+                        let klass_name = match scene_manager.pointer_size {
+                            PointerSize::Bit64 => 0x48,
+                            _ => 0x2C,
+                        };
+                        process.read_pointer_path(
+                            addr,
+                            scene_manager.pointer_size,
+                            &[0x0, 0x0, klass_name, 0x0],
+                        )
+                    }
                 };
 
                 val.is_ok_and(|class_name| class_name.matches(name))
@@ -132,12 +142,12 @@ impl Transform {
         let (child_count, child_pointer): (usize, Address) = match scene_manager.pointer_size {
             PointerSize::Bit64 => {
                 let [first, _, third] = process
-                    .read::<[u64; 3]>(self.address + scene_manager.offsets.children_pointer)?;
+                    .read::<[u64; 3]>(self.address + scene_manager.profile.transform.children)?;
                 (third as usize, Address::new(first))
             }
             _ => {
                 let [first, _, third] = process
-                    .read::<[u32; 3]>(self.address + scene_manager.offsets.children_pointer)?;
+                    .read::<[u32; 3]>(self.address + scene_manager.profile.transform.children)?;
                 (third as usize, Address::new(first as _))
             }
         };
