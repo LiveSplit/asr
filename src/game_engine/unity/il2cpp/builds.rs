@@ -969,6 +969,32 @@ mod tests {
         assert_eq!(unity((5, 6, 7, 0)), (2018, 4, 36, 54151));
     }
 
+    // Players before Unity 2020.2 keep the index of the first type inside the
+    // image, in the member the PDB calls `typeStart`. From Unity 2020.2 on,
+    // the image keeps a pointer in the member the PDB calls `metadataHandle`,
+    // and the index sits where that pointer points.
+    #[test]
+    fn type_start_moves_behind_a_handle_from_2020_2() {
+        use super::TypeStart;
+        use crate::PointerSize::Bit64;
+
+        for build in BUILDS {
+            let (inline, handle) = match build.profile.pointer_size {
+                Bit64 => (0x18, 0x28),
+                _ => (0xC, 0x18),
+            };
+            let before_2020_2 = (build.unity.0, build.unity.1) < (2020, 2);
+            match build.profile.image.type_start {
+                TypeStart::Inline(at) => {
+                    assert!(before_2020_2 && at == inline, "{:?}", build.unity)
+                }
+                TypeStart::Handle(at) => {
+                    assert!(!before_2020_2 && at == handle, "{:?}", build.unity)
+                }
+            }
+        }
+    }
+
     #[test]
     fn nearest_is_the_build_itself_on_a_measured_version() {
         for build in BUILDS {

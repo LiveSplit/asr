@@ -432,12 +432,19 @@ fn ptr(image: &mut [u8], at: u64, target: u64) {
 // The target's structures, hand-laid: the assemblies vector, the type info
 // definition table sliced by the image's handle, a parent chain reaching a
 // UnityEngine class, a static table, and a live object heading with its class.
+// The image is laid out by hand from the GameAssembly.pdb of each player, not
+// from the player's entry in the table, so a wrong entry fails against this
+// image. The Unity 2019.4 player counts types at 0x1C, keeps the index of
+// the first type inside the image at 0x18, and counts fields at 0x11C. The
+// Unity 2022.3 player counts types at 0x18, keeps a pointer to that index at
+// 0x28, and counts fields at 0x124. Both players keep the assembly name in
+// the image at 0x8.
 fn image(unity: (u16, u16, u16, u16)) -> Vec<u8> {
-    use super::TypeStart;
-
-    let offsets = measured(unity, PointerSize::Bit64);
-    let type_count_at = offsets.image.type_count as u64;
-    let field_count_at = offsets.class.field_count as u64;
+    let (type_count_at, inline_start, handle_at, field_count_at) = match unity {
+        MEASURED_2019 => (0x1C, Some(0x18), None, 0x11C),
+        MEASURED_2022 => (0x18, None, Some(0x28), 0x124),
+        other => panic!("no hand-laid image for {other:?}"),
+    };
 
     let mut i = vec![0; 0x5000];
 
@@ -475,28 +482,22 @@ fn image(unity: (u16, u16, u16, u16)) -> Vec<u8> {
     ptr(&mut i, 0x40, BASE + 0x80);
     ptr(&mut i, 0x48, BASE + 0xC0);
 
-    // Each assembly points at its image. Depending on the measured player,
-    // the assembly name lives either on the assembly or on that image.
-    let assembly = |i: &mut [u8], at: u64, image: u64, name: u64| {
-        ptr(i, at + offsets.assembly.image as u64, BASE + image);
-        if let Some(name_at) = offsets.assembly.name {
-            ptr(i, at + name_at as u64, BASE + name);
-        } else if let Some(name_at) = offsets.image.assembly_name {
-            ptr(i, image + name_at as u64, BASE + name);
-        }
-    };
-    assembly(&mut i, 0x80, 0x140, 0x2000);
-    assembly(&mut i, 0xC0, 0x300, 0x2080);
+    // Il2CppAssembly keeps the image at 0x0. Il2CppImage keeps the name at 0x8.
+    ptr(&mut i, 0x80, BASE + 0x140);
+    ptr(&mut i, 0x140 + 0x8, BASE + 0x2000);
+    ptr(&mut i, 0xC0, BASE + 0x300);
+    ptr(&mut i, 0x300 + 0x8, BASE + 0x2080);
 
-    // The default image: three classes, reached through the handle. The older
-    // lineage stores the handle inline where the newer one points at it.
+    // The default image holds three classes, reached through the index of the
+    // first type. The older player keeps that index inside the image, and the
+    // newer player keeps a pointer to it.
     put(&mut i, 0x300 + type_count_at, &5_u32.to_le_bytes());
-    match offsets.image.type_start {
-        TypeStart::Inline(at) => put(&mut i, 0x300 + at as u64, &5_u32.to_le_bytes()),
-        TypeStart::Handle(at) => {
-            ptr(&mut i, 0x300 + at as u64, BASE + 0x400);
-            put(&mut i, 0x400, &5_u32.to_le_bytes());
-        }
+    if let Some(at) = inline_start {
+        put(&mut i, 0x300 + at, &5_u32.to_le_bytes());
+    }
+    if let Some(at) = handle_at {
+        ptr(&mut i, 0x300 + at, BASE + 0x400);
+        put(&mut i, 0x400, &5_u32.to_le_bytes());
     }
 
     // The type info definition table global, and the image's slice of it.
@@ -661,7 +662,7 @@ fn on_fixture(unity: (u16, u16, u16, u16), test: impl FnOnce(&Process, &Module))
 }
 
 #[test]
-fn images_resolve_by_name_in_both_lineages() {
+fn images_resolve_by_name_on_both_type_start_shapes() {
     for unity in [MEASURED_2019, MEASURED_2022] {
         on_fixture(unity, |process, module| {
             assert!(module.get_default_image(process).is_some());
@@ -878,15 +879,17 @@ fn images_resolve_on_32_bit_targets() {
 fn class_walk_reads_the_type_start_where_the_build_keeps_it() {
     use super::TypeStart;
 
-    let walk = |build: &'static super::builds::Build| {
-        let profile = build.profile;
+    let walk = |unity, pointer_size: PointerSize| {
+        let profile = measured(unity, pointer_size);
+        let ps = pointer_size as u64;
         let mut i = vec![0; 0x1000];
-        let ptr = |i: &mut [u8], at: u64, target: u64| {
-            put(i, at, &target.to_le_bytes());
+        let ptr = |i: &mut [u8], at: u64, target: u64| match pointer_size {
+            PointerSize::Bit64 => put(i, at, &target.to_le_bytes()),
+            _ => put(i, at, &(target as u32).to_le_bytes()),
         };
         put(&mut i, 0x800, b"Timer");
         ptr(&mut i, 0x10, BASE + 0x200); // the type table
-        ptr(&mut i, 0x210, BASE + 0x300); // its entry 2
+        ptr(&mut i, 0x200 + 2 * ps, BASE + 0x300); // its entry 2
         ptr(&mut i, 0x300 + profile.class.name as u64, BASE + 0x800);
         put(
             &mut i,
@@ -906,7 +909,7 @@ fn class_walk_reads_the_type_start_where_the_build_keeps_it() {
                 assemblies: Address::new(BASE),
                 type_info_definition_table: Address::new(BASE + 0x10),
                 profile,
-                pointer_size: PointerSize::Bit64,
+                pointer_size,
             };
             let image = super::Image {
                 image: Address::new(BASE + 0x100),
@@ -917,17 +920,19 @@ fn class_walk_reads_the_type_start_where_the_build_keeps_it() {
         })
     };
 
-    let inline = super::builds::nearest((2018, 4, 36, 54151), PointerSize::Bit64).unwrap();
-    assert!(matches!(
-        inline.profile.image.type_start,
-        TypeStart::Inline(0x18)
-    ));
-    assert_eq!(walk(inline), Some(Address::new(BASE + 0x300)));
+    for pointer_size in [PointerSize::Bit64, PointerSize::Bit32] {
+        let inline = measured((2018, 4, 36, 54151), pointer_size);
+        assert!(matches!(inline.image.type_start, TypeStart::Inline(_)));
+        assert_eq!(
+            walk((2018, 4, 36, 54151), pointer_size),
+            Some(Address::new(BASE + 0x300))
+        );
 
-    let handle = super::builds::nearest(MEASURED_6000_5, PointerSize::Bit64).unwrap();
-    assert!(matches!(
-        handle.profile.image.type_start,
-        TypeStart::Handle(0x28)
-    ));
-    assert_eq!(walk(handle), Some(Address::new(BASE + 0x300)));
+        let handle = measured(MEASURED_6000_5, pointer_size);
+        assert!(matches!(handle.image.type_start, TypeStart::Handle(_)));
+        assert_eq!(
+            walk(MEASURED_6000_5, pointer_size),
+            Some(Address::new(BASE + 0x300))
+        );
+    }
 }
