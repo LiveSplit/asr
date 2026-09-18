@@ -4,7 +4,7 @@
 //! the literal numbers of the Unity 2019.4 and 6000.3 layouts, copied by hand,
 //! so the walk is checked against the layout rather than against itself.
 
-use super::{IL2CPPOffsets, Module, UnityPointer};
+use super::{Module, Profile, UnityPointer};
 use crate::runtime::mock::{poll_once, with_process};
 use crate::{Address, PointerSize, Process};
 
@@ -32,6 +32,14 @@ const UNITY_PLAYER: u64 = 0x1900_0000;
 
 impl Player {
     fn attach(&self) -> Option<Module> {
+        self.with_process(Module::attach_auto_detect)
+    }
+
+    fn attach_profile(&self, profile: Profile) -> Option<Module> {
+        self.with_process(|process| Module::attach(process, profile))
+    }
+
+    fn with_process<T>(&self, f: impl FnOnce(&Process) -> T) -> T {
         let game_assembly = Self::game_assembly();
         let unity_player = Self::unity_player(self.unity);
         crate::runtime::mock::with_modules(
@@ -43,7 +51,7 @@ impl Player {
                 ("GameAssembly.dll", GAME_ASSEMBLY, 0x1000),
                 ("UnityPlayer.dll", UNITY_PLAYER, 0x1000),
             ],
-            Module::attach_auto_detect,
+            f,
         )
     }
 
@@ -118,8 +126,8 @@ const MEASURED_2019: (u16, u16, u16, u16) = (2019, 4, 41, 9172);
 const MEASURED_2022: (u16, u16, u16, u16) = (2022, 3, 0, 4507);
 const MEASURED_6000_5: (u16, u16, u16, u16) = (6000, 5, 10, 54518);
 
-fn measured(unity: (u16, u16, u16, u16), pointer_size: PointerSize) -> &'static IL2CPPOffsets {
-    &super::builds::nearest(unity, pointer_size).unwrap().offsets
+fn measured(unity: (u16, u16, u16, u16), pointer_size: PointerSize) -> Profile {
+    super::builds::nearest(unity, pointer_size).unwrap().profile
 }
 
 // A game on a measured player attaches with the offsets measured on that
@@ -136,7 +144,21 @@ fn attach_auto_detect_uses_a_measured_build() {
         module.type_info_definition_table,
         Address::new(GAME_ASSEMBLY + 0x910)
     );
-    assert_eq!(module.offsets.class.static_fields, 0xA0);
+    assert_eq!(module.profile.class.static_fields, 0xA0);
+}
+
+#[test]
+fn attach_uses_the_explicit_profile_and_checks_its_width() {
+    let player = Player {
+        unity: MEASURED_6000_5,
+    };
+    let module = player
+        .attach_profile(super::profiles::UNITY_6000_5_10F1_X86_64)
+        .unwrap();
+    assert_eq!(module.profile.class.static_fields, 0xa0);
+    assert!(player
+        .attach_profile(super::profiles::UNITY_6000_5_10F1_X86)
+        .is_none());
 }
 
 // A player nobody measured takes the nearest build.
@@ -148,7 +170,7 @@ fn attach_auto_detect_takes_the_nearest_build_for_an_unmeasured_player() {
     .attach()
     .unwrap();
     let nearest = super::builds::nearest((2021, 3, 11, 23713), PointerSize::Bit64).unwrap();
-    assert!(core::ptr::eq(module.offsets, &nearest.offsets));
+    assert_eq!(module.profile, nearest.profile);
 }
 
 // The x86 code that points at both globals. The assemblies loop reads the vector's
@@ -208,7 +230,6 @@ fn attach_x86(process: &crate::Process) -> Option<Module> {
     Module::attach_with(
         process,
         (Address::new(BASE), 0x1000),
-        PointerSize::Bit32,
         measured(MEASURED_6000_5, PointerSize::Bit32),
     )
 }
@@ -346,7 +367,6 @@ fn x64_globals_resolve_from_a_mapped_image() {
         let module = Module::attach_with(
             process,
             (Address::new(BASE), 0x1000),
-            PointerSize::Bit64,
             measured(MEASURED_6000_5, PointerSize::Bit64),
         )
         .unwrap();
@@ -366,7 +386,6 @@ fn x64_scanner_refuses_an_x86_image() {
         assert!(Module::attach_with(
             process,
             (Address::new(BASE), 0x1000),
-            PointerSize::Bit64,
             measured(MEASURED_6000_5, PointerSize::Bit64),
         )
         .is_none());
@@ -378,9 +397,9 @@ fn x64_scanner_refuses_an_x86_image() {
 #[test]
 fn assembly_names_resolve_through_the_image() {
     let build = super::builds::nearest(MEASURED_6000_5, PointerSize::Bit64).unwrap();
-    let offsets = &build.offsets;
-    assert!(offsets.assembly.aname.is_none());
-    let name_at = offsets.image.assembly_name.unwrap() as u64;
+    let profile = build.profile;
+    assert!(profile.assembly.name.is_none());
+    let name_at = profile.image.assembly_name.unwrap() as u64;
 
     let mut i = vec![0; 0x1000];
     let ptr = |i: &mut [u8], at: u64, target: u64| {
@@ -397,7 +416,7 @@ fn assembly_names_resolve_through_the_image() {
         let module = Module {
             assemblies: Address::new(BASE),
             type_info_definition_table: Address::new(BASE + 0x10),
-            offsets,
+            profile,
             pointer_size: PointerSize::Bit64,
         };
         let image = module.get_default_image(process).unwrap();
@@ -413,7 +432,7 @@ fn ptr(image: &mut [u8], at: u64, target: u64) {
 // definition table sliced by the image's handle, a parent chain reaching a
 // UnityEngine class, a static table, and a live object heading with its class.
 fn image(unity: (u16, u16, u16, u16)) -> Vec<u8> {
-    use super::offsets::TypeStart;
+    use super::TypeStart;
 
     let offsets = measured(unity, PointerSize::Bit64);
     let type_count_at = offsets.image.type_count as u64;
@@ -459,7 +478,7 @@ fn image(unity: (u16, u16, u16, u16)) -> Vec<u8> {
     // the assembly name lives either on the assembly or on that image.
     let assembly = |i: &mut [u8], at: u64, image: u64, name: u64| {
         ptr(i, at + offsets.assembly.image as u64, BASE + image);
-        if let Some(name_at) = offsets.assembly.aname {
+        if let Some(name_at) = offsets.assembly.name {
             ptr(i, at + name_at as u64, BASE + name);
         } else if let Some(name_at) = offsets.image.assembly_name {
             ptr(i, image + name_at as u64, BASE + name);
@@ -629,7 +648,7 @@ fn module(unity: (u16, u16, u16, u16)) -> Module {
     Module {
         assemblies: Address::new(BASE),
         type_info_definition_table: Address::new(BASE + 0x10),
-        offsets: measured(unity, PointerSize::Bit64),
+        profile: measured(unity, PointerSize::Bit64),
         pointer_size: PointerSize::Bit64,
     }
 }
@@ -826,8 +845,8 @@ fn public_types_keep_their_properties() {
 // A 32 bit target lays the assemblies vector and its pointers at four bytes.
 #[test]
 fn images_resolve_on_32_bit_targets() {
-    let offsets = measured(MEASURED_6000_5, PointerSize::Bit32);
-    let name_at = offsets.image.assembly_name.unwrap() as u64;
+    let profile = measured(MEASURED_6000_5, PointerSize::Bit32);
+    let name_at = profile.image.assembly_name.unwrap() as u64;
     let mut i = vec![0; 0x1000];
     let narrow = |i: &mut [u8], at: u64, target: u64| {
         put(i, at, &(target as u32).to_le_bytes());
@@ -844,7 +863,7 @@ fn images_resolve_on_32_bit_targets() {
         let module = Module {
             assemblies: Address::new(BASE),
             type_info_definition_table: Address::new(BASE + 0x10),
-            offsets,
+            profile,
             pointer_size: PointerSize::Bit32,
         };
         assert!(module.get_default_image(process).is_some());
@@ -856,10 +875,10 @@ fn images_resolve_on_32_bit_targets() {
 // and the index sits behind it.
 #[test]
 fn class_walk_reads_the_type_start_where_the_build_keeps_it() {
-    use super::offsets::TypeStart;
+    use super::TypeStart;
 
     let walk = |build: &'static super::builds::Build| {
-        let offsets = &build.offsets;
+        let profile = build.profile;
         let mut i = vec![0; 0x1000];
         let ptr = |i: &mut [u8], at: u64, target: u64| {
             put(i, at, &target.to_le_bytes());
@@ -867,13 +886,13 @@ fn class_walk_reads_the_type_start_where_the_build_keeps_it() {
         put(&mut i, 0x800, b"Timer");
         ptr(&mut i, 0x10, BASE + 0x200); // the type table
         ptr(&mut i, 0x210, BASE + 0x300); // its entry 2
-        ptr(&mut i, 0x300 + offsets.class.name as u64, BASE + 0x800);
+        ptr(&mut i, 0x300 + profile.class.name as u64, BASE + 0x800);
         put(
             &mut i,
-            0x100 + offsets.image.type_count as u64,
+            0x100 + profile.image.type_count as u64,
             &1_u32.to_le_bytes(),
         );
-        match offsets.image.type_start {
+        match profile.image.type_start {
             TypeStart::Inline(at) => put(&mut i, 0x100 + at as u64, &2_u32.to_le_bytes()),
             TypeStart::Handle(at) => {
                 ptr(&mut i, 0x100 + at as u64, BASE + 0x180);
@@ -885,7 +904,7 @@ fn class_walk_reads_the_type_start_where_the_build_keeps_it() {
             let module = Module {
                 assemblies: Address::new(BASE),
                 type_info_definition_table: Address::new(BASE + 0x10),
-                offsets,
+                profile,
                 pointer_size: PointerSize::Bit64,
             };
             let image = super::Image {
@@ -899,14 +918,14 @@ fn class_walk_reads_the_type_start_where_the_build_keeps_it() {
 
     let inline = super::builds::nearest((2018, 4, 36, 54151), PointerSize::Bit64).unwrap();
     assert!(matches!(
-        inline.offsets.image.type_start,
+        inline.profile.image.type_start,
         TypeStart::Inline(0x18)
     ));
     assert_eq!(walk(inline), Some(Address::new(BASE + 0x300)));
 
     let handle = super::builds::nearest(MEASURED_6000_5, PointerSize::Bit64).unwrap();
     assert!(matches!(
-        handle.offsets.image.type_start,
+        handle.profile.image.type_start,
         TypeStart::Handle(0x28)
     ));
     assert_eq!(walk(handle), Some(Address::new(BASE + 0x300)));

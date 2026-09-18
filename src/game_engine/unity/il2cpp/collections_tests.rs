@@ -36,7 +36,7 @@ fn field(image: &mut [u8], at: u64, name: u64, type_: u64, offset: i32) {
 fn image(unity: (u16, u16, u16, u16)) -> Vec<u8> {
     let field_count_at = super::builds::nearest(unity, PointerSize::Bit64)
         .unwrap()
-        .offsets
+        .profile
         .class
         .field_count as u64;
     let mut i = vec![0; 0x3000];
@@ -204,9 +204,9 @@ fn module(unity: (u16, u16, u16, u16)) -> Module {
     Module {
         assemblies: Address::new(BASE),
         type_info_definition_table: Address::new(BASE + 0x40),
-        offsets: &super::builds::nearest(unity, PointerSize::Bit64)
+        profile: super::builds::nearest(unity, PointerSize::Bit64)
             .unwrap()
-            .offsets,
+            .profile,
         pointer_size: PointerSize::Bit64,
     }
 }

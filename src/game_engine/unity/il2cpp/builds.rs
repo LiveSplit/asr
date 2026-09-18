@@ -3,16 +3,16 @@
 //! `GameAssembly.pdb`.
 
 use super::offsets::{
-    AssemblyOffsets, ClassOffsets, FieldInfoOffsets, GenericOffsets, IL2CPPOffsets, ImageOffsets,
+    AssemblyOffsets, ClassOffsets, FieldInfoOffsets, GenericOffsets, ImageOffsets, Profile,
     TypeOffsets, TypeStart,
 };
 use crate::PointerSize;
 
 /// One measured IL2CPP player and the offsets from its PDB.
+#[derive(Copy, Clone)]
 pub(super) struct Build {
     pub(super) unity: (u16, u16, u16, u16),
-    pub(super) pointer_size: PointerSize,
-    pub(super) offsets: IL2CPPOffsets,
+    pub(super) profile: Profile,
 }
 
 /// Finds the build for a player at its width. The Unity version is the four
@@ -29,7 +29,7 @@ pub(super) fn nearest(
     let at_width = || {
         BUILDS
             .iter()
-            .filter(move |build| build.pointer_size == pointer_size)
+            .filter(move |build| build.profile.pointer_size == pointer_size)
     };
 
     at_width()
@@ -39,16 +39,16 @@ pub(super) fn nearest(
 }
 
 // The table reads from the oldest player to the newest.
-static BUILDS: &[Build] = &[
+pub(super) const BUILDS: &[Build] = &[
     // Unity 2018.4.36f1, metadata version 24, x64.
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         unity: (2018, 4, 36, 54151),
-        pointer_size: PointerSize::Bit64,
-        offsets: IL2CPPOffsets {
+        profile: Profile {
+            pointer_size: PointerSize::Bit64,
             assembly: AssemblyOffsets {
                 image: 0x0,
-                aname: None,
+                name: None,
             },
             image: ImageOffsets {
                 assembly_name: Some(0x8),
@@ -68,7 +68,7 @@ static BUILDS: &[Build] = &[
             generic: GenericOffsets {
                 cached_class: Some(0x18),
             },
-            type_words: TypeOffsets {
+            type_: TypeOffsets {
                 data: Some(0x0),
                 kind: Some(0xa),
             },
@@ -76,7 +76,7 @@ static BUILDS: &[Build] = &[
                 name: 0x0,
                 type_: Some(0x8),
                 offset: 0x18,
-                struct_size: 0x20,
+                size: 0x20,
             },
         },
     },
@@ -84,11 +84,11 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         unity: (2018, 4, 36, 54151),
-        pointer_size: PointerSize::Bit32,
-        offsets: IL2CPPOffsets {
+        profile: Profile {
+            pointer_size: PointerSize::Bit32,
             assembly: AssemblyOffsets {
                 image: 0x0,
-                aname: None,
+                name: None,
             },
             image: ImageOffsets {
                 assembly_name: Some(0x4),
@@ -108,7 +108,7 @@ static BUILDS: &[Build] = &[
             generic: GenericOffsets {
                 cached_class: Some(0xc),
             },
-            type_words: TypeOffsets {
+            type_: TypeOffsets {
                 data: Some(0x0),
                 kind: Some(0x6),
             },
@@ -116,7 +116,7 @@ static BUILDS: &[Build] = &[
                 name: 0x0,
                 type_: Some(0x4),
                 offset: 0xc,
-                struct_size: 0x14,
+                size: 0x14,
             },
         },
     },
@@ -124,11 +124,11 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         unity: (2019, 4, 41, 9172),
-        pointer_size: PointerSize::Bit64,
-        offsets: IL2CPPOffsets {
+        profile: Profile {
+            pointer_size: PointerSize::Bit64,
             assembly: AssemblyOffsets {
                 image: 0x0,
-                aname: None,
+                name: None,
             },
             image: ImageOffsets {
                 assembly_name: Some(0x8),
@@ -148,7 +148,7 @@ static BUILDS: &[Build] = &[
             generic: GenericOffsets {
                 cached_class: Some(0x18),
             },
-            type_words: TypeOffsets {
+            type_: TypeOffsets {
                 data: Some(0x0),
                 kind: Some(0xa),
             },
@@ -156,7 +156,7 @@ static BUILDS: &[Build] = &[
                 name: 0x0,
                 type_: Some(0x8),
                 offset: 0x18,
-                struct_size: 0x20,
+                size: 0x20,
             },
         },
     },
@@ -164,11 +164,11 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         unity: (2019, 4, 41, 9172),
-        pointer_size: PointerSize::Bit32,
-        offsets: IL2CPPOffsets {
+        profile: Profile {
+            pointer_size: PointerSize::Bit32,
             assembly: AssemblyOffsets {
                 image: 0x0,
-                aname: None,
+                name: None,
             },
             image: ImageOffsets {
                 assembly_name: Some(0x4),
@@ -188,7 +188,7 @@ static BUILDS: &[Build] = &[
             generic: GenericOffsets {
                 cached_class: Some(0xc),
             },
-            type_words: TypeOffsets {
+            type_: TypeOffsets {
                 data: Some(0x0),
                 kind: Some(0x6),
             },
@@ -196,7 +196,7 @@ static BUILDS: &[Build] = &[
                 name: 0x0,
                 type_: Some(0x4),
                 offset: 0xc,
-                struct_size: 0x14,
+                size: 0x14,
             },
         },
     },
@@ -204,11 +204,11 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         unity: (2020, 1, 18, 38512),
-        pointer_size: PointerSize::Bit64,
-        offsets: IL2CPPOffsets {
+        profile: Profile {
+            pointer_size: PointerSize::Bit64,
             assembly: AssemblyOffsets {
                 image: 0x0,
-                aname: None,
+                name: None,
             },
             image: ImageOffsets {
                 assembly_name: Some(0x8),
@@ -228,7 +228,7 @@ static BUILDS: &[Build] = &[
             generic: GenericOffsets {
                 cached_class: Some(0x18),
             },
-            type_words: TypeOffsets {
+            type_: TypeOffsets {
                 data: Some(0x0),
                 kind: Some(0xa),
             },
@@ -236,7 +236,7 @@ static BUILDS: &[Build] = &[
                 name: 0x0,
                 type_: Some(0x8),
                 offset: 0x18,
-                struct_size: 0x20,
+                size: 0x20,
             },
         },
     },
@@ -244,11 +244,11 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         unity: (2020, 1, 18, 38512),
-        pointer_size: PointerSize::Bit32,
-        offsets: IL2CPPOffsets {
+        profile: Profile {
+            pointer_size: PointerSize::Bit32,
             assembly: AssemblyOffsets {
                 image: 0x0,
-                aname: None,
+                name: None,
             },
             image: ImageOffsets {
                 assembly_name: Some(0x4),
@@ -268,7 +268,7 @@ static BUILDS: &[Build] = &[
             generic: GenericOffsets {
                 cached_class: Some(0xc),
             },
-            type_words: TypeOffsets {
+            type_: TypeOffsets {
                 data: Some(0x0),
                 kind: Some(0x6),
             },
@@ -276,7 +276,7 @@ static BUILDS: &[Build] = &[
                 name: 0x0,
                 type_: Some(0x4),
                 offset: 0xc,
-                struct_size: 0x14,
+                size: 0x14,
             },
         },
     },
@@ -284,11 +284,11 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         unity: (2021, 3, 11, 23713),
-        pointer_size: PointerSize::Bit64,
-        offsets: IL2CPPOffsets {
+        profile: Profile {
+            pointer_size: PointerSize::Bit64,
             assembly: AssemblyOffsets {
                 image: 0x0,
-                aname: None,
+                name: None,
             },
             image: ImageOffsets {
                 assembly_name: Some(0x8),
@@ -308,7 +308,7 @@ static BUILDS: &[Build] = &[
             generic: GenericOffsets {
                 cached_class: Some(0x18),
             },
-            type_words: TypeOffsets {
+            type_: TypeOffsets {
                 data: Some(0x0),
                 kind: Some(0xa),
             },
@@ -316,7 +316,7 @@ static BUILDS: &[Build] = &[
                 name: 0x0,
                 type_: Some(0x8),
                 offset: 0x18,
-                struct_size: 0x20,
+                size: 0x20,
             },
         },
     },
@@ -324,11 +324,11 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         unity: (2021, 3, 11, 23713),
-        pointer_size: PointerSize::Bit32,
-        offsets: IL2CPPOffsets {
+        profile: Profile {
+            pointer_size: PointerSize::Bit32,
             assembly: AssemblyOffsets {
                 image: 0x0,
-                aname: None,
+                name: None,
             },
             image: ImageOffsets {
                 assembly_name: Some(0x4),
@@ -348,7 +348,7 @@ static BUILDS: &[Build] = &[
             generic: GenericOffsets {
                 cached_class: Some(0xc),
             },
-            type_words: TypeOffsets {
+            type_: TypeOffsets {
                 data: Some(0x0),
                 kind: Some(0x6),
             },
@@ -356,7 +356,7 @@ static BUILDS: &[Build] = &[
                 name: 0x0,
                 type_: Some(0x4),
                 offset: 0xc,
-                struct_size: 0x14,
+                size: 0x14,
             },
         },
     },
@@ -364,11 +364,11 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         unity: (2022, 3, 0, 4507),
-        pointer_size: PointerSize::Bit64,
-        offsets: IL2CPPOffsets {
+        profile: Profile {
+            pointer_size: PointerSize::Bit64,
             assembly: AssemblyOffsets {
                 image: 0x0,
-                aname: None,
+                name: None,
             },
             image: ImageOffsets {
                 assembly_name: Some(0x8),
@@ -388,7 +388,7 @@ static BUILDS: &[Build] = &[
             generic: GenericOffsets {
                 cached_class: Some(0x18),
             },
-            type_words: TypeOffsets {
+            type_: TypeOffsets {
                 data: Some(0x0),
                 kind: Some(0xa),
             },
@@ -396,7 +396,7 @@ static BUILDS: &[Build] = &[
                 name: 0x0,
                 type_: Some(0x8),
                 offset: 0x18,
-                struct_size: 0x20,
+                size: 0x20,
             },
         },
     },
@@ -404,11 +404,11 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         unity: (2022, 3, 0, 4507),
-        pointer_size: PointerSize::Bit32,
-        offsets: IL2CPPOffsets {
+        profile: Profile {
+            pointer_size: PointerSize::Bit32,
             assembly: AssemblyOffsets {
                 image: 0x0,
-                aname: None,
+                name: None,
             },
             image: ImageOffsets {
                 assembly_name: Some(0x4),
@@ -428,7 +428,7 @@ static BUILDS: &[Build] = &[
             generic: GenericOffsets {
                 cached_class: Some(0xc),
             },
-            type_words: TypeOffsets {
+            type_: TypeOffsets {
                 data: Some(0x0),
                 kind: Some(0x6),
             },
@@ -436,7 +436,7 @@ static BUILDS: &[Build] = &[
                 name: 0x0,
                 type_: Some(0x4),
                 offset: 0xc,
-                struct_size: 0x14,
+                size: 0x14,
             },
         },
     },
@@ -444,11 +444,11 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         unity: (2023, 1, 0, 2298),
-        pointer_size: PointerSize::Bit64,
-        offsets: IL2CPPOffsets {
+        profile: Profile {
+            pointer_size: PointerSize::Bit64,
             assembly: AssemblyOffsets {
                 image: 0x0,
-                aname: None,
+                name: None,
             },
             image: ImageOffsets {
                 assembly_name: Some(0x8),
@@ -468,7 +468,7 @@ static BUILDS: &[Build] = &[
             generic: GenericOffsets {
                 cached_class: Some(0x18),
             },
-            type_words: TypeOffsets {
+            type_: TypeOffsets {
                 data: Some(0x0),
                 kind: Some(0xa),
             },
@@ -476,7 +476,7 @@ static BUILDS: &[Build] = &[
                 name: 0x0,
                 type_: Some(0x8),
                 offset: 0x18,
-                struct_size: 0x20,
+                size: 0x20,
             },
         },
     },
@@ -484,11 +484,11 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         unity: (2023, 1, 0, 2298),
-        pointer_size: PointerSize::Bit32,
-        offsets: IL2CPPOffsets {
+        profile: Profile {
+            pointer_size: PointerSize::Bit32,
             assembly: AssemblyOffsets {
                 image: 0x0,
-                aname: None,
+                name: None,
             },
             image: ImageOffsets {
                 assembly_name: Some(0x4),
@@ -508,7 +508,7 @@ static BUILDS: &[Build] = &[
             generic: GenericOffsets {
                 cached_class: Some(0xc),
             },
-            type_words: TypeOffsets {
+            type_: TypeOffsets {
                 data: Some(0x0),
                 kind: Some(0x6),
             },
@@ -516,7 +516,7 @@ static BUILDS: &[Build] = &[
                 name: 0x0,
                 type_: Some(0x4),
                 offset: 0xc,
-                struct_size: 0x14,
+                size: 0x14,
             },
         },
     },
@@ -524,11 +524,11 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         unity: (2023, 1, 22, 16744),
-        pointer_size: PointerSize::Bit64,
-        offsets: IL2CPPOffsets {
+        profile: Profile {
+            pointer_size: PointerSize::Bit64,
             assembly: AssemblyOffsets {
                 image: 0x0,
-                aname: None,
+                name: None,
             },
             image: ImageOffsets {
                 assembly_name: Some(0x8),
@@ -548,7 +548,7 @@ static BUILDS: &[Build] = &[
             generic: GenericOffsets {
                 cached_class: Some(0x18),
             },
-            type_words: TypeOffsets {
+            type_: TypeOffsets {
                 data: Some(0x0),
                 kind: Some(0xa),
             },
@@ -556,7 +556,7 @@ static BUILDS: &[Build] = &[
                 name: 0x0,
                 type_: Some(0x8),
                 offset: 0x18,
-                struct_size: 0x20,
+                size: 0x20,
             },
         },
     },
@@ -564,11 +564,11 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         unity: (2023, 1, 22, 16744),
-        pointer_size: PointerSize::Bit32,
-        offsets: IL2CPPOffsets {
+        profile: Profile {
+            pointer_size: PointerSize::Bit32,
             assembly: AssemblyOffsets {
                 image: 0x0,
-                aname: None,
+                name: None,
             },
             image: ImageOffsets {
                 assembly_name: Some(0x4),
@@ -588,7 +588,7 @@ static BUILDS: &[Build] = &[
             generic: GenericOffsets {
                 cached_class: Some(0xc),
             },
-            type_words: TypeOffsets {
+            type_: TypeOffsets {
                 data: Some(0x0),
                 kind: Some(0x6),
             },
@@ -596,7 +596,7 @@ static BUILDS: &[Build] = &[
                 name: 0x0,
                 type_: Some(0x4),
                 offset: 0xc,
-                struct_size: 0x14,
+                size: 0x14,
             },
         },
     },
@@ -604,11 +604,11 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         unity: (6000, 2, 12, 40285),
-        pointer_size: PointerSize::Bit64,
-        offsets: IL2CPPOffsets {
+        profile: Profile {
+            pointer_size: PointerSize::Bit64,
             assembly: AssemblyOffsets {
                 image: 0x0,
-                aname: None,
+                name: None,
             },
             image: ImageOffsets {
                 assembly_name: Some(0x8),
@@ -628,7 +628,7 @@ static BUILDS: &[Build] = &[
             generic: GenericOffsets {
                 cached_class: Some(0x18),
             },
-            type_words: TypeOffsets {
+            type_: TypeOffsets {
                 data: Some(0x0),
                 kind: Some(0xa),
             },
@@ -636,7 +636,7 @@ static BUILDS: &[Build] = &[
                 name: 0x0,
                 type_: Some(0x8),
                 offset: 0x18,
-                struct_size: 0x20,
+                size: 0x20,
             },
         },
     },
@@ -644,11 +644,11 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         unity: (6000, 2, 12, 40285),
-        pointer_size: PointerSize::Bit32,
-        offsets: IL2CPPOffsets {
+        profile: Profile {
+            pointer_size: PointerSize::Bit32,
             assembly: AssemblyOffsets {
                 image: 0x0,
-                aname: None,
+                name: None,
             },
             image: ImageOffsets {
                 assembly_name: Some(0x4),
@@ -668,7 +668,7 @@ static BUILDS: &[Build] = &[
             generic: GenericOffsets {
                 cached_class: Some(0xc),
             },
-            type_words: TypeOffsets {
+            type_: TypeOffsets {
                 data: Some(0x0),
                 kind: Some(0x6),
             },
@@ -676,7 +676,7 @@ static BUILDS: &[Build] = &[
                 name: 0x0,
                 type_: Some(0x4),
                 offset: 0xc,
-                struct_size: 0x14,
+                size: 0x14,
             },
         },
     },
@@ -684,11 +684,11 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         unity: (6000, 3, 21, 9777),
-        pointer_size: PointerSize::Bit64,
-        offsets: IL2CPPOffsets {
+        profile: Profile {
+            pointer_size: PointerSize::Bit64,
             assembly: AssemblyOffsets {
                 image: 0x0,
-                aname: None,
+                name: None,
             },
             image: ImageOffsets {
                 assembly_name: Some(0x8),
@@ -708,7 +708,7 @@ static BUILDS: &[Build] = &[
             generic: GenericOffsets {
                 cached_class: Some(0x18),
             },
-            type_words: TypeOffsets {
+            type_: TypeOffsets {
                 data: Some(0x0),
                 kind: Some(0xa),
             },
@@ -716,7 +716,7 @@ static BUILDS: &[Build] = &[
                 name: 0x0,
                 type_: Some(0x8),
                 offset: 0x18,
-                struct_size: 0x20,
+                size: 0x20,
             },
         },
     },
@@ -724,11 +724,11 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         unity: (6000, 3, 21, 9777),
-        pointer_size: PointerSize::Bit32,
-        offsets: IL2CPPOffsets {
+        profile: Profile {
+            pointer_size: PointerSize::Bit32,
             assembly: AssemblyOffsets {
                 image: 0x0,
-                aname: None,
+                name: None,
             },
             image: ImageOffsets {
                 assembly_name: Some(0x4),
@@ -748,7 +748,7 @@ static BUILDS: &[Build] = &[
             generic: GenericOffsets {
                 cached_class: Some(0xc),
             },
-            type_words: TypeOffsets {
+            type_: TypeOffsets {
                 data: Some(0x0),
                 kind: Some(0x6),
             },
@@ -756,7 +756,7 @@ static BUILDS: &[Build] = &[
                 name: 0x0,
                 type_: Some(0x4),
                 offset: 0xc,
-                struct_size: 0x14,
+                size: 0x14,
             },
         },
     },
@@ -764,11 +764,11 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         unity: (6000, 5, 10, 54518),
-        pointer_size: PointerSize::Bit64,
-        offsets: IL2CPPOffsets {
+        profile: Profile {
+            pointer_size: PointerSize::Bit64,
             assembly: AssemblyOffsets {
                 image: 0x0,
-                aname: None,
+                name: None,
             },
             image: ImageOffsets {
                 assembly_name: Some(0x8),
@@ -788,7 +788,7 @@ static BUILDS: &[Build] = &[
             generic: GenericOffsets {
                 cached_class: Some(0x18),
             },
-            type_words: TypeOffsets {
+            type_: TypeOffsets {
                 data: Some(0x0),
                 kind: Some(0xa),
             },
@@ -796,7 +796,7 @@ static BUILDS: &[Build] = &[
                 name: 0x0,
                 type_: Some(0x8),
                 offset: 0x18,
-                struct_size: 0x20,
+                size: 0x20,
             },
         },
     },
@@ -804,11 +804,11 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         unity: (6000, 5, 10, 54518),
-        pointer_size: PointerSize::Bit32,
-        offsets: IL2CPPOffsets {
+        profile: Profile {
+            pointer_size: PointerSize::Bit32,
             assembly: AssemblyOffsets {
                 image: 0x0,
-                aname: None,
+                name: None,
             },
             image: ImageOffsets {
                 assembly_name: Some(0x4),
@@ -828,7 +828,7 @@ static BUILDS: &[Build] = &[
             generic: GenericOffsets {
                 cached_class: Some(0xc),
             },
-            type_words: TypeOffsets {
+            type_: TypeOffsets {
                 data: Some(0x0),
                 kind: Some(0x6),
             },
@@ -836,7 +836,7 @@ static BUILDS: &[Build] = &[
                 name: 0x0,
                 type_: Some(0x4),
                 offset: 0xc,
-                struct_size: 0x14,
+                size: 0x14,
             },
         },
     },
@@ -844,11 +844,11 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         unity: (6000, 7, 0, 5476),
-        pointer_size: PointerSize::Bit64,
-        offsets: IL2CPPOffsets {
+        profile: Profile {
+            pointer_size: PointerSize::Bit64,
             assembly: AssemblyOffsets {
                 image: 0x0,
-                aname: None,
+                name: None,
             },
             image: ImageOffsets {
                 assembly_name: Some(0x8),
@@ -868,7 +868,7 @@ static BUILDS: &[Build] = &[
             generic: GenericOffsets {
                 cached_class: Some(0x10),
             },
-            type_words: TypeOffsets {
+            type_: TypeOffsets {
                 data: Some(0x0),
                 kind: Some(0xa),
             },
@@ -876,7 +876,7 @@ static BUILDS: &[Build] = &[
                 name: 0x0,
                 type_: Some(0x8),
                 offset: 0x18,
-                struct_size: 0x20,
+                size: 0x20,
             },
         },
     },
@@ -884,11 +884,11 @@ static BUILDS: &[Build] = &[
     // Offsets from the player's own GameAssembly.pdb.
     Build {
         unity: (6000, 7, 0, 5476),
-        pointer_size: PointerSize::Bit32,
-        offsets: IL2CPPOffsets {
+        profile: Profile {
+            pointer_size: PointerSize::Bit32,
             assembly: AssemblyOffsets {
                 image: 0x0,
-                aname: None,
+                name: None,
             },
             image: ImageOffsets {
                 assembly_name: Some(0x4),
@@ -908,7 +908,7 @@ static BUILDS: &[Build] = &[
             generic: GenericOffsets {
                 cached_class: Some(0x8),
             },
-            type_words: TypeOffsets {
+            type_: TypeOffsets {
                 data: Some(0x0),
                 kind: Some(0x6),
             },
@@ -916,7 +916,7 @@ static BUILDS: &[Build] = &[
                 name: 0x0,
                 type_: Some(0x4),
                 offset: 0xc,
-                struct_size: 0x14,
+                size: 0x14,
             },
         },
     },
@@ -937,7 +937,7 @@ mod tests {
     #[test]
     fn every_version_is_measured_at_both_widths() {
         for build in BUILDS {
-            let other = match build.pointer_size {
+            let other = match build.profile.pointer_size {
                 PointerSize::Bit64 => PointerSize::Bit32,
                 _ => PointerSize::Bit64,
             };
@@ -969,9 +969,9 @@ mod tests {
     #[test]
     fn nearest_is_the_build_itself_on_a_measured_version() {
         for build in BUILDS {
-            let found = nearest(build.unity, build.pointer_size).unwrap();
+            let found = nearest(build.unity, build.profile.pointer_size).unwrap();
             assert_eq!(found.unity, build.unity);
-            assert_eq!(found.pointer_size, build.pointer_size);
+            assert_eq!(found.profile.pointer_size, build.profile.pointer_size);
         }
     }
 
@@ -979,7 +979,7 @@ mod tests {
     fn nearest_keeps_the_width() {
         let build = nearest((2021, 3, 5, 1), PointerSize::Bit32).unwrap();
         assert_eq!(build.unity, (2021, 3, 11, 23713));
-        assert_eq!(build.pointer_size, PointerSize::Bit32);
+        assert_eq!(build.profile.pointer_size, PointerSize::Bit32);
         assert!(nearest((2021, 3, 5, 1), PointerSize::Bit16).is_none());
     }
 }

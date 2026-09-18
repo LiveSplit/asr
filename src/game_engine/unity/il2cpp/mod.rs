@@ -16,9 +16,13 @@ pub use class::Class;
 mod pointer;
 pub use pointer::UnityPointer;
 mod offsets;
-use offsets::{IL2CPPOffsets, TypeStart};
+pub use offsets::{
+    AssemblyOffsets, ClassOffsets, FieldInfoOffsets, GenericOffsets, ImageOffsets, Profile,
+    TypeOffsets, TypeStart,
+};
 #[cfg(all(test, not(target_family = "wasm")))]
 mod collections_tests;
+pub mod profiles;
 #[cfg(all(test, not(target_family = "wasm")))]
 mod readers_tests;
 #[cfg(all(test, not(target_family = "wasm")))]
@@ -30,7 +34,7 @@ use super::{managed, DictionaryOffsets, HashSetOffsets, ListOffsets, ManagedStri
 pub struct Module {
     assemblies: Address,
     type_info_definition_table: Address,
-    offsets: &'static IL2CPPOffsets,
+    profile: Profile,
     pointer_size: PointerSize,
 }
 
@@ -44,7 +48,7 @@ impl Module {
         let unity = Self::unity_version(process)?;
         let build = builds::nearest(unity, pointer_size)?;
 
-        let module = Self::attach_with(process, il2cpp_module, pointer_size, &build.offsets)?;
+        let module = Self::attach_with(process, il2cpp_module, build.profile)?;
         print_limited::<128>(&format_args!(
             "il2cpp: unity {}.{}.{}.{} takes the build measured on {}.{}.{}.{}",
             unity.0,
@@ -57,6 +61,20 @@ impl Module {
             build.unity.3,
         ));
         Some(module)
+    }
+
+    /// Tries attaching to a Unity game that is using the IL2CPP backend with
+    /// the provided measured [`Profile`]. The profile's pointer width must
+    /// match the target process. Use a built-in [`profiles`] constant for a
+    /// known player, or construct a custom profile for another measured
+    /// layout. If the target is not known in advance, use
+    /// [`attach_auto_detect`](Self::attach_auto_detect) instead.
+    pub fn attach(process: &Process, profile: Profile) -> Option<Self> {
+        let il2cpp_module = Self::find_runtime_module(process)?;
+        let pointer_size = pe::MachineType::read(process, il2cpp_module.0)?.pointer_size()?;
+        (pointer_size == profile.pointer_size).then_some(())?;
+
+        Self::attach_with(process, il2cpp_module, profile)
     }
 
     fn find_runtime_module(process: &Process) -> Option<(Address, u64)> {
@@ -81,9 +99,9 @@ impl Module {
     fn attach_with(
         process: &Process,
         il2cpp_module: (Address, u64),
-        pointer_size: PointerSize,
-        offsets: &'static IL2CPPOffsets,
+        profile: Profile,
     ) -> Option<Self> {
+        let pointer_size = profile.pointer_size;
         let (assemblies, type_info_definition_table) = match pointer_size {
             PointerSize::Bit64 => Self::globals_x64(process, il2cpp_module)?,
             PointerSize::Bit32 => Self::globals_x86(process, il2cpp_module)?,
@@ -93,7 +111,7 @@ impl Module {
         Some(Self {
             assemblies,
             type_info_definition_table,
-            offsets,
+            profile,
             pointer_size,
         })
     }
@@ -225,7 +243,7 @@ impl Module {
     }
 
     fn walk(&self) -> managed::Walk {
-        let (metadata_handle, handle_is_inline) = match self.offsets.image.type_start {
+        let (metadata_handle, handle_is_inline) = match self.profile.image.type_start {
             TypeStart::Inline(at) => (at, true),
             TypeStart::Handle(at) => (at, false),
         };
@@ -234,34 +252,34 @@ impl Module {
             runtime: managed::Runtime::Il2Cpp(managed::Il2CppRuntime {
                 assemblies: self.assemblies,
                 type_info_definition_table: self.type_info_definition_table,
-                type_count: self.offsets.image.type_count.into(),
+                type_count: self.profile.image.type_count.into(),
                 metadata_handle: metadata_handle.into(),
                 handle_is_inline,
-                field_count: self.offsets.class.field_count,
-                static_fields: self.offsets.class.static_fields.into(),
-                cached_class: self.offsets.generic.cached_class,
-                type_data: self.offsets.type_words.data,
-                type_kind: self.offsets.type_words.kind,
+                field_count: self.profile.class.field_count,
+                static_fields: self.profile.class.static_fields.into(),
+                cached_class: self.profile.generic.cached_class,
+                type_data: self.profile.type_.data,
+                type_kind: self.profile.type_.kind,
             }),
             offsets: managed::WalkOffsets {
                 assembly: managed::AssemblyOffsets {
-                    name_in_image: self.offsets.image.assembly_name.map(u16::from),
-                    name_in_assembly: self.offsets.assembly.aname.map(u16::from),
-                    image: self.offsets.assembly.image.into(),
+                    name_in_image: self.profile.image.assembly_name.map(u16::from),
+                    name_in_assembly: self.profile.assembly.name.map(u16::from),
+                    image: self.profile.assembly.image.into(),
                 },
                 class: managed::ClassOffsets {
-                    name: self.offsets.class.name.into(),
-                    namespace: self.offsets.class.namespace.into(),
-                    parent: self.offsets.class.parent.into(),
-                    declaring: self.offsets.class.declaring_type,
-                    instance_size: self.offsets.class.instance_size,
-                    fields: self.offsets.class.fields.into(),
+                    name: self.profile.class.name.into(),
+                    namespace: self.profile.class.namespace.into(),
+                    parent: self.profile.class.parent.into(),
+                    declaring: self.profile.class.declaring_type,
+                    instance_size: self.profile.class.instance_size,
+                    fields: self.profile.class.fields.into(),
                 },
                 field: managed::FieldOffsets {
-                    name: self.offsets.field.name.into(),
-                    type_: self.offsets.field.type_,
-                    offset: self.offsets.field.offset.into(),
-                    stride: self.offsets.field.struct_size.into(),
+                    name: self.profile.field.name.into(),
+                    type_: self.profile.field.type_,
+                    offset: self.profile.field.offset.into(),
+                    stride: self.profile.field.size.into(),
                 },
             },
             stop: managed::ClimbStop::UNITY,
@@ -510,6 +528,16 @@ impl Module {
     /// to the runtime between each try.
     pub async fn wait_attach_auto_detect(process: &Process) -> Module {
         retry(|| Self::attach_auto_detect(process)).await
+    }
+
+    /// Attaches to a Unity game that is using the IL2CPP backend with the
+    /// provided measured [`Profile`]. The profile's pointer width must match
+    /// the target process.
+    ///
+    /// This is the `await`able version of [`attach`](Self::attach), yielding
+    /// back to the runtime between each try.
+    pub async fn wait_attach(process: &Process, profile: Profile) -> Module {
+        retry(|| Self::attach(process, profile)).await
     }
 
     /// Looks for the specified binary [image](Image) inside the target process.
