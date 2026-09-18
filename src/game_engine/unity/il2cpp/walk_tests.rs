@@ -1,8 +1,9 @@
 //! Tests pinning the walk's behavior over a hand-laid image of IL2CPP's
-//! structures, one fixture per lineage: the older one keeps its metadata
-//! handle inline in the image, the newer one behind a pointer. The offsets are
-//! the literal numbers of the Unity 2019.4 and 6000.3 layouts, copied by hand,
-//! so the walk is checked against the layout rather than against itself.
+//! structures. There is one fixture per type start shape: the Unity 2019.4
+//! player keeps the index of its first type inside the image, and the Unity
+//! 2022.3 player keeps a pointer to that index. The offsets are the literal
+//! numbers of those two players, copied by hand from their PDBs, so the walk
+//! is checked against the layout rather than against itself.
 
 use super::{Module, Profile, UnityPointer};
 use crate::runtime::mock::{poll_once, with_process};

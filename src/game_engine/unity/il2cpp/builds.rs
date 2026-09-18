@@ -16,12 +16,15 @@ pub(super) struct Build {
 }
 
 /// Finds the build for a player at its width. The Unity version is the four
-/// parts of `UnityPlayer.dll`'s file version, and the last part tells `f1`
+/// parts of the file version of `UnityPlayer.dll`. The last part tells `f1`
 /// from `f2` and an alpha from its release. A measured player gets its own
 /// build. Any other player gets the newest build whose major.minor is at or
-/// below its own, since patch releases of one major.minor share their
-/// layouts, or the oldest build when nothing is below. The table reads
-/// oldest to newest, so the newest match is the last one.
+/// below the player's major.minor, or the oldest build when no build is
+/// below. This answer is right when the table holds the first player of
+/// every layout, because a layout lasts until the next layout starts. When a
+/// layout changed between two measured players, a player in that gap gets the
+/// older layout. The table reads from the oldest player to the newest, so the
+/// newest match is the last match.
 pub(super) fn nearest(
     unity: (u16, u16, u16, u16),
     pointer_size: PointerSize,
