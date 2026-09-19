@@ -2,26 +2,40 @@
 
 // References:
 // https://gist.githubusercontent.com/just-ero/92457b51baf85bd1e5b8c87de8c9835e/raw/8aa3e6b8da01fd03ff2ff0c03cbd018e522ef988/UnityScene.hpp
-// (some offsets seem to be wrong anyway, but it's a very good starting point)
 //
-// Offsets and logic for Transforms and GameObjects taken from https://github.com/Micrologist/UnityInstanceDumper
+// The offsets come from the measured builds in `builds.rs`. The logic for
+// Transforms and GameObjects is taken from https://github.com/Micrologist/UnityInstanceDumper
 
 use crate::{
     file_format::{elf, macho, pe},
     future::retry,
-    signature::Signature,
+    print_limited,
     string::ArrayCString,
-    Address, Address32, Error, PointerSize, Process,
+    Address, Error, PointerSize, Process,
 };
 
+mod builds;
+
 mod game_objects;
+
+#[cfg(all(test, not(target_family = "wasm")))]
+mod attach_tests;
+
+#[cfg(all(test, not(target_family = "wasm")))]
+mod scene_tests;
+
+#[cfg(all(test, not(target_family = "wasm")))]
+mod roots_tests;
+
+#[cfg(all(test, not(target_family = "wasm")))]
+mod components_tests;
 
 mod offsets;
 
 mod transform;
 pub use transform::Transform;
 
-use offsets::Offsets;
+use offsets::Profile;
 
 mod scene;
 pub use scene::Scene;
@@ -35,25 +49,64 @@ use super::{BinaryFormat, CSTR};
 /// the traditional class lookup in games with no useful static references.
 pub struct SceneManager {
     pointer_size: PointerSize,
-    is_il2cpp: bool,
     address: Address,
-    offsets: &'static Offsets,
+    profile: &'static Profile,
 }
 
 impl SceneManager {
-    /// Attaches to the scene manager in the given process.
+    /// Attaches to the scene manager in the given process. On Windows, the
+    /// Unity version of the game picks the measured build whose offsets the
+    /// scene manager reads through: the build of that version, or else the
+    /// newest build below it.
     pub fn attach(process: &Process) -> Option<Self> {
-        const SIG_64_BIT_PE: Signature<13> =
-            Signature::new("48 83 EC 20 4C 8B ?5 ?? ?? ?? ?? 33 F6");
-        const SIG_64_BIT_ELF: Signature<13> =
-            Signature::new("41 54 53 50 4C 8B ?5 ?? ?? ?? ?? 41 83");
-        const SIG_64_BIT_MACHO: Signature<13> =
-            Signature::new("41 54 53 50 4C 8B ?5 ???????? 41 83");
-        const SIG_32_1: Signature<12> = Signature::new("55 8B EC 51 A1 ?? ?? ?? ?? 53 33 DB");
-        const SIG_32_2: Signature<6> = Signature::new("53 8D 41 ?? 33 DB");
-        const SIG_32_3: Signature<14> = Signature::new("55 8B EC 83 EC 18 A1 ?? ?? ?? ?? 33 C9 53");
+        let (unity_player, format) = Self::engine_module(process)?;
 
-        let (unity_player, format) = [
+        let profile = match format {
+            BinaryFormat::PE => {
+                let pointer_size =
+                    pe::MachineType::read(process, unity_player.0)?.pointer_size()?;
+                let unity = Self::unity_version(process, unity_player.0)?;
+                let build = builds::nearest(unity, pointer_size)?;
+                print_limited::<128>(&format_args!(
+                    "scene manager: unity {}.{}.{}.{} takes the build measured on {}.{}.{}.{}",
+                    unity.0,
+                    unity.1,
+                    unity.2,
+                    unity.3,
+                    build.unity.0,
+                    build.unity.1,
+                    build.unity.2,
+                    build.unity.3,
+                ));
+                &build.profile
+            }
+            BinaryFormat::ELF => match elf::pointer_size(process, unity_player.0)? {
+                PointerSize::Bit64 => &builds::ELF_AND_MACHO_X64,
+                _ => return None,
+            },
+            BinaryFormat::MachO => match macho::pointer_size(process, unity_player)? {
+                PointerSize::Bit64 => &builds::ELF_AND_MACHO_X64,
+                _ => return None,
+            },
+        };
+
+        Self::attach_with(process, unity_player, profile)
+    }
+
+    /// Attaches to the scene manager in the given process.
+    ///
+    /// This is the `await`able version of the [`attach`](Self::attach)
+    /// function, yielding back to the runtime between each try.
+    pub async fn wait_attach(process: &Process) -> SceneManager {
+        retry(|| Self::attach(process)).await
+    }
+
+    /// Finds the module that holds the engine: `UnityPlayer.dll` and its
+    /// Linux and Mac siblings, or the game's own executable on Unity 5.6,
+    /// which linked the engine in. Finding the executable needs its name,
+    /// so that part needs the `alloc` feature.
+    fn engine_module(process: &Process) -> Option<((Address, u64), BinaryFormat)> {
+        let player = [
             ("UnityPlayer.dll", BinaryFormat::PE),
             ("UnityPlayer.so", BinaryFormat::ELF),
             ("UnityPlayer.dylib", BinaryFormat::MachO),
@@ -68,70 +121,75 @@ impl SceneManager {
                 ))
             }
             _ => Some((process.get_module_range(name).ok()?, format)),
-        })?;
+        });
 
-        let pointer_size = match format {
-            BinaryFormat::PE => pe::MachineType::read(process, unity_player.0)?.pointer_size()?,
-            BinaryFormat::ELF => elf::pointer_size(process, unity_player.0)?,
-            BinaryFormat::MachO => macho::pointer_size(process, unity_player)?,
-        };
+        #[cfg(feature = "alloc")]
+        let player = player.or_else(|| {
+            let executable = process.get_main_module_range().ok()?;
+            pe::MachineType::read(process, executable.0)?;
+            Some((executable, BinaryFormat::PE))
+        });
 
-        let is_il2cpp = process.get_module_address("GameAssembly.dll").is_ok();
+        player
+    }
 
-        // There are multiple signatures that can be used, depending on the version of Unity
-        // used in the target game.
-        let base_address: Address = match (pointer_size, format) {
-            (PointerSize::Bit64, BinaryFormat::PE) => {
-                let addr = SIG_64_BIT_PE.scan_process_range(process, unity_player)? + 7;
-                addr + 0x4 + process.read::<i32>(addr).ok()?
-            }
-            (PointerSize::Bit64, BinaryFormat::ELF) => {
-                let addr = SIG_64_BIT_ELF.scan_process_range(process, unity_player)? + 7;
-                addr + 0x4 + process.read::<i32>(addr).ok()?
-            }
-            (PointerSize::Bit64, BinaryFormat::MachO) => {
-                let addr = SIG_64_BIT_MACHO.scan_process_range(process, unity_player)? + 7;
-                addr + 0x4 + process.read::<i32>(addr).ok()?
-            }
-            (PointerSize::Bit32, BinaryFormat::PE) => {
-                if let Some(addr) = SIG_32_1.scan_process_range(process, unity_player) {
-                    process.read::<Address32>(addr + 5).ok()?.into()
-                } else if let Some(addr) = SIG_32_2.scan_process_range(process, unity_player) {
-                    process.read::<Address32>(addr.add_signed(-4)).ok()?.into()
-                } else if let Some(addr) = SIG_32_3.scan_process_range(process, unity_player) {
-                    process.read::<Address32>(addr + 7).ok()?.into()
-                } else {
-                    return None;
+    /// Reads the four parts of the file version of the engine module, which
+    /// name the Unity version of the game.
+    fn unity_version(process: &Process, unity_player: Address) -> Option<(u16, u16, u16, u16)> {
+        let file_version = pe::FileVersion::read(process, unity_player)?;
+        Some((
+            file_version.major_version,
+            file_version.minor_version,
+            file_version.build_part,
+            file_version.private_part,
+        ))
+    }
+
+    /// Finds the scene manager in the engine module through the anchor of
+    /// the profile. Every match of the anchor must name the same global,
+    /// and the global must hold the manager.
+    fn attach_with(
+        process: &Process,
+        unity_player: (Address, u64),
+        profile: &'static Profile,
+    ) -> Option<Self> {
+        let pointer_size = profile.pointer_size;
+        let displacement = profile.anchor.displacement as u64;
+
+        // The load of the global is relative to the next instruction on
+        // x64, and absolute on x86.
+        let global = |at: Address| -> Option<Address> {
+            match pointer_size {
+                PointerSize::Bit64 => {
+                    let offset = process.read::<i32>(at + displacement).ok()?;
+                    Some(at + displacement + 4 + offset)
                 }
-            }
-            _ => {
-                return None;
+                _ => Some(process.read::<u32>(at + displacement).ok()?.into()),
             }
         };
 
-        let offsets = Offsets::new(pointer_size)?;
+        let mut globals = profile
+            .anchor
+            .signature
+            .scan_iter(process, unity_player)
+            .map(global);
+        let global = globals.next()??;
+        if globals.any(|other| other != Some(global)) {
+            return None;
+        }
 
         // Dereferencing one level because this pointer never changes as long as the game is open.
         // It might not seem a lot, but it helps make things a bit faster when querying for scene stuff.
         let address = process
-            .read_pointer(base_address, pointer_size)
+            .read_pointer(global, pointer_size)
             .ok()
             .filter(|val| !val.is_null())?;
 
         Some(Self {
             pointer_size,
-            is_il2cpp,
             address,
-            offsets,
+            profile,
         })
-    }
-
-    /// Attaches to the scene manager in the given process.
-    ///
-    /// This is the `await`able version of the [`attach`](Self::attach)
-    /// function, yielding back to the runtime between each try.
-    pub async fn wait_attach(process: &Process) -> SceneManager {
-        retry(|| Self::attach(process)).await
     }
 
     #[inline]
@@ -142,7 +200,10 @@ impl SceneManager {
     /// Tries to retrieve the current active scene.
     pub fn get_current_scene(&self, process: &Process) -> Result<Scene, Error> {
         process
-            .read_pointer(self.address + self.offsets.active_scene, self.pointer_size)
+            .read_pointer(
+                self.address + self.profile.manager.active_scene,
+                self.pointer_size,
+            )
             .ok()
             .filter(|val| !val.is_null())
             .map(|address| Scene { address })
@@ -155,7 +216,7 @@ impl SceneManager {
     /// loads).
     pub fn get_dont_destroy_on_load_scene(&self) -> Scene {
         Scene {
-            address: self.address + self.offsets.dont_destroy_on_load_scene,
+            address: self.address + self.profile.manager.dont_destroy_on_load_scene,
         }
     }
 
@@ -180,7 +241,13 @@ impl SceneManager {
 
     /// Returns the number of currently loaded scenes in the attached game.
     pub fn get_scene_count(&self, process: &Process) -> Result<u32, Error> {
-        process.read(self.address + self.offsets.scene_count)
+        process.read(self.loaded_scenes() + self.size_of_ptr().wrapping_mul(2))
+    }
+
+    // The loaded scenes are a dynamic array: the pointer to the scenes
+    // first, the allocation label next, then the count.
+    fn loaded_scenes(&self) -> Address {
+        self.address + self.profile.manager.scenes
     }
 
     /// Iterates over all the currently loaded scenes in the attached game.
@@ -188,25 +255,15 @@ impl SceneManager {
         &'a self,
         process: &'a Process,
     ) -> impl DoubleEndedIterator<Item = Scene> + 'a {
-        let (num_scenes, addr): (usize, Address) = match self.pointer_size {
-            PointerSize::Bit64 => {
-                let [first, _, third] = process
-                    .read::<[u64; 3]>(self.address + self.offsets.scene_count)
-                    .unwrap_or_default();
-                (first as usize, Address::new(third))
-            }
-            _ => {
-                let [first, _, third] = process
-                    .read::<[u32; 3]>(self.address + self.offsets.scene_count)
-                    .unwrap_or_default();
-                (first as usize, Address::new(third as _))
-            }
-        };
+        let scenes = process
+            .read_pointer(self.loaded_scenes(), self.pointer_size)
+            .unwrap_or_default();
+        let count = self.get_scene_count(process).unwrap_or_default() as usize;
 
-        (0..num_scenes).filter_map(move |index| {
+        (0..count).filter_map(move |index| {
             process
                 .read_pointer(
-                    addr + (index as u64).wrapping_mul(self.size_of_ptr()),
+                    scenes + (index as u64).wrapping_mul(self.size_of_ptr()),
                     self.pointer_size,
                 )
                 .ok()

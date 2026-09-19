@@ -1,49 +1,86 @@
-use crate::PointerSize;
+use crate::{signature::Signature, PointerSize};
 
-pub(super) struct Offsets {
-    pub(super) scene_count: u8,
-    pub(super) active_scene: u8,
-    pub(super) dont_destroy_on_load_scene: u8,
-    pub(super) asset_path: u8,
-    pub(super) build_index: u8,
-    pub(super) root_storage_container: u8,
-    pub(super) game_object: u8,
-    pub(super) game_object_name: u8,
-    pub(super) klass: u8,
-    pub(super) klass_name: u8,
-    pub(super) children_pointer: u8,
+/// How the scene manager global is found: the body of a function that loads
+/// the global, with the displacement of the load masked out, and where that
+/// displacement starts inside a match. A body shorter than the signature is
+/// padded with wildcards.
+pub(super) struct Anchor {
+    pub(super) signature: Signature<24>,
+    pub(super) displacement: u8,
 }
 
-impl Offsets {
-    pub(super) const fn new(pointer_size: PointerSize) -> Option<&'static Self> {
-        match pointer_size {
-            PointerSize::Bit64 => Some(&Self {
-                scene_count: 0x18,
-                active_scene: 0x48,
-                dont_destroy_on_load_scene: 0x70,
-                asset_path: 0x10,
-                build_index: 0x98,
-                root_storage_container: 0xB0,
-                game_object: 0x30,
-                game_object_name: 0x60,
-                klass: 0x28,
-                klass_name: 0x48,
-                children_pointer: 0x70,
-            }),
-            PointerSize::Bit32 => Some(&Self {
-                scene_count: 0x10,
-                active_scene: 0x28,
-                dont_destroy_on_load_scene: 0x40,
-                asset_path: 0xC,
-                build_index: 0x70,
-                root_storage_container: 0x88,
-                game_object: 0x1C,
-                game_object_name: 0x3C,
-                klass: 0x18,
-                klass_name: 0x2C,
-                children_pointer: 0x50,
-            }),
-            _ => None,
-        }
-    }
+/// How a scene keeps its path in the 32 bytes of its path field.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(super) enum PathShape {
+    /// A pointer to the characters.
+    Pointer,
+    /// A path of up to 31 characters sits inline, with a NUL after it. A
+    /// longer path sits behind a pointer, followed by its length and its
+    /// capacity.
+    InlineNul,
+    /// Like [`InlineNul`](Self::InlineNul), but the last byte of the field
+    /// holds 31 minus the length while the path is inline.
+    InlineSpare,
+}
+
+/// How a component reaches its managed object through the managed reference
+/// of its `Object` base.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(super) enum ReferenceShape {
+    /// The reference holds the managed object.
+    CachedObject,
+    /// The reference points at a slot that holds the managed object.
+    RootSlot,
+}
+
+/// The members of `RuntimeSceneManager` the walk reads. The loaded scenes
+/// are a dynamic array, with the pointer to the scenes at `scenes` and the
+/// count two pointers after it. The `DontDestroyOnLoad` scene is embedded in
+/// the manager by value.
+pub(super) struct ManagerOffsets {
+    pub(super) scenes: u8,
+    pub(super) active_scene: u8,
+    pub(super) dont_destroy_on_load_scene: u8,
+}
+
+/// The members of `UnityScene` the walk reads. The roots are a circular list
+/// whose head is embedded in the scene at `roots`.
+pub(super) struct SceneOffsets {
+    pub(super) path: u8,
+    pub(super) build_index: u8,
+    pub(super) roots: u16,
+}
+
+/// The members of `Transform` the walk reads. The game object is a member of
+/// the `Component` base. The children are a dynamic array of transforms.
+pub(super) struct TransformOffsets {
+    pub(super) game_object: u8,
+    pub(super) children: u8,
+}
+
+/// The members of `GameObject` the walk reads. The components are a dynamic
+/// array of pairs, each a type index and a pointer to the component.
+pub(super) struct GameObjectOffsets {
+    pub(super) components: u8,
+    pub(super) name: u8,
+}
+
+/// The members of `Object` the walk reads, which every component starts
+/// with. The managed reference leads to the managed object of the component
+/// by the [`ReferenceShape`] of the build.
+pub(super) struct ObjectOffsets {
+    pub(super) managed_reference: u8,
+}
+
+/// What the walk needs to know about one player.
+pub(super) struct Profile {
+    pub(super) pointer_size: PointerSize,
+    pub(super) anchor: Anchor,
+    pub(super) path: PathShape,
+    pub(super) reference: ReferenceShape,
+    pub(super) manager: ManagerOffsets,
+    pub(super) scene: SceneOffsets,
+    pub(super) transform: TransformOffsets,
+    pub(super) game_object: GameObjectOffsets,
+    pub(super) object: ObjectOffsets,
 }

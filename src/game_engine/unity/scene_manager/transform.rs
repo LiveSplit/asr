@@ -1,4 +1,5 @@
-use super::{SceneManager, CSTR};
+use super::{offsets::ReferenceShape, SceneManager, CSTR};
+use crate::game_engine::unity::{il2cpp, mono};
 use crate::{string::ArrayCString, Address, Address32, Address64, Error, PointerSize, Process};
 use core::{array, mem::MaybeUninit};
 
@@ -20,34 +21,37 @@ impl Transform {
             self.address,
             scene_manager.pointer_size,
             &[
-                scene_manager.offsets.game_object as u64,
-                scene_manager.offsets.game_object_name as u64,
+                scene_manager.profile.transform.game_object as u64,
+                scene_manager.profile.game_object.name as u64,
                 0x0,
             ],
         )
     }
 
-    /// Iterates over the classes referred to in the current `Transform`.
-    pub fn classes<'a>(
+    /// Iterates over the managed objects of the components of the current
+    /// `Transform`'s game object, leaving out the transform itself.
+    pub fn components<'a>(
         &'a self,
         process: &'a Process,
         scene_manager: &'a SceneManager,
     ) -> Result<impl Iterator<Item = Address> + 'a, Error> {
         let game_object = process.read_pointer(
-            self.address + scene_manager.offsets.game_object,
+            self.address + scene_manager.profile.transform.game_object,
             scene_manager.pointer_size,
         )?;
 
         let (number_of_components, main_object): (usize, Address) = match scene_manager.pointer_size
         {
             PointerSize::Bit64 => {
-                let array = process
-                    .read::<[Address64; 3]>(game_object + scene_manager.offsets.game_object)?;
+                let array = process.read::<[Address64; 3]>(
+                    game_object + scene_manager.profile.game_object.components,
+                )?;
                 (array[2].value() as usize, array[0].into())
             }
             _ => {
-                let array = process
-                    .read::<[Address32; 3]>(game_object + scene_manager.offsets.game_object)?;
+                let array = process.read::<[Address32; 3]>(
+                    game_object + scene_manager.profile.game_object.components,
+                )?;
                 (array[2].value() as usize, array[0].into())
             }
         };
@@ -85,40 +89,62 @@ impl Transform {
             }
         };
 
-        Ok((1..number_of_components).filter_map(move |m| {
+        let reference = scene_manager.profile.object.managed_reference;
+        let read = move |at: Address| {
             process
-                .read_pointer(
-                    components[m] + scene_manager.offsets.klass,
-                    scene_manager.pointer_size,
-                )
+                .read_pointer(at, scene_manager.pointer_size)
                 .ok()
                 .filter(|val| !val.is_null())
+        };
+        Ok((1..number_of_components).filter_map(move |m| {
+            let at = components[m] + reference;
+            match scene_manager.profile.reference {
+                ReferenceShape::CachedObject => read(at),
+                ReferenceShape::RootSlot => read(read(at)?),
+            }
         }))
     }
 
-    /// Tries to find the base address of a class in the current `GameObject`.
-    pub fn get_class(
+    /// Tries to find the managed object of a component of the current
+    /// `GameObject` by the name of its class, in a game using the Mono
+    /// backend.
+    pub fn get_component_mono(
+        &self,
+        process: &Process,
+        scene_manager: &SceneManager,
+        module: &mono::Module,
+        name: &str,
+    ) -> Result<Address, Error> {
+        self.find_component(process, scene_manager, name, |object| {
+            module.object_class_name(process, object)
+        })
+    }
+
+    /// Tries to find the managed object of a component of the current
+    /// `GameObject` by the name of its class, in a game using the IL2CPP
+    /// backend.
+    pub fn get_component_il2cpp(
+        &self,
+        process: &Process,
+        scene_manager: &SceneManager,
+        module: &il2cpp::Module,
+        name: &str,
+    ) -> Result<Address, Error> {
+        self.find_component(process, scene_manager, name, |object| {
+            module.object_class_name(process, object)
+        })
+    }
+
+    pub(super) fn find_component(
         &self,
         process: &Process,
         scene_manager: &SceneManager,
         name: &str,
+        class_name_of: impl Fn(Address) -> Option<ArrayCString<CSTR>>,
     ) -> Result<Address, Error> {
-        self.classes(process, scene_manager)?
-            .find(|&addr| {
-                let val: Result<ArrayCString<CSTR>, Error> = match scene_manager.is_il2cpp {
-                    true => process.read_pointer_path(
-                        addr,
-                        scene_manager.pointer_size,
-                        &[0x0, scene_manager.size_of_ptr().wrapping_mul(2), 0x0],
-                    ),
-                    false => process.read_pointer_path(
-                        addr,
-                        scene_manager.pointer_size,
-                        &[0x0, 0x0, scene_manager.offsets.klass_name as u64, 0x0],
-                    ),
-                };
-
-                val.is_ok_and(|class_name| class_name.matches(name))
+        self.components(process, scene_manager)?
+            .find(|&object| {
+                class_name_of(object).is_some_and(|class_name| class_name.matches(name))
             })
             .ok_or(Error {})
     }
@@ -132,12 +158,12 @@ impl Transform {
         let (child_count, child_pointer): (usize, Address) = match scene_manager.pointer_size {
             PointerSize::Bit64 => {
                 let [first, _, third] = process
-                    .read::<[u64; 3]>(self.address + scene_manager.offsets.children_pointer)?;
+                    .read::<[u64; 3]>(self.address + scene_manager.profile.transform.children)?;
                 (third as usize, Address::new(first))
             }
             _ => {
                 let [first, _, third] = process
-                    .read::<[u32; 3]>(self.address + scene_manager.offsets.children_pointer)?;
+                    .read::<[u32; 3]>(self.address + scene_manager.profile.transform.children)?;
                 (third as usize, Address::new(first as _))
             }
         };

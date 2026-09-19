@@ -12,6 +12,7 @@ use crate::{
     future::retry,
     print_limited,
     signature::Signature,
+    string::ArrayCString,
     Address, Address32, Error, PointerSize, Process,
 };
 
@@ -347,6 +348,18 @@ impl Module {
     /// Retrieve the [pointer size](PointerSize) of the process/module.
     pub fn get_pointer_size(&self) -> PointerSize {
         self.pointer_size
+    }
+
+    /// Reads the name of the class of a live object. The scene manager uses
+    /// this to tell the components of a game object apart.
+    pub(super) fn object_class_name<const N: usize>(
+        &self,
+        process: &Process,
+        object: Address,
+    ) -> Option<ArrayCString<N>> {
+        let walk = self.walk();
+        let class = walk.object_class(process, object)?;
+        walk.class_name(process, class)
     }
 
     fn walk(&self) -> managed::Walk {

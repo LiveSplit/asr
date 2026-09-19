@@ -28,6 +28,7 @@ pub fn with_process<R>(regions: &[(u64, &[u8])], test: impl FnOnce(&Process) -> 
 
 /// Runs a test against a process whose memory holds the given regions and
 /// whose loaded modules are the given names, each with an address and a size.
+/// The first module is the executable of the process.
 pub fn with_modules<R>(
     regions: &[(u64, &[u8])],
     modules: &[(&str, u64, u64)],
@@ -88,6 +89,33 @@ extern "C" fn process_get_module_size(
 /// condition the fixture never satisfies.
 pub fn poll_once<F: Future>(future: F) -> Poll<F::Output> {
     core::pin::pin!(future).poll(&mut Context::from_waker(Waker::noop()))
+}
+
+/// The path of the executable, which is the first module. A null buffer
+/// asks for the length.
+#[no_mangle]
+extern "C" fn process_get_path(_process: u64, buf_ptr: *mut u8, buf_len_ptr: *mut usize) -> bool {
+    MODULES.with(|held| {
+        let held = held.borrow();
+        let Some((name, _, _)) = held.first() else {
+            return false;
+        };
+        let path = std::format!("/mnt/c/game/{name}");
+        // SAFETY: The runtime layer passes a valid pointer to the length, and
+        // either a null buffer or a buffer of that length.
+        unsafe {
+            let len = *buf_len_ptr;
+            *buf_len_ptr = path.len();
+            if buf_ptr.is_null() {
+                return true;
+            }
+            if len < path.len() {
+                return false;
+            }
+            core::ptr::copy_nonoverlapping(path.as_ptr(), buf_ptr, path.len());
+        }
+        true
+    })
 }
 
 #[no_mangle]
