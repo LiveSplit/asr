@@ -254,7 +254,9 @@ impl<const N: usize> Signature<N> {
             _buffer: [u8; MEM_SIZE.saturating_sub(1)],
         }
 
-        let mut last_page_success = false;
+        // How many bytes the last page read actually held. Zero when there was
+        // no last page, or it could not be read.
+        let mut last_page_len = 0usize;
 
         // Although a bit slower, we need to ensure the compiler doesn't do unexpected optimizations
         // to the MaybeUninit struct. For this reason we are explicitly zero-initializing our buffer.
@@ -288,50 +290,47 @@ impl<const N: usize> Signature<N> {
             let end = ((addr.value() & !((4 << 10) - 1)) + (4 << 10)).min(overall_end);
             let len = end.saturating_sub(addr.value()) as usize;
 
-            // If we have read the previous memory page successfully, then we can copy the last
-            // elements to the start of the buffer.
-            if last_page_success {
-                let (start, end) = buffer.split_at_mut(N.saturating_sub(1));
-                start.copy_from_slice(&end[len.saturating_sub(N).saturating_add(1)..]);
+            // The tail of the previous page goes in front of this one, so a
+            // signature lying across the boundary is still found. Both bounds
+            // matter: the head is only N - 1 bytes wide, and the previous page
+            // may have held less than that -- the first page of a range that
+            // does not begin on a page boundary is a short one.
+            let carried = last_page_len.min(N.saturating_sub(1));
+            if carried != 0 {
+                let (head, body) = buffer.split_at_mut(N.saturating_sub(1));
+                // Where the previous page ended, which is not where a full page
+                // would have ended.
+                head[N.saturating_sub(1) - carried..]
+                    .copy_from_slice(&body[last_page_len - carried..last_page_len]);
             }
 
             let current_page_success = process
                 .read_into_slice(addr, &mut buffer[N.saturating_sub(1)..][..len])
                 .is_ok();
 
-            // We define the final slice on which to perform the memory scan into. If we failed to read the memory page,
-            // this returns an empty slice so the subsequent iterator will result into an empty iterator.
-            // If we managed to read the current memory page, instead, we check if we have successfully read the data
-            // from the previous memory page.
+            // The slice to scan: the bytes carried over from the last page,
+            // then this one. If this page could not be read, an empty slice, so
+            // the iterator below yields nothing.
             let scan_buf = unsafe {
                 if current_page_success {
-                    if last_page_success {
-                        slice::from_raw_parts(
-                            buffer.as_ptr(),
-                            len.saturating_add(N).saturating_sub(1),
-                        )
-                    } else {
-                        slice::from_raw_parts(buffer.as_ptr().byte_add(N).byte_sub(1), len)
-                    }
+                    slice::from_raw_parts(
+                        buffer.as_ptr().byte_add(N.saturating_sub(1) - carried),
+                        carried.saturating_add(len),
+                    )
                 } else {
                     &[]
                 }
             };
 
             let cur_addr = addr;
-            let cur_suc = last_page_success;
 
             addr = Address::new(end);
-            last_page_success = current_page_success;
+            last_page_len = if current_page_success { len } else { 0 };
 
             Some(self.scan_internal(&scan_buf).map(move |pos| {
-                let mut address = cur_addr.add(pos as u64);
-
-                if cur_suc {
-                    address = address.add_signed(-(N.saturating_sub(1) as i64))
-                }
-
-                address
+                // Positions are relative to the start of the carried bytes,
+                // which is `carried` bytes before this page began.
+                cur_addr.add(pos as u64).add_signed(-(carried as i64))
             }))
         })
         .flatten()
