@@ -10,15 +10,33 @@ use super::offsets::{
     AssemblyOffsets, ClassOffsets, FieldInfoOffsets, GenericOffsets, HashTableOffsets,
     ImageOffsets, MonoOffsets, MonoVTableOffsets, TypeOffsets,
 };
-use super::Version;
+use super::{builds::nearest_by_version, Library, Version};
 use crate::PointerSize;
 
 /// One exact Mono library and the offsets measured from it.
 pub(super) struct Build {
     pub(super) uuid: [u8; 16],
+    pub(super) unity: (u16, u16, u16, u16),
+    pub(super) library: Library,
     pub(super) pointer_size: PointerSize,
     pub(super) version: Version,
     pub(super) offsets: &'static MonoOffsets,
+}
+
+/// Finds the build for a player that is no known build, by the rule of
+/// [`nearest_by_version`].
+pub(super) fn nearest(
+    unity: (u16, u16, u16, u16),
+    library: Library,
+    pointer_size: PointerSize,
+) -> Option<&'static Build> {
+    nearest_by_version(
+        BUILDS,
+        unity,
+        |build| (build.unity, build.library, build.pointer_size),
+        library,
+        pointer_size,
+    )
 }
 
 /// Looks a build up by the UUID read from the library.
@@ -104,6 +122,8 @@ static BUILDS: &[Build] = &[
     // 6000.5.10f1, x86_64
     Build {
         uuid: id("7FB2E193-873C-3C2F-B045-4F074BD06996"),
+        unity: (6000, 5, 10, 54518),
+        library: Library::MonoBdwgc,
         pointer_size: PointerSize::Bit64,
         version: Version::V3,
         offsets: &UNITY_6000_5,
@@ -111,6 +131,8 @@ static BUILDS: &[Build] = &[
     // 6000.5.10f1, arm64
     Build {
         uuid: id("E9C5E06A-62E5-3A9A-9D5D-54F0D16FFFA8"),
+        unity: (6000, 5, 10, 54518),
+        library: Library::MonoBdwgc,
         pointer_size: PointerSize::Bit64,
         version: Version::V3,
         offsets: &UNITY_6000_5,

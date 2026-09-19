@@ -10,15 +10,33 @@ use super::offsets::{
     AssemblyOffsets, ClassOffsets, FieldInfoOffsets, GenericOffsets, HashTableOffsets,
     ImageOffsets, MonoOffsets, MonoVTableOffsets, TypeOffsets,
 };
-use super::Version;
+use super::{builds::nearest_by_version, Library, Version};
 use crate::PointerSize;
 
 /// One exact Mono library and the offsets measured from it.
 pub(super) struct Build {
     pub(super) build_id: &'static [u8],
+    pub(super) unity: (u16, u16, u16, u16),
+    pub(super) library: Library,
     pub(super) pointer_size: PointerSize,
     pub(super) version: Version,
     pub(super) offsets: &'static MonoOffsets,
+}
+
+/// Finds the build for a player that is no known build, by the rule of
+/// [`nearest_by_version`].
+pub(super) fn nearest(
+    unity: (u16, u16, u16, u16),
+    library: Library,
+    pointer_size: PointerSize,
+) -> Option<&'static Build> {
+    nearest_by_version(
+        BUILDS,
+        unity,
+        |build| (build.unity, build.library, build.pointer_size),
+        library,
+        pointer_size,
+    )
 }
 
 /// Looks a build up by the ID read from the module that names it.
@@ -234,6 +252,8 @@ static BUILDS: &[Build] = &[
     // 5.6.7f1, libmono.so
     Build {
         build_id: &id::<20>("c1a53ea7109a2da58220ab30f4cab7c8ce8f3813"),
+        unity: (5, 6, 7, 3267),
+        library: Library::Mono,
         pointer_size: PointerSize::Bit64,
         version: Version::V1,
         offsets: &UNITY_5_6,
@@ -241,6 +261,8 @@ static BUILDS: &[Build] = &[
     // 2017.4.40f1, libmono.so
     Build {
         build_id: &id::<20>("93b5b95d7a6112b3f7d53b40e79a663cbcd62b14"),
+        unity: (2017, 4, 40, 5126),
+        library: Library::Mono,
         pointer_size: PointerSize::Bit64,
         version: Version::V1Cattrs,
         offsets: &UNITY_2017_4,
@@ -248,6 +270,8 @@ static BUILDS: &[Build] = &[
     // 2018.4.36f1, libmonobdwgc-2.0.so
     Build {
         build_id: &id::<20>("dd788d1860d9a782468cb7304637dcdb7fbfd289"),
+        unity: (2018, 4, 36, 54151),
+        library: Library::MonoBdwgc,
         pointer_size: PointerSize::Bit64,
         version: Version::V2,
         offsets: &UNITY_2018_4,
@@ -255,6 +279,8 @@ static BUILDS: &[Build] = &[
     // 2019.4.41f2, libmonobdwgc-2.0.so
     Build {
         build_id: &id::<20>("4e690f264a2a90120347f94ae43b0b83d578f686"),
+        unity: (2019, 4, 41, 9172),
+        library: Library::MonoBdwgc,
         pointer_size: PointerSize::Bit64,
         version: Version::V2,
         offsets: &UNITY_2018_4,
@@ -262,6 +288,8 @@ static BUILDS: &[Build] = &[
     // 2021.3.0f1, UnityPlayer.so
     Build {
         build_id: &id::<8>("c19105ba5aabaf80"),
+        unity: (2021, 3, 0, 44232),
+        library: Library::MonoBdwgc,
         pointer_size: PointerSize::Bit64,
         version: Version::V3,
         offsets: &UNITY_2021_3,
@@ -269,6 +297,8 @@ static BUILDS: &[Build] = &[
     // 2021.3.11f1, UnityPlayer.so
     Build {
         build_id: &id::<8>("1ecf45334b2b3190"),
+        unity: (2021, 3, 11, 23713),
+        library: Library::MonoBdwgc,
         pointer_size: PointerSize::Bit64,
         version: Version::V3,
         offsets: &UNITY_2021_3,
@@ -276,6 +306,8 @@ static BUILDS: &[Build] = &[
     // 2022.3.0f1, UnityPlayer.so
     Build {
         build_id: &id::<8>("03da1f34b6af4765"),
+        unity: (2022, 3, 0, 4507),
+        library: Library::MonoBdwgc,
         pointer_size: PointerSize::Bit64,
         version: Version::V3,
         offsets: &UNITY_2021_3,
@@ -283,6 +315,8 @@ static BUILDS: &[Build] = &[
     // 2023.1.0f1, UnityPlayer.so
     Build {
         build_id: &id::<8>("63be5bab8a2fbae2"),
+        unity: (2023, 1, 0, 2298),
+        library: Library::MonoBdwgc,
         pointer_size: PointerSize::Bit64,
         version: Version::V3,
         offsets: &UNITY_2021_3,
@@ -290,6 +324,8 @@ static BUILDS: &[Build] = &[
     // 2023.1.22f1, UnityPlayer.so
     Build {
         build_id: &id::<8>("3bc89a83403a19ca"),
+        unity: (2023, 1, 22, 16744),
+        library: Library::MonoBdwgc,
         pointer_size: PointerSize::Bit64,
         version: Version::V3,
         offsets: &UNITY_2021_3,
@@ -297,6 +333,8 @@ static BUILDS: &[Build] = &[
     // 6000.2.12f1, UnityPlayer.so
     Build {
         build_id: &id::<20>("bde00f619381ee2e39d0919cc82f1bb7fd314f21"),
+        unity: (6000, 2, 12, 40285),
+        library: Library::MonoBdwgc,
         pointer_size: PointerSize::Bit64,
         version: Version::V3,
         offsets: &UNITY_2021_3,
@@ -304,6 +342,8 @@ static BUILDS: &[Build] = &[
     // 6000.3.21f1, UnityPlayer.so
     Build {
         build_id: &id::<20>("ad56ac1afbcf42b846610f49f2b6b78d9f24035f"),
+        unity: (6000, 3, 21, 9777),
+        library: Library::MonoBdwgc,
         pointer_size: PointerSize::Bit64,
         version: Version::V3,
         offsets: &UNITY_2021_3,
@@ -311,6 +351,8 @@ static BUILDS: &[Build] = &[
     // 6000.5.8f1, UnityPlayer.so
     Build {
         build_id: &id::<20>("ac33e63fb791d385766540ef0d21b4a6677edf71"),
+        unity: (6000, 5, 8, 47071),
+        library: Library::MonoBdwgc,
         pointer_size: PointerSize::Bit64,
         version: Version::V3,
         offsets: &UNITY_2021_3,
@@ -318,6 +360,8 @@ static BUILDS: &[Build] = &[
     // 6000.7.0a3, UnityPlayer.so
     Build {
         build_id: &id::<20>("c2e66208668984ba644c54c277f63e537a57f00e"),
+        unity: (6000, 7, 0, 5476),
+        library: Library::MonoBdwgc,
         pointer_size: PointerSize::Bit64,
         version: Version::V3,
         offsets: &UNITY_2021_3,

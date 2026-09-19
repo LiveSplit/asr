@@ -37,6 +37,8 @@ mod identity_tests;
 #[cfg(all(test, not(target_family = "wasm")))]
 mod readers_tests;
 #[cfg(all(test, not(target_family = "wasm")))]
+mod version_tests;
+#[cfg(all(test, not(target_family = "wasm")))]
 mod walk_tests;
 
 use super::{managed, BinaryFormat, DictionaryOffsets, HashSetOffsets, ListOffsets, ManagedString};
@@ -47,6 +49,15 @@ pub struct Module {
     version: Version,
     offsets: &'static MonoOffsets,
     pointer_size: PointerSize,
+}
+
+/// Which of the two Mono runtimes Unity ships a game runs: the old one,
+/// `mono.dll` and its Linux and Mac siblings, or the newer one named after
+/// its garbage collector, `mono-2.0-bdwgc.dll`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(super) enum Library {
+    Mono,
+    MonoBdwgc,
 }
 
 /// The identity of one exact runtime binary, and the module it was read
@@ -120,12 +131,16 @@ impl fmt::Debug for Identity {
 impl Module {
     /// Tries attaching to a Unity game that is using the standard Mono backend.
     /// If the Mono runtime is a known build, this function uses the offsets
-    /// measured for that exact build. Otherwise this function detects the
-    /// [Mono version](Version).
-    /// If you know the version in advance or it fails detecting it, use
-    /// [`attach`](Self::attach) instead.
+    /// measured for that exact build. Otherwise the Unity version of the game
+    /// picks the measured build whose offsets are used: the build of that
+    /// version, or else the newest build of the same runtime library whose
+    /// major.minor is below it. A game that ships no player module, which
+    /// is every game before Unity 2017.1, carries its version in its own
+    /// executable, and reading it there needs the `alloc` feature.
+    /// If you know the version in advance, use [`attach`](Self::attach)
+    /// instead.
     pub fn attach_auto_detect(process: &Process) -> Option<Self> {
-        let (module_range, format, name) = Self::find_runtime_module(process)?;
+        let (module_range, format, name, library) = Self::find_runtime_module(process)?;
         let pointer_size = Self::pointer_size(process, module_range, format)?;
 
         // The player names the build for a Mono library that has no ID of its
@@ -152,15 +167,34 @@ impl Module {
             }
         }
 
-        let version = Version::detect(process)?;
-        let module = Self::attach(process, version)?;
+        let unity = Self::unity_version(process, format)?;
+        let (built, version, offsets) = match format {
+            BinaryFormat::PE => builds::nearest(unity, library, pointer_size)
+                .map(|build| (build.unity, build.version, &build.offsets))?,
+            BinaryFormat::ELF => linux_builds::nearest(unity, library, pointer_size)
+                .map(|build| (build.unity, build.version, build.offsets))?,
+            #[cfg(feature = "alloc")]
+            BinaryFormat::MachO => mac_builds::nearest(unity, library, pointer_size)
+                .map(|build| (build.unity, build.version, build.offsets))?,
+            #[allow(unreachable_patterns)]
+            _ => return None,
+        };
 
+        let module = Self::attach_with(
+            process,
+            module_range,
+            format,
+            pointer_size,
+            version,
+            offsets,
+        )?;
         if let Some(identity) = &identity {
-            if identity.find(pointer_size).is_none() {
-                print_limited::<128>(&format_args!("unknown mono build: {identity:?}"));
-            }
+            print_limited::<128>(&format_args!("unknown mono build: {identity:?}"));
         }
-
+        print_limited::<128>(&format_args!(
+            "mono: unity {}.{}.{}.{} takes the build measured on {}.{}.{}.{}",
+            unity.0, unity.1, unity.2, unity.3, built.0, built.1, built.2, built.3,
+        ));
         Some(module)
     }
 
@@ -169,7 +203,7 @@ impl Module {
     /// correct for this function to work. If you don't know the version in
     /// advance, use [`attach_auto_detect`](Self::attach_auto_detect) instead.
     pub fn attach(process: &Process, version: Version) -> Option<Self> {
-        let (module_range, format, _) = Self::find_runtime_module(process)?;
+        let (module_range, format, _, _) = Self::find_runtime_module(process)?;
         let pointer_size = Self::pointer_size(process, module_range, format)?;
         let offsets = MonoOffsets::new(version, pointer_size, format)?;
 
@@ -185,19 +219,97 @@ impl Module {
 
     fn find_runtime_module(
         process: &Process,
-    ) -> Option<((Address, u64), BinaryFormat, &'static str)> {
+    ) -> Option<((Address, u64), BinaryFormat, &'static str, Library)> {
         [
-            ("mono.dll", BinaryFormat::PE),
-            ("libmono.so", BinaryFormat::ELF),
+            ("mono.dll", BinaryFormat::PE, Library::Mono),
+            ("libmono.so", BinaryFormat::ELF, Library::Mono),
             #[cfg(feature = "alloc")]
-            ("libmono.0.dylib", BinaryFormat::MachO),
-            ("mono-2.0-bdwgc.dll", BinaryFormat::PE),
-            ("libmonobdwgc-2.0.so", BinaryFormat::ELF),
+            ("libmono.0.dylib", BinaryFormat::MachO, Library::Mono),
+            ("mono-2.0-bdwgc.dll", BinaryFormat::PE, Library::MonoBdwgc),
+            ("libmonobdwgc-2.0.so", BinaryFormat::ELF, Library::MonoBdwgc),
             #[cfg(feature = "alloc")]
-            ("libmonobdwgc-2.0.dylib", BinaryFormat::MachO),
+            (
+                "libmonobdwgc-2.0.dylib",
+                BinaryFormat::MachO,
+                Library::MonoBdwgc,
+            ),
         ]
         .into_iter()
-        .find_map(|(name, format)| Some((process.get_module_range(name).ok()?, format, name)))
+        .find_map(|(name, format, library)| {
+            Some((process.get_module_range(name).ok()?, format, name, library))
+        })
+    }
+
+    /// Reads the Unity version of the game. On Windows it is the file version
+    /// of `UnityPlayer.dll`. On Linux and Mac the player carries it as a
+    /// string. A game without a player module keeps both in its executable,
+    /// which only the `alloc` feature can name.
+    fn unity_version(process: &Process, format: BinaryFormat) -> Option<(u16, u16, u16, u16)> {
+        let player = match format {
+            BinaryFormat::PE => process.get_module_range("UnityPlayer.dll").ok(),
+            BinaryFormat::ELF => process.get_module_range("UnityPlayer.so").ok(),
+            #[cfg(feature = "alloc")]
+            BinaryFormat::MachO => process.get_module_range("UnityPlayer.dylib").ok(),
+            #[allow(unreachable_patterns)]
+            _ => None,
+        };
+        #[cfg(feature = "alloc")]
+        let player = player.or_else(|| process.get_main_module_range().ok());
+        let player = player?;
+
+        match format {
+            BinaryFormat::PE => {
+                let file_version = pe::FileVersion::read(process, player.0)?;
+                Some((
+                    file_version.major_version,
+                    file_version.minor_version,
+                    file_version.build_part,
+                    file_version.private_part,
+                ))
+            }
+            _ => Self::version_string(process, player),
+        }
+    }
+
+    /// Finds the Unity version string in a player, `2021.3.11f1` for
+    /// example, and returns its three numbers. The fourth part of a file
+    /// version has no equal in the string, so it is 0. A NUL heads the
+    /// string, and only a run of the shape `major.minor.patch` followed by
+    /// the letter of the release counts, so a date or a build number in the
+    /// same module is passed over.
+    fn version_string(process: &Process, module: (Address, u64)) -> Option<(u16, u16, u16, u16)> {
+        const FOUR_DIGITS: Signature<6> = Signature::new("00 3? 3? 3? 3? 2E");
+        const ONE_DIGIT: Signature<4> = Signature::new("00 3? 2E 3?");
+
+        FOUR_DIGITS
+            .scan_iter(process, module)
+            .chain(ONE_DIGIT.scan_iter(process, module))
+            .find_map(|at| {
+                let text = process.read::<[u8; 16]>(at + 1).ok()?;
+                Self::parse_version(&text)
+            })
+    }
+
+    /// Parses `major.minor.patch` followed by a release letter out of the
+    /// head of `text`.
+    fn parse_version(text: &[u8]) -> Option<(u16, u16, u16, u16)> {
+        // Reads a number of up to four digits and returns what follows it.
+        fn number(text: &[u8]) -> Option<(u16, &[u8])> {
+            let digits = text.iter().take_while(|byte| byte.is_ascii_digit()).count();
+            if digits == 0 || digits > 4 {
+                return None;
+            }
+            let value = text[..digits]
+                .iter()
+                .fold(0_u16, |value, byte| value * 10 + (byte - b'0') as u16);
+            Some((value, &text[digits..]))
+        }
+
+        let (major, rest) = number(text)?;
+        let (minor, rest) = number(rest.strip_prefix(b".")?)?;
+        let (patch, rest) = number(rest.strip_prefix(b".")?)?;
+        matches!(rest.first(), Some(b'a' | b'b' | b'f' | b'p' | b'x'))
+            .then_some((major, minor, patch, 0))
     }
 
     fn pointer_size(
