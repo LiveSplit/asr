@@ -245,6 +245,19 @@ extern "C" {
         description_len: usize,
         heading_level: u32,
     );
+    /// Adds a new button to the user settings. This is used to trigger an
+    /// action in the auto splitter. The key needs to be unique across all
+    /// types of settings and is not persisted in the settings map. The
+    /// pointers need to point to valid UTF-8 encoded text with the respective
+    /// given length. When the user clicks the button, the auto splitter's
+    /// `on_settings_button` export is called.
+    #[cfg(feature = "alloc")]
+    pub fn user_settings_add_button(
+        key_ptr: *const u8,
+        key_len: usize,
+        description_ptr: *const u8,
+        description_len: usize,
+    );
     /// Adds a new choice setting that the user can modify. This allows the user
     /// to choose between various options. The key is used to store the setting
     /// in the settings map and needs to be unique across all types of settings.
@@ -347,6 +360,16 @@ extern "C" {
         tooltip_ptr: *const u8,
         tooltip_len: usize,
     );
+    /// Stores the key of the settings button that is currently being invoked
+    /// in the buffer given. Returns `false` if the buffer is too small or if
+    /// no settings button is currently being invoked. After this call, no
+    /// matter whether it was successful or not, the `buf_len_ptr` will be set
+    /// to the required buffer size. If `false` is returned and the
+    /// `buf_len_ptr` got set to 0, no settings button is currently being
+    /// invoked. The key is guaranteed to be valid UTF-8 and is not
+    /// nul-terminated.
+    #[cfg(feature = "alloc")]
+    pub fn user_settings_get_button_key(buf_ptr: *mut u8, buf_len_ptr: *mut usize) -> bool;
 
     /// Creates a new settings map. You own the settings map and are responsible
     /// for freeing it.

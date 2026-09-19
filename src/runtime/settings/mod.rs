@@ -43,6 +43,37 @@
 //! Check the [`Gui`](macro@Gui) derive macro and the [`Gui`](trait@Gui) trait
 //! for more information.
 //!
+//! # Settings buttons
+//!
+//! Buttons run a callback when clicked. They are not stored in the settings
+//! [`Map`]. Register them with [`gui::add_button`] or with
+//! `#[button(on_click = ...)]` on a [`gui::Button`] field:
+//!
+//! ```ignore
+//! fn clear_counters() {
+//!     let mut map = asr::settings::Map::load();
+//!     map.insert("deaths", 0i64);
+//!     map.store();
+//! }
+//!
+//! asr::settings::gui::add_button("clear_counters", "Clear Counters", clear_counters);
+//!
+//! // or:
+//! #[derive(Gui)]
+//! struct Settings {
+//!     /// Clear Counters
+//!     #[button(on_click = clear_counters)]
+//!     clear_counters: asr::settings::gui::Button,
+//! }
+//!
+//! asr::export_settings_buttons!();
+//! ```
+//!
+//! Click handlers are synchronous and may mutate the settings [`Map`], but they
+//! cannot `.await`. The [`export_settings_buttons`](macro@crate::export_settings_buttons)
+//! macro is required for clicks to run; without it, the host ignores clicks.
+//! Buttons require the `alloc` feature.
+//!
 //! # Modifying the global settings map
 //!
 //! ```no_run

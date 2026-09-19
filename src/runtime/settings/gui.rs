@@ -11,6 +11,9 @@ use alloc::borrow::ToOwned;
 
 use crate::{runtime::sys, watcher::Pair};
 
+#[cfg(feature = "alloc")]
+use crate::sync::RacyCell;
+
 use super::map::Map;
 
 /// Adds a new boolean setting widget to the settings GUI that the user can
@@ -50,6 +53,152 @@ pub fn add_title(key: &str, description: &str, heading_level: u32) {
             heading_level,
         )
     }
+}
+
+#[cfg(feature = "alloc")]
+type ButtonHandler = (alloc::string::String, fn());
+
+#[cfg(feature = "alloc")]
+static BUTTON_HANDLERS: RacyCell<alloc::vec::Vec<ButtonHandler>> =
+    RacyCell::new(alloc::vec::Vec::new());
+
+#[cfg(feature = "alloc")]
+fn register_button_handler(key: &str, on_click: fn()) {
+    // SAFETY: The auto splitter runtime is single-threaded, so there are no
+    // other references to the handler list while we mutate it.
+    let handlers = unsafe { &mut *BUTTON_HANDLERS.get_mut() };
+    if let Some((_, slot)) = handlers.iter_mut().find(|(k, _)| k == key) {
+        *slot = on_click;
+        return;
+    }
+    handlers.push((key.into(), on_click));
+}
+
+/// Adds a new button to the settings GUI. The key needs to be unique across
+/// all types of settings and is not persisted in the settings
+/// [`Map`](super::Map). The description is what's shown to the user. When the
+/// user clicks the button, `on_click` is called.
+///
+/// Click handlers are synchronous. They may load and store the settings
+/// [`Map`](super::Map), but they cannot `.await`.
+///
+/// Clicks are only delivered if you export the host entry point with
+/// [`export_settings_buttons`](macro@crate::export_settings_buttons). Without that macro, the host ignores clicks.
+///
+/// This requires the `alloc` feature.
+///
+/// # Example
+///
+/// ```ignore
+/// fn clear_counters() {
+///     let mut map = asr::settings::Map::load();
+///     map.insert("deaths", 0i64);
+///     map.store();
+/// }
+///
+/// asr::settings::gui::add_button("clear_counters", "Clear Counters", clear_counters);
+///
+/// asr::export_settings_buttons!();
+/// ```
+#[cfg(feature = "alloc")]
+#[inline]
+pub fn add_button(key: &str, description: &str, on_click: fn()) {
+    // SAFETY: We provide valid pointers and lengths to key and description.
+    // They are also guaranteed to be valid UTF-8 strings.
+    unsafe {
+        sys::user_settings_add_button(
+            key.as_ptr(),
+            key.len(),
+            description.as_ptr(),
+            description.len(),
+        )
+    }
+    register_button_handler(key, on_click);
+}
+
+/// Dispatches a settings button click to the handler registered for `key`.
+/// This is called by [`export_settings_buttons`](macro@crate::export_settings_buttons).
+#[cfg(feature = "alloc")]
+pub fn dispatch_button(key: &str) {
+    // SAFETY: The auto splitter runtime is single-threaded. The function
+    // pointer is copied out so the handler can run without aliasing the
+    // handler list, including if it registers further buttons.
+    let on_click = unsafe {
+        (*BUTTON_HANDLERS.get())
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, f)| *f)
+    };
+    if let Some(on_click) = on_click {
+        on_click();
+    }
+}
+
+/// Reads the key of the settings button that is currently being invoked.
+#[cfg(feature = "alloc")]
+#[doc(hidden)]
+pub fn get_button_key() -> Option<alloc::string::String> {
+    // SAFETY: Calling with a null pointer and 0 length returns the required
+    // length. We then allocate a buffer and call again. After a successful
+    // call, the buffer contains `len` bytes of valid UTF-8.
+    unsafe {
+        let mut len = 0;
+        let success = sys::user_settings_get_button_key(core::ptr::null_mut(), &mut len);
+        if len == 0 && !success {
+            return None;
+        }
+        let mut buf = alloc::vec::Vec::with_capacity(len);
+        let success = sys::user_settings_get_button_key(buf.as_mut_ptr(), &mut len);
+        if !success {
+            return None;
+        }
+        buf.set_len(len);
+        Some(alloc::string::String::from_utf8_unchecked(buf))
+    }
+}
+
+/// Exports the `on_settings_button` entry point so the runtime can deliver
+/// settings button clicks to handlers registered with [`add_button`] or
+/// `#[button(on_click = ...)]`.
+///
+/// The generated export takes no arguments. It pulls the clicked button's key
+/// through `user_settings_get_button_key` and then calls [`dispatch_button`].
+/// Authors never see `key_ptr` / `key_len` on the export. This is the
+/// import-pull ABI used by `livesplit-auto-splitting`.
+///
+/// Without this macro, the host ignores button clicks. Requires the `alloc`
+/// feature.
+///
+/// # Example
+///
+/// ```ignore
+/// asr::export_settings_buttons!();
+///
+/// fn clear_counters() {
+///     let mut map = asr::settings::Map::load();
+///     map.insert("deaths", 0i64);
+///     map.store();
+/// }
+///
+/// #[no_mangle]
+/// pub extern "C" fn update() {
+///     asr::settings::gui::add_button("clear_counters", "Clear Counters", clear_counters);
+/// }
+/// ```
+#[macro_export]
+macro_rules! export_settings_buttons {
+    () => {
+        /// Called by the runtime when the user clicks a settings button.
+        ///
+        /// # Safety
+        /// This is invoked by the auto splitting runtime.
+        #[no_mangle]
+        pub unsafe extern "C" fn on_settings_button() {
+            if let Some(key) = $crate::settings::gui::get_button_key() {
+                $crate::settings::gui::dispatch_button(&key);
+            }
+        }
+    };
 }
 
 /// Adds a new choice setting widget that the user can modify. This allows the
@@ -280,6 +429,71 @@ impl Widget for Title {
     #[inline]
     fn register(key: &str, description: &str, args: Self::Args) -> Self {
         add_title(key, description, args.heading_level);
+        Self
+    }
+
+    #[inline]
+    fn update_from(&mut self, _settings_map: &Map, _key: &str, _args: Self::Args) {}
+}
+
+/// A button that the user can click. Buttons are not persisted in the settings
+/// [`Map`](super::Map).
+///
+/// Click handlers are synchronous. They may load and store the settings
+/// [`Map`](super::Map), but they cannot `.await`.
+///
+/// The field requires `#[button(on_click = ...)]`. Clicks are only delivered if
+/// you also call [`export_settings_buttons`](macro@crate::export_settings_buttons). Without that macro, the host
+/// ignores clicks.
+///
+/// This requires the `alloc` feature.
+///
+/// # Example
+///
+/// ```ignore
+/// fn clear_counters() {
+///     let mut map = asr::settings::Map::load();
+///     map.insert("deaths", 0i64);
+///     map.store();
+/// }
+///
+/// #[derive(Gui)]
+/// struct Settings {
+///     /// Clear Counters
+///     #[button(on_click = clear_counters)]
+///     clear_counters: Button,
+/// }
+///
+/// asr::export_settings_buttons!();
+/// ```
+#[cfg(feature = "alloc")]
+pub struct Button;
+
+/// The arguments that are needed to register a button. This is an internal type
+/// that you don't need to worry about.
+#[cfg(feature = "alloc")]
+#[doc(hidden)]
+#[non_exhaustive]
+pub struct ButtonArgs {
+    /// The function to call when the user clicks the button.
+    pub on_click: fn(),
+}
+
+#[cfg(feature = "alloc")]
+impl Default for ButtonArgs {
+    #[inline]
+    fn default() -> Self {
+        Self { on_click: || {} }
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl Widget for Button {
+    type Args = ButtonArgs;
+
+    #[inline]
+    fn register(key: &str, description: &str, args: Self::Args) -> Self {
+        add_button(key, description, args.on_click);
         Self
     }
 
