@@ -854,6 +854,55 @@ static BUILDS: &[Build] = &[
             v_table: MonoVTableOffsets { vtable: 0x2c },
         },
     },
+    // Unity 2021.2.20, mono-2.0-bdwgc.dll, x64. The same binary ships with
+    // 2021.3.0.
+    Build {
+        debug_id: debug_id("f188d9a9-144f-44e2-a0c8-2a5272ab4119", 1),
+        pointer_size: PointerSize::Bit64,
+        version: Version::V3,
+        offsets: MonoOffsets {
+            assembly: AssemblyOffsets {
+                aname: None,
+                image: 0x60,
+            },
+            image: ImageOffsets {
+                assembly_name: Some(0x30),
+                class_cache: 0x4d0,
+            },
+            hash_table: HashTableOffsets {
+                size: 0x18,
+                table: 0x20,
+            },
+            class: ClassOffsets {
+                class_kind: Some(0x1b),
+                instance_size: Some(0x1c),
+                parent: 0x30,
+                nested_in: Some(0x38),
+                name: 0x48,
+                namespace: 0x50,
+                vtable_size: 0x5c,
+                fields: 0x98,
+                runtime_info: 0xd0,
+                field_count: 0x100,
+                next_class_cache: 0x108,
+            },
+            generic: GenericOffsets {
+                generic_class: Some(0xf0),
+                container_class: Some(0x0),
+            },
+            type_words: TypeOffsets {
+                data: Some(0x0),
+                kind: Some(0xa),
+            },
+            field: FieldInfoOffsets {
+                type_: Some(0x0),
+                name: 0x8,
+                offset: 0x18,
+                alignment: 0x20,
+            },
+            v_table: MonoVTableOffsets { vtable: 0x48 },
+        },
+    },
     // Unity 2017.4.40, mono.dll, x86.
     Build {
         debug_id: debug_id("d45555b8-4783-4fba-9eeb-f830cb655d89", 1),
@@ -1144,6 +1193,55 @@ static BUILDS: &[Build] = &[
             v_table: MonoVTableOffsets { vtable: 0x0 },
         },
     },
+    // Unity 2021.2.20, mono-2.0-bdwgc.dll, x86. The same binary ships with
+    // 2021.3.0.
+    Build {
+        debug_id: debug_id("e955f8d8-44c0-48cf-a868-8c52d305a00e", 1),
+        pointer_size: PointerSize::Bit32,
+        version: Version::V3,
+        offsets: MonoOffsets {
+            assembly: AssemblyOffsets {
+                aname: None,
+                image: 0x48,
+            },
+            image: ImageOffsets {
+                assembly_name: Some(0x1c),
+                class_cache: 0x35c,
+            },
+            hash_table: HashTableOffsets {
+                size: 0xc,
+                table: 0x14,
+            },
+            class: ClassOffsets {
+                class_kind: Some(0xf),
+                instance_size: Some(0x10),
+                parent: 0x20,
+                nested_in: Some(0x24),
+                name: 0x2c,
+                namespace: 0x30,
+                vtable_size: 0x38,
+                fields: 0x60,
+                runtime_info: 0x7c,
+                field_count: 0x9c,
+                next_class_cache: 0xa0,
+            },
+            generic: GenericOffsets {
+                generic_class: Some(0x8c),
+                container_class: Some(0x0),
+            },
+            type_words: TypeOffsets {
+                data: Some(0x0),
+                kind: Some(0x6),
+            },
+            field: FieldInfoOffsets {
+                type_: Some(0x0),
+                name: 0x4,
+                offset: 0xc,
+                alignment: 0x10,
+            },
+            v_table: MonoVTableOffsets { vtable: 0x2c },
+        },
+    },
     // Unity 2018.4.36, mono-2.0-bdwgc.dll, x86.
     Build {
         debug_id: debug_id("7059c7da-c870-4870-951d-758ba588a378", 1),
@@ -1380,6 +1478,23 @@ mod tests {
             age: 1,
         })
         .is_none());
+    }
+
+    // Unity 2021.2.20f1 is the oldest measured player with the layout that
+    // every later build shares. Two members tell that layout apart from the
+    // one before it: the class kind byte moved to 0x1B on x64 and 0xF on
+    // x86, and the vtable's method pointers to 0x48 and 0x2C.
+    #[test]
+    fn the_2021_2_20_players_are_known_builds() {
+        let x64 = find(&super::debug_id("f188d9a9-144f-44e2-a0c8-2a5272ab4119", 1)).unwrap();
+        assert_eq!(x64.pointer_size, PointerSize::Bit64);
+        assert_eq!(x64.offsets.class.class_kind, Some(0x1B));
+        assert_eq!(x64.offsets.v_table.vtable, 0x48);
+
+        let x86 = find(&super::debug_id("e955f8d8-44c0-48cf-a868-8c52d305a00e", 1)).unwrap();
+        assert_eq!(x86.pointer_size, PointerSize::Bit32);
+        assert_eq!(x86.offsets.class.class_kind, Some(0xF));
+        assert_eq!(x86.offsets.v_table.vtable, 0x2C);
     }
 
     #[test]
