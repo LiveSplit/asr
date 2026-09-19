@@ -93,3 +93,34 @@ pub fn get_arch() -> Result<arrayvec::ArrayString<16>, Error> {
     }
     Ok(buf)
 }
+
+/// Queries the WASI path of the currently loaded splits file (`.lss`).
+///
+/// Returns [`None`] if the host has no file (unsaved run, debugger, etc.).
+/// The path is usable with [`std::fs`] under WASI (`/mnt/...`). It may change
+/// after Save As; call this when you need the current path rather than
+/// caching it at startup unless you only care about the file that was loaded.
+///
+/// Requires the `alloc` feature.
+#[cfg(feature = "alloc")]
+#[inline]
+pub fn get_splits_path() -> Option<alloc::string::String> {
+    // SAFETY: The first call uses a null buffer and zero length to learn the
+    // required size. If that fails with length 0, the host has no file. Otherwise
+    // we allocate a buffer of that length and call again. On success the buffer
+    // is filled with valid UTF-8 that is not nul-terminated.
+    unsafe {
+        let mut len = 0;
+        let success = sys::runtime_get_splits_path(core::ptr::null_mut(), &mut len);
+        if len == 0 && !success {
+            return None;
+        }
+        let mut buf = alloc::vec::Vec::with_capacity(len);
+        let success = sys::runtime_get_splits_path(buf.as_mut_ptr(), &mut len);
+        if !success {
+            return None;
+        }
+        buf.set_len(len);
+        Some(alloc::string::String::from_utf8_unchecked(buf))
+    }
+}
