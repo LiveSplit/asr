@@ -33,12 +33,14 @@ fn field(image: &mut [u8], at: u64, name: u64, type_: u64, offset: i32) {
     put(image, at + 0x18, &offset.to_le_bytes());
 }
 
+// The image is laid out by hand from the GameAssembly.pdb of the Unity 2019.4
+// player, not from the player's entry in the table, so a wrong entry fails
+// against this image. The 2019.4 player counts fields at 0x11C.
 fn image(unity: (u16, u16, u16, u16)) -> Vec<u8> {
-    let field_count_at = super::builds::nearest(unity, PointerSize::Bit64)
-        .unwrap()
-        .profile
-        .class
-        .field_count as u64;
+    let field_count_at = match unity {
+        MEASURED_2019 => 0x11C,
+        other => panic!("no hand-laid image for {other:?}"),
+    };
     let mut i = vec![0; 0x3000];
 
     let strings = [
