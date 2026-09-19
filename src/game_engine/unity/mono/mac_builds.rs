@@ -8,19 +8,16 @@
 
 use super::offsets::{
     AssemblyOffsets, ClassOffsets, FieldInfoOffsets, GenericOffsets, HashTableOffsets,
-    ImageOffsets, MonoOffsets, MonoVTableOffsets, TypeOffsets,
+    ImageOffsets, MonoVTableOffsets, Profile, TypeOffsets,
 };
-use super::{builds::nearest_by_version, Library, Version};
+use super::{builds::nearest_by_version, Library};
 use crate::PointerSize;
 
 /// One exact Mono library and the offsets measured from it.
 pub(super) struct Build {
     pub(super) uuid: [u8; 16],
     pub(super) unity: (u16, u16, u16, u16),
-    pub(super) library: Library,
-    pub(super) pointer_size: PointerSize,
-    pub(super) version: Version,
-    pub(super) offsets: &'static MonoOffsets,
+    pub(super) profile: Profile,
 }
 
 /// Finds the build for a player that is no known build, by the rule of
@@ -33,7 +30,13 @@ pub(super) fn nearest(
     nearest_by_version(
         BUILDS,
         unity,
-        |build| (build.unity, build.library, build.pointer_size),
+        |build| {
+            (
+                build.unity,
+                build.profile.library,
+                build.profile.pointer_size,
+            )
+        },
         library,
         pointer_size,
     )
@@ -75,7 +78,9 @@ const fn id(written: &str) -> [u8; 16] {
 }
 
 // 6000.5
-static UNITY_6000_5: MonoOffsets = MonoOffsets {
+const UNITY_6000_5: Profile = Profile {
+    pointer_size: PointerSize::Bit64,
+    library: Library::MonoBdwgc,
     assembly: AssemblyOffsets {
         aname: Some(0x10),
         image: 0x60,
@@ -118,31 +123,24 @@ static UNITY_6000_5: MonoOffsets = MonoOffsets {
     v_table: MonoVTableOffsets { vtable: 0x48 },
 };
 
-static BUILDS: &[Build] = &[
+pub(super) const BUILDS: &[Build] = &[
     // 6000.5.10f1, x86_64
     Build {
         uuid: id("7FB2E193-873C-3C2F-B045-4F074BD06996"),
         unity: (6000, 5, 10, 54518),
-        library: Library::MonoBdwgc,
-        pointer_size: PointerSize::Bit64,
-        version: Version::V3,
-        offsets: &UNITY_6000_5,
+        profile: UNITY_6000_5,
     },
     // 6000.5.10f1, arm64
     Build {
         uuid: id("E9C5E06A-62E5-3A9A-9D5D-54F0D16FFFA8"),
         unity: (6000, 5, 10, 54518),
-        library: Library::MonoBdwgc,
-        pointer_size: PointerSize::Bit64,
-        version: Version::V3,
-        offsets: &UNITY_6000_5,
+        profile: UNITY_6000_5,
     },
 ];
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
-    use super::super::{BinaryFormat, Version};
-    use super::{find, id, MonoOffsets, BUILDS};
+    use super::{find, id, BUILDS};
     use crate::PointerSize;
 
     // The arm64 slice of 6000.5.10f1, as the load command stores it.
@@ -168,41 +166,8 @@ mod tests {
     #[test]
     fn finds_known_builds() {
         let build = find(&STORED).unwrap();
-        assert_eq!(build.pointer_size, PointerSize::Bit64);
-        assert!(matches!(build.version, Version::V3));
+        assert_eq!(build.profile.pointer_size, PointerSize::Bit64);
 
         assert!(find(&[0; 16]).is_none());
-    }
-
-    // One build says nothing about the versions a table stands in for, so the
-    // Mach-O tables stay silent about every member a measurement could fill.
-    #[test]
-    fn version_tables_say_nothing_a_single_build_would_have_to_carry() {
-        for build in BUILDS {
-            let Some(table) =
-                MonoOffsets::new(build.version, build.pointer_size, BinaryFormat::MachO)
-            else {
-                continue;
-            };
-
-            assert_eq!(table.class.class_kind, None);
-            assert_eq!(table.class.instance_size, None);
-            assert_eq!(table.class.nested_in, None);
-            assert_eq!(table.generic.generic_class, None);
-            assert_eq!(table.generic.container_class, None);
-            assert_eq!(table.type_words.data, None);
-            assert_eq!(table.type_words.kind, None);
-            assert_eq!(table.field.type_, None);
-
-            let measured = build.offsets;
-            assert_eq!(table.assembly.image, measured.assembly.image);
-            assert_eq!(table.image.class_cache, measured.image.class_cache);
-            assert_eq!(table.class.parent, measured.class.parent);
-            assert_eq!(table.class.name, measured.class.name);
-            assert_eq!(table.class.namespace, measured.class.namespace);
-            assert_eq!(table.class.fields, measured.class.fields);
-            assert_eq!(table.class.field_count, measured.class.field_count);
-            assert_eq!(table.v_table.vtable, measured.v_table.vtable);
-        }
     }
 }

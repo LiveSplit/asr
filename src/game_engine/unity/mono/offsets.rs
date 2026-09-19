@@ -1,672 +1,192 @@
-use super::{BinaryFormat, Version};
+use super::Library;
 use crate::PointerSize;
 
-pub(super) struct MonoOffsets {
-    pub(super) assembly: AssemblyOffsets,
-    pub(super) image: ImageOffsets,
-    pub(super) hash_table: HashTableOffsets,
-    pub(super) class: ClassOffsets,
-    pub(super) generic: GenericOffsets,
-    pub(super) type_words: TypeOffsets,
-    pub(super) field: FieldInfoOffsets,
-    pub(super) v_table: MonoVTableOffsets,
+/// A complete measured Mono runtime layout.
+///
+/// Profiles are deliberately exhaustive. If a future ASR release needs more
+/// layout information, custom profiles must provide it rather than silently
+/// inheriting an offset that may be wrong. Built-in measured profiles are
+/// available in [`profiles`](super::profiles).
+///
+/// A custom profile lists the complete layout. Every field is written out
+/// intentionally: using struct-update syntax would opt the custom profile in
+/// to silently inheriting fields added to the source profile in the future.
+///
+/// ```
+/// use asr::{
+///     game_engine::unity::mono::{
+///         AssemblyOffsets, ClassOffsets, FieldInfoOffsets, GenericOffsets,
+///         HashTableOffsets, ImageOffsets, Library, MonoVTableOffsets, Profile,
+///         TypeOffsets,
+///     },
+///     PointerSize,
+/// };
+///
+/// const CUSTOM_PROFILE: Profile = Profile {
+///     pointer_size: PointerSize::Bit64,
+///     library: Library::MonoBdwgc,
+///     assembly: AssemblyOffsets {
+///         aname: None,
+///         image: 0x60,
+///     },
+///     image: ImageOffsets {
+///         assembly_name: Some(0x30),
+///         class_cache: 0x4d0,
+///     },
+///     hash_table: HashTableOffsets {
+///         size: 0x18,
+///         table: 0x20,
+///     },
+///     class: ClassOffsets {
+///         class_kind: Some(0x1b),
+///         instance_size: Some(0x1c),
+///         parent: 0x30,
+///         nested_in: Some(0x38),
+///         name: 0x48,
+///         namespace: 0x50,
+///         vtable_size: 0x5c,
+///         fields: 0x98,
+///         runtime_info: 0xd0,
+///         field_count: 0x100,
+///         next_class_cache: 0x108,
+///     },
+///     generic: GenericOffsets {
+///         generic_class: Some(0xf0),
+///         container_class: Some(0x0),
+///     },
+///     type_words: TypeOffsets {
+///         data: Some(0x0),
+///         kind: Some(0xa),
+///     },
+///     field: FieldInfoOffsets {
+///         type_: Some(0x0),
+///         name: 0x8,
+///         offset: 0x18,
+///         alignment: 0x20,
+///     },
+///     v_table: MonoVTableOffsets { vtable: 0x48 },
+/// };
+/// ```
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct Profile {
+    /// The pointer width this profile was measured for.
+    pub pointer_size: PointerSize,
+    /// The runtime library this profile was measured for.
+    pub library: Library,
+    /// Offsets within `MonoAssembly`.
+    pub assembly: AssemblyOffsets,
+    /// Offsets within `MonoImage`.
+    pub image: ImageOffsets,
+    /// Offsets within `MonoInternalHashTable`.
+    pub hash_table: HashTableOffsets,
+    /// Offsets within `MonoClass` and `MonoClassDef`.
+    pub class: ClassOffsets,
+    /// Offsets within `MonoClassGenericInst` and `MonoGenericClass`.
+    pub generic: GenericOffsets,
+    /// Offsets within `MonoType`.
+    pub type_words: TypeOffsets,
+    /// Offsets and stride of `MonoClassField`.
+    pub field: FieldInfoOffsets,
+    /// Offsets within `MonoVTable`.
+    pub v_table: MonoVTableOffsets,
 }
 
-impl MonoOffsets {
-    pub(super) fn new(
-        version: Version,
-        pointer_size: PointerSize,
-        format: BinaryFormat,
-    ) -> Option<&'static Self> {
-        match (format, version, pointer_size) {
-            (BinaryFormat::PE, Version::V3, PointerSize::Bit64) => Some(&Self {
-                assembly: AssemblyOffsets {
-                    aname: Some(0x10),
-                    image: 0x60,
-                },
-                image: ImageOffsets {
-                    assembly_name: None,
-                    class_cache: 0x4D0,
-                },
-                hash_table: HashTableOffsets {
-                    size: 0x18,
-                    table: 0x20,
-                },
-                class: ClassOffsets {
-                    class_kind: Some(0x1B),    // 2021.3 through 6000.7
-                    instance_size: Some(0x1C), // 2021.3 through 6000.7
-                    parent: 0x30,
-                    nested_in: Some(0x38), // 2021.3 through 6000.7
-                    name: 0x48,
-                    namespace: 0x50,
-                    vtable_size: 0x5C,
-                    fields: 0x98,
-                    runtime_info: 0xD0,
-                    field_count: 0x100,
-                    next_class_cache: 0x108,
-                },
-                generic: GenericOffsets {
-                    generic_class: Some(0xF0),  // 2021.3 through 6000.7
-                    container_class: Some(0x0), // 2021.3 through 6000.7
-                },
-                type_words: TypeOffsets {
-                    data: Some(0x0), // 2021.3 through 6000.7
-                    kind: Some(0xA), // 2021.3 through 6000.7
-                },
-                field: FieldInfoOffsets {
-                    type_: Some(0x0), // 2021.3 through 6000.7
-                    name: 0x8,
-                    offset: 0x18,
-                    alignment: 0x20,
-                },
-                v_table: MonoVTableOffsets { vtable: 0x48 },
-            }),
-            (BinaryFormat::PE, Version::V3, PointerSize::Bit32) => Some(&Self {
-                assembly: AssemblyOffsets {
-                    aname: Some(0x8),
-                    image: 0x48,
-                },
-                image: ImageOffsets {
-                    assembly_name: None,
-                    class_cache: 0x35C,
-                },
-                hash_table: HashTableOffsets {
-                    size: 0x0C,
-                    table: 0x14,
-                },
-                class: ClassOffsets {
-                    class_kind: Some(0xF),     // 2021.3 through 6000.7
-                    instance_size: Some(0x10), // 2021.3 through 6000.7
-                    parent: 0x20,
-                    nested_in: Some(0x24), // 2021.3 through 6000.7
-                    name: 0x2C,
-                    namespace: 0x30,
-                    vtable_size: 0x38,
-                    fields: 0x60,
-                    runtime_info: 0x7C,
-                    field_count: 0x9C,
-                    next_class_cache: 0xA0,
-                },
-                generic: GenericOffsets {
-                    generic_class: Some(0x8C),  // 2021.3 through 6000.7
-                    container_class: Some(0x0), // 2021.3 through 6000.7
-                },
-                type_words: TypeOffsets {
-                    data: Some(0x0), // 2021.3 through 6000.7
-                    kind: Some(0x6), // 2021.3 through 6000.7
-                },
-                field: FieldInfoOffsets {
-                    type_: Some(0x0), // 2021.3 through 6000.7
-                    name: 0x4,
-                    offset: 0xC,
-                    alignment: 0x10,
-                },
-                v_table: MonoVTableOffsets { vtable: 0x2C },
-            }),
-            (BinaryFormat::PE, Version::V2, PointerSize::Bit64) => Some(&Self {
-                assembly: AssemblyOffsets {
-                    aname: Some(0x10),
-                    image: 0x60,
-                },
-                image: ImageOffsets {
-                    assembly_name: None,
-                    class_cache: 0x4C0,
-                },
-                hash_table: HashTableOffsets {
-                    size: 0x18,
-                    table: 0x20,
-                },
-                class: ClassOffsets {
-                    class_kind: Some(0x2A),    // 2017.4 through 2020.1
-                    instance_size: Some(0x1C), // 2017.4 through 2020.1
-                    parent: 0x30,
-                    nested_in: Some(0x38), // 2017.4 through 2020.1
-                    name: 0x48,
-                    namespace: 0x50,
-                    vtable_size: 0x5C,
-                    fields: 0x98,
-                    runtime_info: 0xD0,
-                    field_count: 0x100,
-                    next_class_cache: 0x108,
-                },
-                generic: GenericOffsets {
-                    generic_class: Some(0xF0),  // 2017.4 through 2020.1
-                    container_class: Some(0x0), // 2017.4 through 2020.1
-                },
-                type_words: TypeOffsets {
-                    data: Some(0x0), // 2017.4 through 2020.1
-                    kind: Some(0xA), // 2017.4 through 2020.1
-                },
-                field: FieldInfoOffsets {
-                    type_: Some(0x0), // 2017.4 through 2020.1
-                    name: 0x8,
-                    offset: 0x18,
-                    alignment: 0x20,
-                },
-                v_table: MonoVTableOffsets { vtable: 0x40 },
-            }),
-            (BinaryFormat::PE, Version::V2, PointerSize::Bit32) => Some(&Self {
-                assembly: AssemblyOffsets {
-                    aname: Some(0x8),
-                    image: 0x44,
-                },
-                image: ImageOffsets {
-                    assembly_name: None,
-                    class_cache: 0x354,
-                },
-                hash_table: HashTableOffsets {
-                    size: 0x0C,
-                    table: 0x14,
-                },
-                class: ClassOffsets {
-                    class_kind: Some(0x1E),    // 2017.4 through 2020.1
-                    instance_size: Some(0x10), // 2017.4 through 2020.1
-                    parent: 0x20,
-                    nested_in: Some(0x24), // 2017.4 through 2020.1
-                    name: 0x2C,
-                    namespace: 0x30,
-                    vtable_size: 0x38,
-                    fields: 0x60,
-                    runtime_info: 0x84,
-                    field_count: 0xA4,
-                    next_class_cache: 0xA8,
-                },
-                generic: GenericOffsets {
-                    generic_class: Some(0x94),  // 2017.4 through 2020.1
-                    container_class: Some(0x0), // 2017.4 through 2020.1
-                },
-                type_words: TypeOffsets {
-                    data: Some(0x0), // 2017.4 through 2020.1
-                    kind: Some(0x6), // 2017.4 through 2020.1
-                },
-                field: FieldInfoOffsets {
-                    type_: Some(0x0), // 2017.4 through 2020.1
-                    name: 0x4,
-                    offset: 0xC,
-                    alignment: 0x10,
-                },
-                v_table: MonoVTableOffsets { vtable: 0x28 },
-            }),
-            (BinaryFormat::PE, Version::V1Cattrs, PointerSize::Bit64) => Some(&Self {
-                assembly: AssemblyOffsets {
-                    aname: Some(0x10),
-                    image: 0x58,
-                },
-                image: ImageOffsets {
-                    assembly_name: None,
-                    class_cache: 0x3D0,
-                },
-                hash_table: HashTableOffsets {
-                    size: 0x18,
-                    table: 0x20,
-                },
-                class: ClassOffsets {
-                    class_kind: None,
-                    instance_size: Some(0x1C), // 2017.4, 2018.4
-                    parent: 0x30,
-                    nested_in: None,
-                    name: 0x50,
-                    namespace: 0x58,
-                    vtable_size: 0x18,
-                    fields: 0xB0,
-                    runtime_info: 0x100,
-                    field_count: 0x9C,
-                    next_class_cache: 0x108,
-                },
-                generic: GenericOffsets {
-                    generic_class: None,
-                    container_class: None,
-                },
-                type_words: TypeOffsets {
-                    data: Some(0x0), // 2017.4, 2018.4
-                    kind: Some(0xA), // 2017.4, 2018.4
-                },
-                field: FieldInfoOffsets {
-                    type_: Some(0x0), // 2017.4, 2018.4
-                    name: 0x8,
-                    offset: 0x18,
-                    alignment: 0x20,
-                },
-                v_table: MonoVTableOffsets { vtable: 0x48 },
-            }),
-            (BinaryFormat::PE, Version::V1Cattrs, PointerSize::Bit32) => Some(&Self {
-                assembly: AssemblyOffsets {
-                    aname: Some(0x8),
-                    image: 0x40,
-                },
-                image: ImageOffsets {
-                    assembly_name: None,
-                    class_cache: 0x2A0,
-                },
-                hash_table: HashTableOffsets {
-                    size: 0xC,
-                    table: 0x14,
-                },
-                class: ClassOffsets {
-                    class_kind: None,
-                    instance_size: Some(0x10), // 2017.4, 2018.4
-                    parent: 0x24,
-                    nested_in: None,
-                    name: 0x34,
-                    namespace: 0x38,
-                    vtable_size: 0xC,
-                    fields: 0x78,
-                    runtime_info: 0xA8,
-                    field_count: 0x68,
-                    next_class_cache: 0xAC,
-                },
-                generic: GenericOffsets {
-                    generic_class: None,
-                    container_class: None,
-                },
-                type_words: TypeOffsets {
-                    data: Some(0x0), // 2017.4, 2018.4
-                    kind: Some(0x6), // 2017.4, 2018.4
-                },
-                field: FieldInfoOffsets {
-                    type_: Some(0x0), // 2017.4, 2018.4
-                    name: 0x4,
-                    offset: 0xC,
-                    alignment: 0x10,
-                },
-                v_table: MonoVTableOffsets { vtable: 0x28 },
-            }),
-            (BinaryFormat::PE, Version::V1, PointerSize::Bit64) => Some(&Self {
-                assembly: AssemblyOffsets {
-                    aname: Some(0x10),
-                    image: 0x58,
-                },
-                image: ImageOffsets {
-                    assembly_name: None,
-                    class_cache: 0x3D0,
-                },
-                hash_table: HashTableOffsets {
-                    size: 0x18,
-                    table: 0x20,
-                },
-                class: ClassOffsets {
-                    class_kind: None,
-                    instance_size: None,
-                    parent: 0x30,
-                    nested_in: Some(0x38), // 5.6 through 2018.4
-                    name: 0x48,
-                    namespace: 0x50,
-                    vtable_size: 0x18,
-                    fields: 0xA8,
-                    runtime_info: 0xF8,
-                    field_count: 0x94,
-                    next_class_cache: 0x100,
-                },
-                generic: GenericOffsets {
-                    generic_class: None,
-                    container_class: None,
-                },
-                type_words: TypeOffsets {
-                    data: None,
-                    kind: None,
-                },
-                field: FieldInfoOffsets {
-                    type_: None,
-                    name: 0x8,
-                    offset: 0x18,
-                    alignment: 0x20,
-                },
-                v_table: MonoVTableOffsets { vtable: 0x48 },
-            }),
-            (BinaryFormat::PE, Version::V1, PointerSize::Bit32) => Some(&Self {
-                assembly: AssemblyOffsets {
-                    aname: Some(0x8),
-                    image: 0x40,
-                },
-                image: ImageOffsets {
-                    assembly_name: None,
-                    class_cache: 0x2A0,
-                },
-                hash_table: HashTableOffsets {
-                    size: 0xC,
-                    table: 0x14,
-                },
-                class: ClassOffsets {
-                    class_kind: None,
-                    instance_size: None,
-                    parent: 0x24,
-                    nested_in: Some(0x28), // 5.6 through 2018.4
-                    name: 0x30,
-                    namespace: 0x34,
-                    vtable_size: 0xC,
-                    fields: 0x74,
-                    runtime_info: 0xA4,
-                    field_count: 0x64,
-                    next_class_cache: 0xA8,
-                },
-                generic: GenericOffsets {
-                    generic_class: None,
-                    container_class: None,
-                },
-                type_words: TypeOffsets {
-                    data: None,
-                    kind: None,
-                },
-                field: FieldInfoOffsets {
-                    type_: None,
-                    name: 0x4,
-                    offset: 0xC,
-                    alignment: 0x10,
-                },
-                v_table: MonoVTableOffsets { vtable: 0x28 },
-            }),
-            (BinaryFormat::ELF, Version::V3, PointerSize::Bit64) => Some(&Self {
-                assembly: AssemblyOffsets {
-                    aname: Some(0x10),
-                    image: 0x60,
-                },
-                image: ImageOffsets {
-                    assembly_name: None,
-                    class_cache: 0x4D0,
-                },
-                hash_table: HashTableOffsets {
-                    size: 0x18,
-                    table: 0x20,
-                },
-                class: ClassOffsets {
-                    class_kind: Some(0x1B),    // 2021.3 through 6000.7
-                    instance_size: Some(0x1C), // 2021.3 through 6000.7
-                    parent: 0x28,
-                    nested_in: Some(0x30), // 2021.3 through 6000.7
-                    name: 0x40,
-                    namespace: 0x48,
-                    vtable_size: 0x54,
-                    fields: 0x90,
-                    runtime_info: 0xC8,
-                    field_count: 0xF8,
-                    next_class_cache: 0x100,
-                },
-                generic: GenericOffsets {
-                    generic_class: Some(0xE8),  // 2021.3 through 6000.7
-                    container_class: Some(0x0), // 2021.3 through 6000.7
-                },
-                type_words: TypeOffsets {
-                    data: Some(0x0), // 2021.3 through 6000.7
-                    kind: Some(0xA), // 2021.3 through 6000.7
-                },
-                field: FieldInfoOffsets {
-                    type_: Some(0x0), // 2021.3 through 6000.7
-                    name: 0x8,
-                    offset: 0x18,
-                    alignment: 0x20,
-                },
-                v_table: MonoVTableOffsets { vtable: 0x48 },
-            }),
-            (BinaryFormat::MachO, Version::V3, PointerSize::Bit64) => Some(&Self {
-                assembly: AssemblyOffsets {
-                    aname: Some(0x10),
-                    image: 0x60,
-                },
-                image: ImageOffsets {
-                    assembly_name: None,
-                    class_cache: 0x4D0,
-                },
-                hash_table: HashTableOffsets {
-                    size: 0x18,
-                    table: 0x20,
-                },
-                class: ClassOffsets {
-                    class_kind: None,
-                    instance_size: None,
-                    parent: 0x28,
-                    nested_in: None,
-                    name: 0x40,
-                    namespace: 0x48,
-                    vtable_size: 0x54,
-                    fields: 0x90,
-                    runtime_info: 0xC8,
-                    field_count: 0xF8,
-                    next_class_cache: 0x100,
-                },
-                generic: GenericOffsets {
-                    generic_class: None,
-                    container_class: None,
-                },
-                type_words: TypeOffsets {
-                    data: None,
-                    kind: None,
-                },
-                field: FieldInfoOffsets {
-                    type_: None,
-                    name: 0x8,
-                    offset: 0x18,
-                    alignment: 0x20,
-                },
-                v_table: MonoVTableOffsets { vtable: 0x48 },
-            }),
-            (BinaryFormat::ELF, Version::V2, PointerSize::Bit64) => Some(&Self {
-                assembly: AssemblyOffsets {
-                    aname: Some(0x10),
-                    image: 0x60,
-                },
-                image: ImageOffsets {
-                    assembly_name: None,
-                    class_cache: 0x4C0,
-                },
-                hash_table: HashTableOffsets {
-                    size: 0x18,
-                    table: 0x20,
-                },
-                class: ClassOffsets {
-                    class_kind: Some(0x24),    // 2018.4, 2019.4
-                    instance_size: Some(0x1C), // 2018.4, 2019.4
-                    parent: 0x28,
-                    nested_in: Some(0x30), // 2018.4, 2019.4
-                    name: 0x40,
-                    namespace: 0x48,
-                    vtable_size: 0x54,
-                    fields: 0x90,
-                    runtime_info: 0xC8,
-                    field_count: 0xF8,
-                    next_class_cache: 0x100,
-                },
-                generic: GenericOffsets {
-                    generic_class: Some(0xE8),  // 2018.4, 2019.4
-                    container_class: Some(0x0), // 2018.4, 2019.4
-                },
-                type_words: TypeOffsets {
-                    data: Some(0x0), // 2018.4, 2019.4
-                    kind: Some(0xA), // 2018.4, 2019.4
-                },
-                field: FieldInfoOffsets {
-                    type_: Some(0x0), // 2018.4, 2019.4
-                    name: 0x8,
-                    offset: 0x18,
-                    alignment: 0x20,
-                },
-                v_table: MonoVTableOffsets { vtable: 0x40 },
-            }),
-            (BinaryFormat::MachO, Version::V2, PointerSize::Bit64) => Some(&Self {
-                assembly: AssemblyOffsets {
-                    aname: Some(0x10),
-                    image: 0x60,
-                },
-                image: ImageOffsets {
-                    assembly_name: None,
-                    class_cache: 0x4C0,
-                },
-                hash_table: HashTableOffsets {
-                    size: 0x18,
-                    table: 0x20,
-                },
-                class: ClassOffsets {
-                    class_kind: None,
-                    instance_size: None,
-                    parent: 0x28,
-                    nested_in: None,
-                    name: 0x40,
-                    namespace: 0x48,
-                    vtable_size: 0x54,
-                    fields: 0x90,
-                    runtime_info: 0xC8,
-                    field_count: 0xF8,
-                    next_class_cache: 0x100,
-                },
-                generic: GenericOffsets {
-                    generic_class: None,
-                    container_class: None,
-                },
-                type_words: TypeOffsets {
-                    data: None,
-                    kind: None,
-                },
-                field: FieldInfoOffsets {
-                    type_: None,
-                    name: 0x8,
-                    offset: 0x18,
-                    alignment: 0x20,
-                },
-                v_table: MonoVTableOffsets { vtable: 0x40 },
-            }),
-            (BinaryFormat::ELF | BinaryFormat::MachO, Version::V1Cattrs, PointerSize::Bit64) => {
-                Some(&Self {
-                    assembly: AssemblyOffsets {
-                        aname: Some(0x10),
-                        image: 0x58,
-                    },
-                    image: ImageOffsets {
-                        assembly_name: None,
-                        class_cache: 0x3D0,
-                    },
-                    hash_table: HashTableOffsets {
-                        size: 0x18,
-                        table: 0x20,
-                    },
-                    class: ClassOffsets {
-                        class_kind: None,
-                        instance_size: None,
-                        parent: 0x28,
-                        nested_in: None,
-                        name: 0x48,
-                        namespace: 0x50,
-                        vtable_size: 0x18,
-                        fields: 0xA8,
-                        runtime_info: 0xF8,
-                        field_count: 0x94,
-                        next_class_cache: 0x100,
-                    },
-                    generic: GenericOffsets {
-                        generic_class: None,
-                        container_class: None,
-                    },
-                    type_words: TypeOffsets {
-                        data: None,
-                        kind: None,
-                    },
-                    field: FieldInfoOffsets {
-                        type_: None,
-                        name: 0x8,
-                        offset: 0x18,
-                        alignment: 0x20,
-                    },
-                    v_table: MonoVTableOffsets { vtable: 0x48 },
-                })
-            }
-            (BinaryFormat::ELF | BinaryFormat::MachO, Version::V1, PointerSize::Bit64) => {
-                Some(&Self {
-                    assembly: AssemblyOffsets {
-                        aname: Some(0x10),
-                        image: 0x58,
-                    },
-                    image: ImageOffsets {
-                        assembly_name: None,
-                        class_cache: 0x3D0,
-                    },
-                    hash_table: HashTableOffsets {
-                        size: 0x18,
-                        table: 0x20,
-                    },
-                    class: ClassOffsets {
-                        class_kind: None,
-                        instance_size: None,
-                        parent: 0x28,
-                        nested_in: None,
-                        name: 0x40,
-                        namespace: 0x48,
-                        vtable_size: 0x18,
-                        fields: 0xA0,
-                        runtime_info: 0xF0,
-                        field_count: 0x8C,
-                        next_class_cache: 0xF8,
-                    },
-                    generic: GenericOffsets {
-                        generic_class: None,
-                        container_class: None,
-                    },
-                    type_words: TypeOffsets {
-                        data: None,
-                        kind: None,
-                    },
-                    field: FieldInfoOffsets {
-                        type_: None,
-                        name: 0x8,
-                        offset: 0x18,
-                        alignment: 0x20,
-                    },
-                    v_table: MonoVTableOffsets { vtable: 0x48 },
-                })
-            }
-            _ => None,
-        }
-    }
+/// Offsets within `MonoAssembly`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct AssemblyOffsets {
+    /// The assembly-name pointer, when the name is stored on the assembly.
+    /// Otherwise [`ImageOffsets::assembly_name`] locates it.
+    pub aname: Option<u8>,
+    /// The image pointer.
+    pub image: u8,
 }
 
-pub(super) struct AssemblyOffsets {
-    pub(super) aname: Option<u8>, // Either this or ImageOffsets::assembly_name locates the name
-
-    pub(super) image: u8,
+/// Offsets within `MonoImage`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct ImageOffsets {
+    /// The assembly-name pointer, when the name is stored on the image.
+    /// Otherwise [`AssemblyOffsets::aname`] locates it.
+    pub assembly_name: Option<u8>,
+    /// The class cache, a `MonoInternalHashTable` embedded in the image.
+    pub class_cache: u16,
 }
 
-pub(super) struct ImageOffsets {
-    pub(super) assembly_name: Option<u8>, // Either this or AssemblyOffsets::aname locates the name
-
-    pub(super) class_cache: u16,
+/// Offsets within `MonoInternalHashTable`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct HashTableOffsets {
+    /// The number of buckets.
+    pub size: u8,
+    /// The pointer to the bucket array.
+    pub table: u8,
 }
 
-pub(super) struct HashTableOffsets {
-    pub(super) size: u8,
-    pub(super) table: u8,
+/// Offsets within `MonoClass` and `MonoClassDef`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct ClassOffsets {
+    /// The byte whose low bits say what kind of class it is. The old
+    /// runtime has none.
+    pub class_kind: Option<u16>,
+    /// What one instance occupies, boxed header included.
+    pub instance_size: Option<u16>,
+    /// The parent class pointer.
+    pub parent: u8,
+    /// Where a class keeps the one it is nested in.
+    pub nested_in: Option<u16>,
+    /// The name pointer.
+    pub name: u8,
+    /// The namespace pointer.
+    pub namespace: u8,
+    /// The number of method pointers in the vtable. On the old runtime,
+    /// [`Library::Mono`], this is `MonoVTable::data` instead, where that
+    /// runtime keeps the statics.
+    pub vtable_size: u8,
+    /// The pointer to the field array.
+    pub fields: u8,
+    /// The runtime info pointer, which leads to the vtable.
+    pub runtime_info: u16,
+    /// The field count, in `MonoClassDef`.
+    pub field_count: u16,
+    /// The next class in the same bucket of the class cache.
+    pub next_class_cache: u16,
 }
 
-pub(super) struct ClassOffsets {
-    pub(super) class_kind: Option<u16>, // The byte whose low bits say what kind of class it is
-    pub(super) instance_size: Option<u16>, // What one instance occupies, boxed header included
-    pub(super) parent: u8,
-    pub(super) nested_in: Option<u16>, // Where a class keeps the one it is nested in
-    pub(super) name: u8,
-    pub(super) namespace: u8,
-    pub(super) vtable_size: u8, // On mono V1 and V1_cattrs, this offset represents MonoVTable.data
-    pub(super) fields: u8,
-    pub(super) runtime_info: u16,
-    pub(super) field_count: u16,
-    pub(super) next_class_cache: u16,
+/// Offsets within `MonoType`: the data pointer and the element kind byte.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct TypeOffsets {
+    /// The data pointer, which leads to the class for a class type.
+    pub data: Option<u16>,
+    /// The element kind byte.
+    pub kind: Option<u16>,
 }
 
-// MonoType's own words: the data pointer and the element kind byte.
-pub(super) struct TypeOffsets {
-    pub(super) data: Option<u16>,
-    pub(super) kind: Option<u16>,
+/// Offsets within `MonoClassGenericInst` and `MonoGenericClass`. A generic
+/// instance keeps a descriptor whose container is the generic definition
+/// the instance was made from.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct GenericOffsets {
+    /// The descriptor pointer in `MonoClassGenericInst`.
+    pub generic_class: Option<u16>,
+    /// The container class pointer in `MonoGenericClass`.
+    pub container_class: Option<u16>,
 }
 
-// MonoClassGenericInst keeps the instantiation descriptor, whose container is
-// the generic definition the instance was made from.
-pub(super) struct GenericOffsets {
-    pub(super) generic_class: Option<u16>,
-    pub(super) container_class: Option<u16>,
+/// Offsets and stride of `MonoClassField`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct FieldInfoOffsets {
+    /// Where a field keeps its `MonoType`.
+    pub type_: Option<u16>,
+    /// The name pointer.
+    pub name: u8,
+    /// The field offset.
+    pub offset: u8,
+    /// The stride of the field array.
+    pub alignment: u8,
 }
 
-pub(super) struct FieldInfoOffsets {
-    pub(super) type_: Option<u16>, // Where a field keeps its MonoType
-    pub(super) name: u8,
-    pub(super) offset: u8,
-    pub(super) alignment: u8,
-}
-
-pub(super) struct MonoVTableOffsets {
-    pub(super) vtable: u8,
+/// Offsets within `MonoVTable`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct MonoVTableOffsets {
+    /// Where the method pointers start. 0 on the old runtime, which keeps
+    /// its statics in the data slot instead.
+    pub vtable: u8,
 }

@@ -2,7 +2,7 @@
 //! objects. The readers are pointer-size ABI, not walk work, so the fixtures
 //! are tiny blobs rather than the walk's class fixtures.
 
-use super::{BinaryFormat, Module, MonoOffsets, Version};
+use super::{profiles, Module};
 use crate::runtime::mock::with_process;
 use crate::{Address, PointerSize, Process};
 
@@ -87,8 +87,10 @@ fn image() -> Vec<u8> {
 fn module(pointer_size: PointerSize) -> Module {
     Module {
         assemblies: Address::new(BASE),
-        version: Version::V2,
-        offsets: MonoOffsets::new(Version::V2, pointer_size, BinaryFormat::PE).unwrap(),
+        profile: match pointer_size {
+            PointerSize::Bit64 => profiles::UNITY_2019_4_41F2_WINDOWS_MONO_BDWGC_X86_64,
+            _ => profiles::UNITY_2019_4_41F2_WINDOWS_MONO_BDWGC_X86,
+        },
         pointer_size,
     }
 }

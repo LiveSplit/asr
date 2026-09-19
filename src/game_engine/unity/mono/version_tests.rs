@@ -50,9 +50,14 @@ fn libraries_do_not_mix() {
 #[test]
 fn nearest_is_the_build_itself_on_a_measured_player() {
     for build in builds::BUILDS {
-        let found = builds::nearest(build.unity, build.library, build.pointer_size).unwrap();
+        let found = builds::nearest(
+            build.unity,
+            build.profile.library,
+            build.profile.pointer_size,
+        )
+        .unwrap();
         assert_eq!(found.unity, build.unity, "{:?}", build.unity);
-        assert_eq!(found.library, build.library);
+        assert_eq!(found.profile.library, build.profile.library);
     }
 }
 

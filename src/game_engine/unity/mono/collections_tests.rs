@@ -4,7 +4,7 @@
 //! own small blobs.
 
 use super::super::managed::{DictionaryShape, SetShape};
-use super::{BinaryFormat, Module, MonoOffsets, Version};
+use super::{profiles, Module};
 use crate::runtime::mock::with_process;
 use crate::{Address, PointerSize, Process};
 
@@ -362,8 +362,7 @@ fn entry(image: &mut [u8], at: u64, hash: i32, next: i32, key: i32, value: i32) 
 fn module() -> Module {
     Module {
         assemblies: Address::new(BASE),
-        version: Version::V2,
-        offsets: MonoOffsets::new(Version::V2, PointerSize::Bit64, BinaryFormat::PE).unwrap(),
+        profile: profiles::UNITY_2019_4_41F2_WINDOWS_MONO_BDWGC_X86_64,
         pointer_size: PointerSize::Bit64,
     }
 }
