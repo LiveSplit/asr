@@ -25,11 +25,11 @@ profiles! {
     /// Unity 5.6.7f1, `mono.dll`, x86-64, file version `5.6.7.3267`.
     UNITY_5_6_7F1_WINDOWS_MONO_X86_64 = 11;
     /// Unity 5.6.7f1, `mono.dll`, x86, file version `5.6.7.3267`.
-    UNITY_5_6_7F1_WINDOWS_MONO_X86 = 22;
+    UNITY_5_6_7F1_WINDOWS_MONO_X86 = 23;
     /// Unity 2017.4.40f1, `mono.dll`, x86-64, file version `2017.4.40.5126`.
-    UNITY_2017_4_40F1_WINDOWS_MONO_X86_64 = 14;
+    UNITY_2017_4_40F1_WINDOWS_MONO_X86_64 = 15;
     /// Unity 2017.4.40f1, `mono.dll`, x86, file version `2017.4.40.5126`.
-    UNITY_2017_4_40F1_WINDOWS_MONO_X86 = 17;
+    UNITY_2017_4_40F1_WINDOWS_MONO_X86 = 18;
     /// Unity 2017.4.40f1, `mono-2.0-bdwgc.dll`, x86-64, file version
     /// `2017.4.40.5126`.
     UNITY_2017_4_40F1_WINDOWS_MONO_BDWGC_X86_64 = 2;
@@ -45,49 +45,55 @@ profiles! {
     UNITY_2018_4_36F1_WINDOWS_MONO_BDWGC_X86_64 = 4;
     /// Unity 2018.4.36f1, `mono-2.0-bdwgc.dll`, x86, file version
     /// `2018.4.36.54151`.
-    UNITY_2018_4_36F1_WINDOWS_MONO_BDWGC_X86 = 24;
+    UNITY_2018_4_36F1_WINDOWS_MONO_BDWGC_X86 = 25;
     /// Unity 2019.4.41f2, `mono-2.0-bdwgc.dll`, x86-64, file version
     /// `2019.4.41.9172`.
-    UNITY_2019_4_41F2_WINDOWS_MONO_BDWGC_X86_64 = 20;
+    UNITY_2019_4_41F2_WINDOWS_MONO_BDWGC_X86_64 = 21;
     /// Unity 2019.4.41f2, `mono-2.0-bdwgc.dll`, x86, file version
     /// `2019.4.41.9172`.
-    UNITY_2019_4_41F2_WINDOWS_MONO_BDWGC_X86 = 21;
+    UNITY_2019_4_41F2_WINDOWS_MONO_BDWGC_X86 = 22;
     /// Unity 2020.1.18f1, `mono-2.0-bdwgc.dll`, x86-64, file version
     /// `2020.1.18.38512`.
     UNITY_2020_1_18F1_WINDOWS_MONO_BDWGC_X86_64 = 13;
     /// Unity 2020.1.18f1, `mono-2.0-bdwgc.dll`, x86, file version
     /// `2020.1.18.38512`.
     UNITY_2020_1_18F1_WINDOWS_MONO_BDWGC_X86 = 12;
+    /// Unity 2021.2.0f1, `mono-2.0-bdwgc.dll`, x86-64, file version
+    /// `2021.2.0.61932`.
+    UNITY_2021_2_0F1_WINDOWS_MONO_BDWGC_X86_64 = 14;
+    /// Unity 2021.2.0f1, `mono-2.0-bdwgc.dll`, x86, file version
+    /// `2021.2.0.61932`.
+    UNITY_2021_2_0F1_WINDOWS_MONO_BDWGC_X86 = 27;
     /// Unity 2021.2.20f1, `mono-2.0-bdwgc.dll`, x86-64, file version
     /// `2021.2.20.62729`.
-    UNITY_2021_2_20F1_WINDOWS_MONO_BDWGC_X86_64 = 16;
+    UNITY_2021_2_20F1_WINDOWS_MONO_BDWGC_X86_64 = 17;
     /// Unity 2021.2.20f1, `mono-2.0-bdwgc.dll`, x86, file version
     /// `2021.2.20.62729`.
-    UNITY_2021_2_20F1_WINDOWS_MONO_BDWGC_X86 = 23;
+    UNITY_2021_2_20F1_WINDOWS_MONO_BDWGC_X86 = 24;
     /// Unity 2021.3.11f1, `mono-2.0-bdwgc.dll`, x86-64, file version
     /// `2021.3.11.23713`.
     UNITY_2021_3_11F1_WINDOWS_MONO_BDWGC_X86_64 = 3;
     /// Unity 2021.3.11f1, `mono-2.0-bdwgc.dll`, x86, file version
     /// `2021.3.11.23713`.
-    UNITY_2021_3_11F1_WINDOWS_MONO_BDWGC_X86 = 25;
+    UNITY_2021_3_11F1_WINDOWS_MONO_BDWGC_X86 = 26;
     /// Unity 2023.1.22f1, `mono-2.0-bdwgc.dll`, x86-64, file version
     /// `2023.1.22.16744`.
-    UNITY_2023_1_22F1_WINDOWS_MONO_BDWGC_X86_64 = 19;
+    UNITY_2023_1_22F1_WINDOWS_MONO_BDWGC_X86_64 = 20;
     /// Unity 2023.1.22f1, `mono-2.0-bdwgc.dll`, x86, file version
     /// `2023.1.22.16744`.
-    UNITY_2023_1_22F1_WINDOWS_MONO_BDWGC_X86 = 27;
+    UNITY_2023_1_22F1_WINDOWS_MONO_BDWGC_X86 = 29;
     /// Unity 6000.2.12f1, `mono-2.0-bdwgc.dll`, x86-64, file version
     /// `6000.2.12.40285`.
     UNITY_6000_2_12F1_WINDOWS_MONO_BDWGC_X86_64 = 7;
     /// Unity 6000.2.12f1, `mono-2.0-bdwgc.dll`, x86, file version
     /// `6000.2.12.40285`.
-    UNITY_6000_2_12F1_WINDOWS_MONO_BDWGC_X86 = 26;
+    UNITY_6000_2_12F1_WINDOWS_MONO_BDWGC_X86 = 28;
     /// Unity 6000.3.21f1, `mono-2.0-bdwgc.dll`, x86-64, file version
     /// `6000.3.21.9777`.
     UNITY_6000_3_21F1_WINDOWS_MONO_BDWGC_X86_64 = 9;
     /// Unity 6000.3.21f1, `mono-2.0-bdwgc.dll`, x86, file version
     /// `6000.3.21.9777`.
-    UNITY_6000_3_21F1_WINDOWS_MONO_BDWGC_X86 = 15;
+    UNITY_6000_3_21F1_WINDOWS_MONO_BDWGC_X86 = 16;
     /// Unity 6000.5.8f1, `mono-2.0-bdwgc.dll`, x86-64, file version
     /// `6000.5.8.47071`.
     UNITY_6000_5_8F1_WINDOWS_MONO_BDWGC_X86_64 = 6;
@@ -99,7 +105,7 @@ profiles! {
     UNITY_6000_7_0A3_WINDOWS_MONO_BDWGC_X86_64 = 8;
     /// Unity 6000.7.0a3, `mono-2.0-bdwgc.dll`, x86, file version
     /// `6000.7.0.5476`.
-    UNITY_6000_7_0A3_WINDOWS_MONO_BDWGC_X86 = 18;
+    UNITY_6000_7_0A3_WINDOWS_MONO_BDWGC_X86 = 19;
 }
 
 profiles! {

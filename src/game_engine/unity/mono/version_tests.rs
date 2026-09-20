@@ -22,6 +22,7 @@ fn nearest_takes_the_newest_build_at_or_below_the_major_minor() {
     let x64 = PointerSize::Bit64;
     assert_eq!(unity((2020, 2, 0, 8671), x64), (2020, 1, 18, 38512));
     assert_eq!(unity((2021, 1, 29, 10531), x64), (2020, 1, 18, 38512));
+    assert_eq!(unity((2021, 2, 0, 61932), x64), (2021, 2, 0, 61932));
     assert_eq!(unity((2021, 2, 0, 1), x64), (2021, 2, 20, 62729));
     assert_eq!(unity((2021, 2, 20, 62729), x64), (2021, 2, 20, 62729));
     assert_eq!(unity((2021, 3, 0, 44232), x64), (2021, 3, 11, 23713));

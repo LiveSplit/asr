@@ -10,7 +10,7 @@ use crate::PointerSize;
 // names, so a renumbering fails here rather than in a splitter.
 #[test]
 fn windows_constants_name_the_expected_profiles() {
-    let profiles: [((u16, u16, u16, u16), Library, PointerSize, Profile); 28] = [
+    let profiles: [((u16, u16, u16, u16), Library, PointerSize, Profile); 30] = [
         (
             (5, 6, 7, 3267),
             Library::Mono,
@@ -94,6 +94,18 @@ fn windows_constants_name_the_expected_profiles() {
             Library::MonoBdwgc,
             PointerSize::Bit32,
             UNITY_2020_1_18F1_WINDOWS_MONO_BDWGC_X86,
+        ),
+        (
+            (2021, 2, 0, 61932),
+            Library::MonoBdwgc,
+            PointerSize::Bit64,
+            UNITY_2021_2_0F1_WINDOWS_MONO_BDWGC_X86_64,
+        ),
+        (
+            (2021, 2, 0, 61932),
+            Library::MonoBdwgc,
+            PointerSize::Bit32,
+            UNITY_2021_2_0F1_WINDOWS_MONO_BDWGC_X86,
         ),
         (
             (2021, 2, 20, 62729),
