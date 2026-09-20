@@ -123,7 +123,7 @@ impl Player {
     }
 }
 
-const MEASURED_2019: (u16, u16, u16, u16) = (2019, 4, 41, 9172);
+const MEASURED_2019: (u16, u16, u16, u16) = (2019, 1, 0, 11155);
 const MEASURED_2022: (u16, u16, u16, u16) = (2022, 3, 0, 4507);
 const MEASURED_6000_5: (u16, u16, u16, u16) = (6000, 5, 10, 54518);
 
@@ -170,8 +170,7 @@ fn attach_auto_detect_takes_the_nearest_build_for_an_unmeasured_player() {
     }
     .attach()
     .unwrap();
-    let nearest = super::builds::nearest((2021, 3, 11, 23713), PointerSize::Bit64).unwrap();
-    assert_eq!(module.profile, nearest.profile);
+    assert_eq!(module.profile, super::profiles::UNITY_2020_2_0F1_X86_64);
 }
 
 // The x86 code that points at both globals. The assemblies loop reads the vector's
