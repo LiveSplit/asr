@@ -24,22 +24,22 @@ macro_rules! profiles {
 profiles! {
     builds::BUILDS;
     /// Unity 5.6.7f1, `mono.dll`, x86-64, file version `5.6.7.3267`.
-    UNITY_5_6_7F1_WINDOWS_MONO_X86_64 = 1;
+    UNITY_5_6_7F1_WINDOWS_MONO_X86_64 = 0;
     /// Unity 5.6.7f1, `mono.dll`, x86, file version `5.6.7.3267`.
-    UNITY_5_6_7F1_WINDOWS_MONO_X86 = 5;
+    UNITY_5_6_7F1_WINDOWS_MONO_X86 = 1;
     /// Unity 2017.4.40f1, `mono.dll`, x86-64, file version `2017.4.40.5126`.
-    UNITY_2017_4_40F1_WINDOWS_MONO_X86_64 = 3;
+    UNITY_2017_4_40F1_WINDOWS_MONO_X86_64 = 2;
     /// Unity 2017.4.40f1, `mono.dll`, x86, file version `2017.4.40.5126`.
-    UNITY_2017_4_40F1_WINDOWS_MONO_X86 = 4;
+    UNITY_2017_4_40F1_WINDOWS_MONO_X86 = 3;
     /// Unity 2018.4.36f1, `mono-2.0-bdwgc.dll`, x86-64, file version
     /// `2018.4.36.54151`.
-    UNITY_2018_4_36F1_WINDOWS_MONO_BDWGC_X86_64 = 0;
+    UNITY_2018_4_36F1_WINDOWS_MONO_BDWGC_X86_64 = 4;
     /// Unity 2018.4.36f1, `mono-2.0-bdwgc.dll`, x86, file version
     /// `2018.4.36.54151`.
-    UNITY_2018_4_36F1_WINDOWS_MONO_BDWGC_X86 = 6;
+    UNITY_2018_4_36F1_WINDOWS_MONO_BDWGC_X86 = 5;
     /// Unity 2021.2.0f1, `mono-2.0-bdwgc.dll`, x86-64, file version
     /// `2021.2.0.61932`.
-    UNITY_2021_2_0F1_WINDOWS_MONO_BDWGC_X86_64 = 2;
+    UNITY_2021_2_0F1_WINDOWS_MONO_BDWGC_X86_64 = 6;
     /// Unity 2021.2.0f1, `mono-2.0-bdwgc.dll`, x86, file version
     /// `2021.2.0.61932`.
     UNITY_2021_2_0F1_WINDOWS_MONO_BDWGC_X86 = 7;

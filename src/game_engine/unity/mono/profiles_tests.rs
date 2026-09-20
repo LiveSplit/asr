@@ -5,9 +5,9 @@ use super::profiles::*;
 use super::{builds, linux_builds, Library, Profile};
 use crate::PointerSize;
 
-// The Windows table is sorted by GUID, so an entry added between two others
-// renumbers everything after it. Every constant is pinned to the build it
-// names, so a renumbering fails here rather than in a splitter.
+// Every constant is pinned to its build, so an entry added between two
+// others, which renumbers the ones after it, fails here rather than in a
+// splitter.
 #[test]
 fn windows_constants_name_the_expected_profiles() {
     let profiles: [((u16, u16, u16, u16), Library, PointerSize, Profile); 8] = [
