@@ -1,5 +1,5 @@
-//! Tests pinning the public profile constants: each names the measured
-//! player it came from, and a module attaches with one directly.
+//! Tests pinning the public profile constants: each is the layout of the
+//! measured player it came from, and a module attaches with one directly.
 
 use super::profiles::*;
 use super::{builds, linux_builds, Library, Profile};

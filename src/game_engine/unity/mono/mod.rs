@@ -105,8 +105,8 @@ impl Identity {
         }
     }
 
-    /// The profile measured from the build this names, when it is one that
-    /// was measured at the width the target runs at.
+    /// The profile measured from this build, when it is one that was
+    /// measured at the pointer size the target runs at.
     fn find(&self, pointer_size: PointerSize) -> Option<Profile> {
         let profile = match self {
             Self::Debug(debug_id) => builds::find(debug_id)?.profile,
@@ -135,9 +135,9 @@ impl Module {
     /// measured for that exact build. Otherwise the Unity version of the game
     /// picks the measured build whose offsets are used: the newest build of
     /// the same runtime library at or below that version. A game that ships
-    /// no player module, which is every game before Unity 2017.1, carries
-    /// its version in its own executable, and reading it there needs the
-    /// `alloc` feature.
+    /// no player module (Windows games before Unity 2017.2, Mac and Linux
+    /// games for some versions more) carries its version in its own
+    /// executable, and reading it there needs the `alloc` feature.
     /// If you know the build in advance, use [`attach`](Self::attach) with
     /// its profile instead.
     pub fn attach_auto_detect(process: &Process) -> Option<Self> {

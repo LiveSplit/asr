@@ -124,9 +124,9 @@ fn the_version_string_in_the_player_names_major_minor_and_patch() {
     assert_eq!(version(b"\02023.05\0\02024.1.0b3\0"), Some((2024, 1, 0, 0)));
 }
 
-// On Windows the file version of `UnityPlayer.dll` names the Unity version.
+// On Windows the file version of `UnityPlayer.dll` is the Unity version.
 #[test]
-fn the_player_file_version_names_the_unity_version() {
+fn the_player_file_version_is_the_unity_version() {
     let player = unity_player_image((2021, 3, 11, 23713));
     with_modules(
         &[(BASE, &player)],
@@ -155,11 +155,12 @@ fn nothing_is_nearest_where_nothing_was_measured() {
     );
 }
 
-// A game before Unity 2017.1 ships no player module. Its executable carries
-// the file version, and naming the executable takes the `alloc` feature.
+// A Windows game before Unity 2017.2 ships no player module. Its executable
+// carries the file version, and finding the executable takes the `alloc`
+// feature.
 #[cfg(feature = "alloc")]
 #[test]
-fn the_executable_names_the_unity_version_when_there_is_no_player() {
+fn the_executable_carries_the_unity_version_when_there_is_no_player() {
     let executable = unity_player_image((5, 6, 7, 3267));
     with_modules(
         &[(BASE, &executable)],
