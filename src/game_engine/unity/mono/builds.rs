@@ -16,9 +16,8 @@ pub(super) struct Build {
     pub(super) profile: Profile,
 }
 
-/// Finds the build for a player that is no known build: the newest build
-/// of its library at its pointer size whose major.minor is at or below the
-/// player's major.minor, or the oldest such build when no build is below.
+/// Finds the newest build of the library at the pointer size at or below
+/// the player's version, or the oldest one when none is below.
 pub(super) fn nearest(
     unity: (u16, u16, u16, u16),
     library: Library,
@@ -39,11 +38,9 @@ pub(super) fn nearest(
     )
 }
 
-/// The rule every table shares. The tables are not sorted by version, so
-/// the newest build at or below the player is the greatest version among
-/// those, and the oldest build is the least version of all. A Linux or Mac
-/// player names only three parts of its version, so the exact arm serves
-/// Windows; the identity match is the exact hit elsewhere.
+/// Finds the newest build at or below the player's major.minor.patch, or
+/// the oldest one when none is below. The build number is ignored because
+/// Linux and Mac players only carry three parts of the version.
 pub(super) fn nearest_by_version<B>(
     builds: &'static [B],
     unity: (u16, u16, u16, u16),
@@ -60,15 +57,11 @@ pub(super) fn nearest_by_version<B>(
     let version = |build: &B| key(build).0;
 
     same()
-        .find(|build| version(build) == unity)
-        .or_else(|| {
-            same()
-                .filter(|build| {
-                    let built = version(build);
-                    (built.0, built.1) <= (unity.0, unity.1)
-                })
-                .max_by_key(|build| version(build))
+        .filter(|build| {
+            let built = version(build);
+            (built.0, built.1, built.2) <= (unity.0, unity.1, unity.2)
         })
+        .max_by_key(|build| version(build))
         .or_else(|| same().min_by_key(|build| version(build)))
 }
 

@@ -133,11 +133,11 @@ impl Module {
     /// Tries attaching to a Unity game that is using the standard Mono backend.
     /// If the Mono runtime is a known build, this function uses the offsets
     /// measured for that exact build. Otherwise the Unity version of the game
-    /// picks the measured build whose offsets are used: the build of that
-    /// version, or else the newest build of the same runtime library whose
-    /// major.minor is below it. A game that ships no player module, which
-    /// is every game before Unity 2017.1, carries its version in its own
-    /// executable, and reading it there needs the `alloc` feature.
+    /// picks the measured build whose offsets are used: the newest build of
+    /// the same runtime library at or below that version. A game that ships
+    /// no player module, which is every game before Unity 2017.1, carries
+    /// its version in its own executable, and reading it there needs the
+    /// `alloc` feature.
     /// If you know the build in advance, use [`attach`](Self::attach) with
     /// its profile instead.
     pub fn attach_auto_detect(process: &Process) -> Option<Self> {

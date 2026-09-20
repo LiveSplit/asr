@@ -1,7 +1,6 @@
 //! Tests pinning how a Mono game that is no known build picks its offsets:
-//! the build of its Unity version, or else the newest build whose
-//! major.minor is below it, for the library it runs, at its pointer size,
-//! and where that version comes from.
+//! the newest build at or below its Unity version, for the library it runs,
+//! at its pointer size, and where that version comes from.
 
 #[cfg(feature = "alloc")]
 use super::mac_builds;
@@ -12,8 +11,10 @@ use std::vec;
 
 const BASE: u64 = 0x1900_0000;
 
+// The build number does not count: a Linux or Mac player carries only
+// major.minor.patch, and no two builds of one patch are measured.
 #[test]
-fn nearest_takes_the_newest_build_at_or_below_the_major_minor() {
+fn nearest_takes_the_newest_build_at_or_below_the_version() {
     let unity = |player, pointer_size| {
         builds::nearest(player, Library::MonoBdwgc, pointer_size)
             .unwrap()
@@ -23,9 +24,10 @@ fn nearest_takes_the_newest_build_at_or_below_the_major_minor() {
     assert_eq!(unity((2020, 2, 0, 8671), x64), (2020, 1, 18, 38512));
     assert_eq!(unity((2021, 1, 29, 10531), x64), (2020, 1, 18, 38512));
     assert_eq!(unity((2021, 2, 0, 61932), x64), (2021, 2, 0, 61932));
-    assert_eq!(unity((2021, 2, 0, 1), x64), (2021, 2, 20, 62729));
+    assert_eq!(unity((2021, 2, 0, 0), x64), (2021, 2, 0, 61932));
+    assert_eq!(unity((2021, 2, 5, 1), x64), (2021, 2, 0, 61932));
     assert_eq!(unity((2021, 2, 20, 62729), x64), (2021, 2, 20, 62729));
-    assert_eq!(unity((2021, 3, 0, 44232), x64), (2021, 3, 11, 23713));
+    assert_eq!(unity((2021, 3, 0, 44232), x64), (2021, 2, 20, 62729));
     assert_eq!(unity((2022, 2, 0, 56532), x64), (2021, 3, 11, 23713));
     assert_eq!(unity((6000, 0, 84, 43887), x64), (2023, 1, 22, 16744));
     assert_eq!(unity((7000, 0, 0, 0), x64), (6000, 7, 0, 5476));
@@ -33,6 +35,22 @@ fn nearest_takes_the_newest_build_at_or_below_the_major_minor() {
         unity((2019, 4, 41, 9172), PointerSize::Bit32),
         (2019, 4, 41, 9172)
     );
+}
+
+// The layout of mono.dll changes inside Unity 2017.4: 2017.4.0 reads like
+// 5.6, 2017.4.40 does not. A 2017.4 game below the measured patch takes the
+// build before it.
+#[test]
+fn a_patch_below_the_measured_one_takes_the_build_before_it() {
+    let mono = |player| {
+        builds::nearest(player, Library::Mono, PointerSize::Bit64)
+            .unwrap()
+            .unity
+    };
+    assert_eq!(mono((2017, 4, 0, 48407)), (5, 6, 7, 3267));
+    assert_eq!(mono((2017, 4, 39, 1)), (5, 6, 7, 3267));
+    assert_eq!(mono((2017, 4, 40, 5126)), (2017, 4, 40, 5126));
+    assert_eq!(mono((2017, 4, 41, 1)), (2017, 4, 40, 5126));
 }
 
 #[test]
