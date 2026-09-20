@@ -21,19 +21,19 @@ fn nearest_takes_the_newest_build_at_or_below_the_version() {
             .unity
     };
     let x64 = PointerSize::Bit64;
-    assert_eq!(unity((2020, 2, 0, 8671), x64), (2020, 1, 18, 38512));
-    assert_eq!(unity((2021, 1, 29, 10531), x64), (2020, 1, 18, 38512));
+    assert_eq!(unity((2020, 2, 0, 8671), x64), (2018, 4, 36, 54151));
+    assert_eq!(unity((2021, 1, 29, 10531), x64), (2018, 4, 36, 54151));
     assert_eq!(unity((2021, 2, 0, 61932), x64), (2021, 2, 0, 61932));
     assert_eq!(unity((2021, 2, 0, 0), x64), (2021, 2, 0, 61932));
     assert_eq!(unity((2021, 2, 5, 1), x64), (2021, 2, 0, 61932));
-    assert_eq!(unity((2021, 2, 20, 62729), x64), (2021, 2, 20, 62729));
-    assert_eq!(unity((2021, 3, 0, 44232), x64), (2021, 2, 20, 62729));
-    assert_eq!(unity((2022, 2, 0, 56532), x64), (2021, 3, 11, 23713));
-    assert_eq!(unity((6000, 0, 84, 43887), x64), (2023, 1, 22, 16744));
-    assert_eq!(unity((7000, 0, 0, 0), x64), (6000, 7, 0, 5476));
+    assert_eq!(unity((2021, 2, 20, 62729), x64), (2021, 2, 0, 61932));
+    assert_eq!(unity((2021, 3, 0, 44232), x64), (2021, 2, 0, 61932));
+    assert_eq!(unity((2022, 2, 0, 56532), x64), (2021, 2, 0, 61932));
+    assert_eq!(unity((6000, 0, 84, 43887), x64), (2021, 2, 0, 61932));
+    assert_eq!(unity((7000, 0, 0, 0), x64), (2021, 2, 0, 61932));
     assert_eq!(
         unity((2019, 4, 41, 9172), PointerSize::Bit32),
-        (2019, 4, 41, 9172)
+        (2018, 4, 36, 54151)
     );
 }
 
@@ -60,7 +60,7 @@ fn libraries_do_not_mix() {
             .unwrap()
             .unity
     };
-    assert_eq!(mono((2019, 4, 41, 9172)), (2018, 4, 36, 54151));
+    assert_eq!(mono((2019, 4, 41, 9172)), (2017, 4, 40, 5126));
     assert_eq!(mono((2017, 1, 5, 1)), (5, 6, 7, 3267));
     assert_eq!(mono((5, 4, 0, 0)), (5, 6, 7, 3267));
     assert_eq!(mono((2018, 2, 0, 0)), (2017, 4, 40, 5126));
@@ -89,11 +89,11 @@ fn linux_builds_take_the_nearest_too() {
     };
     assert_eq!(
         linux((2020, 1, 0, 0), Library::MonoBdwgc),
-        (2019, 4, 41, 9172)
+        (2018, 4, 36, 54151)
     );
     assert_eq!(
         linux((6000, 0, 0, 0), Library::MonoBdwgc),
-        (2023, 1, 22, 16744)
+        (2021, 2, 20, 62729)
     );
     assert_eq!(linux((2017, 2, 0, 0), Library::Mono), (5, 6, 7, 3267));
 }

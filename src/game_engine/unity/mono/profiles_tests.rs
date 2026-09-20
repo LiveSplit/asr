@@ -10,7 +10,7 @@ use crate::PointerSize;
 // names, so a renumbering fails here rather than in a splitter.
 #[test]
 fn windows_constants_name_the_expected_profiles() {
-    let profiles: [((u16, u16, u16, u16), Library, PointerSize, Profile); 30] = [
+    let profiles: [((u16, u16, u16, u16), Library, PointerSize, Profile); 8] = [
         (
             (5, 6, 7, 3267),
             Library::Mono,
@@ -36,30 +36,6 @@ fn windows_constants_name_the_expected_profiles() {
             UNITY_2017_4_40F1_WINDOWS_MONO_X86,
         ),
         (
-            (2017, 4, 40, 5126),
-            Library::MonoBdwgc,
-            PointerSize::Bit64,
-            UNITY_2017_4_40F1_WINDOWS_MONO_BDWGC_X86_64,
-        ),
-        (
-            (2017, 4, 40, 5126),
-            Library::MonoBdwgc,
-            PointerSize::Bit32,
-            UNITY_2017_4_40F1_WINDOWS_MONO_BDWGC_X86,
-        ),
-        (
-            (2018, 4, 36, 54151),
-            Library::Mono,
-            PointerSize::Bit64,
-            UNITY_2018_4_36F1_WINDOWS_MONO_X86_64,
-        ),
-        (
-            (2018, 4, 36, 54151),
-            Library::Mono,
-            PointerSize::Bit32,
-            UNITY_2018_4_36F1_WINDOWS_MONO_X86,
-        ),
-        (
             (2018, 4, 36, 54151),
             Library::MonoBdwgc,
             PointerSize::Bit64,
@@ -72,30 +48,6 @@ fn windows_constants_name_the_expected_profiles() {
             UNITY_2018_4_36F1_WINDOWS_MONO_BDWGC_X86,
         ),
         (
-            (2019, 4, 41, 9172),
-            Library::MonoBdwgc,
-            PointerSize::Bit64,
-            UNITY_2019_4_41F2_WINDOWS_MONO_BDWGC_X86_64,
-        ),
-        (
-            (2019, 4, 41, 9172),
-            Library::MonoBdwgc,
-            PointerSize::Bit32,
-            UNITY_2019_4_41F2_WINDOWS_MONO_BDWGC_X86,
-        ),
-        (
-            (2020, 1, 18, 38512),
-            Library::MonoBdwgc,
-            PointerSize::Bit64,
-            UNITY_2020_1_18F1_WINDOWS_MONO_BDWGC_X86_64,
-        ),
-        (
-            (2020, 1, 18, 38512),
-            Library::MonoBdwgc,
-            PointerSize::Bit32,
-            UNITY_2020_1_18F1_WINDOWS_MONO_BDWGC_X86,
-        ),
-        (
             (2021, 2, 0, 61932),
             Library::MonoBdwgc,
             PointerSize::Bit64,
@@ -106,90 +58,6 @@ fn windows_constants_name_the_expected_profiles() {
             Library::MonoBdwgc,
             PointerSize::Bit32,
             UNITY_2021_2_0F1_WINDOWS_MONO_BDWGC_X86,
-        ),
-        (
-            (2021, 2, 20, 62729),
-            Library::MonoBdwgc,
-            PointerSize::Bit64,
-            UNITY_2021_2_20F1_WINDOWS_MONO_BDWGC_X86_64,
-        ),
-        (
-            (2021, 2, 20, 62729),
-            Library::MonoBdwgc,
-            PointerSize::Bit32,
-            UNITY_2021_2_20F1_WINDOWS_MONO_BDWGC_X86,
-        ),
-        (
-            (2021, 3, 11, 23713),
-            Library::MonoBdwgc,
-            PointerSize::Bit64,
-            UNITY_2021_3_11F1_WINDOWS_MONO_BDWGC_X86_64,
-        ),
-        (
-            (2021, 3, 11, 23713),
-            Library::MonoBdwgc,
-            PointerSize::Bit32,
-            UNITY_2021_3_11F1_WINDOWS_MONO_BDWGC_X86,
-        ),
-        (
-            (2023, 1, 22, 16744),
-            Library::MonoBdwgc,
-            PointerSize::Bit64,
-            UNITY_2023_1_22F1_WINDOWS_MONO_BDWGC_X86_64,
-        ),
-        (
-            (2023, 1, 22, 16744),
-            Library::MonoBdwgc,
-            PointerSize::Bit32,
-            UNITY_2023_1_22F1_WINDOWS_MONO_BDWGC_X86,
-        ),
-        (
-            (6000, 2, 12, 40285),
-            Library::MonoBdwgc,
-            PointerSize::Bit64,
-            UNITY_6000_2_12F1_WINDOWS_MONO_BDWGC_X86_64,
-        ),
-        (
-            (6000, 2, 12, 40285),
-            Library::MonoBdwgc,
-            PointerSize::Bit32,
-            UNITY_6000_2_12F1_WINDOWS_MONO_BDWGC_X86,
-        ),
-        (
-            (6000, 3, 21, 9777),
-            Library::MonoBdwgc,
-            PointerSize::Bit64,
-            UNITY_6000_3_21F1_WINDOWS_MONO_BDWGC_X86_64,
-        ),
-        (
-            (6000, 3, 21, 9777),
-            Library::MonoBdwgc,
-            PointerSize::Bit32,
-            UNITY_6000_3_21F1_WINDOWS_MONO_BDWGC_X86,
-        ),
-        (
-            (6000, 5, 8, 47071),
-            Library::MonoBdwgc,
-            PointerSize::Bit64,
-            UNITY_6000_5_8F1_WINDOWS_MONO_BDWGC_X86_64,
-        ),
-        (
-            (6000, 5, 8, 47071),
-            Library::MonoBdwgc,
-            PointerSize::Bit32,
-            UNITY_6000_5_8F1_WINDOWS_MONO_BDWGC_X86,
-        ),
-        (
-            (6000, 7, 0, 5476),
-            Library::MonoBdwgc,
-            PointerSize::Bit64,
-            UNITY_6000_7_0A3_WINDOWS_MONO_BDWGC_X86_64,
-        ),
-        (
-            (6000, 7, 0, 5476),
-            Library::MonoBdwgc,
-            PointerSize::Bit32,
-            UNITY_6000_7_0A3_WINDOWS_MONO_BDWGC_X86,
         ),
     ];
     for (unity, library, pointer_size, profile) in profiles {
@@ -206,7 +74,7 @@ fn windows_constants_name_the_expected_profiles() {
 
 #[test]
 fn linux_constants_name_the_expected_profiles() {
-    let profiles: [((u16, u16, u16, u16), Library, Profile); 13] = [
+    let profiles: [((u16, u16, u16, u16), Library, Profile); 4] = [
         (
             (5, 6, 7, 3267),
             Library::Mono,
@@ -223,54 +91,9 @@ fn linux_constants_name_the_expected_profiles() {
             UNITY_2018_4_36F1_LINUX_MONO_BDWGC_X86_64,
         ),
         (
-            (2019, 4, 41, 9172),
+            (2021, 2, 20, 62729),
             Library::MonoBdwgc,
-            UNITY_2019_4_41F2_LINUX_MONO_BDWGC_X86_64,
-        ),
-        (
-            (2021, 3, 0, 44232),
-            Library::MonoBdwgc,
-            UNITY_2021_3_0F1_LINUX_MONO_BDWGC_X86_64,
-        ),
-        (
-            (2021, 3, 11, 23713),
-            Library::MonoBdwgc,
-            UNITY_2021_3_11F1_LINUX_MONO_BDWGC_X86_64,
-        ),
-        (
-            (2022, 3, 0, 4507),
-            Library::MonoBdwgc,
-            UNITY_2022_3_0F1_LINUX_MONO_BDWGC_X86_64,
-        ),
-        (
-            (2023, 1, 0, 2298),
-            Library::MonoBdwgc,
-            UNITY_2023_1_0F1_LINUX_MONO_BDWGC_X86_64,
-        ),
-        (
-            (2023, 1, 22, 16744),
-            Library::MonoBdwgc,
-            UNITY_2023_1_22F1_LINUX_MONO_BDWGC_X86_64,
-        ),
-        (
-            (6000, 2, 12, 40285),
-            Library::MonoBdwgc,
-            UNITY_6000_2_12F1_LINUX_MONO_BDWGC_X86_64,
-        ),
-        (
-            (6000, 3, 21, 9777),
-            Library::MonoBdwgc,
-            UNITY_6000_3_21F1_LINUX_MONO_BDWGC_X86_64,
-        ),
-        (
-            (6000, 5, 8, 47071),
-            Library::MonoBdwgc,
-            UNITY_6000_5_8F1_LINUX_MONO_BDWGC_X86_64,
-        ),
-        (
-            (6000, 7, 0, 5476),
-            Library::MonoBdwgc,
-            UNITY_6000_7_0A3_LINUX_MONO_BDWGC_X86_64,
+            UNITY_2021_2_20F1_LINUX_MONO_BDWGC_X86_64,
         ),
     ];
     for (unity, library, profile) in profiles {
@@ -300,11 +123,11 @@ fn the_old_runtime_is_told_by_the_library() {
     assert_eq!(UNITY_2017_4_40F1_WINDOWS_MONO_X86_64.library, Library::Mono);
     assert_eq!(UNITY_2017_4_40F1_WINDOWS_MONO_X86_64.v_table.vtable, 0);
     assert_eq!(
-        UNITY_2017_4_40F1_WINDOWS_MONO_BDWGC_X86_64.library,
+        UNITY_2018_4_36F1_WINDOWS_MONO_BDWGC_X86_64.library,
         Library::MonoBdwgc
     );
     assert_eq!(
-        UNITY_2017_4_40F1_WINDOWS_MONO_BDWGC_X86_64.v_table.vtable,
+        UNITY_2018_4_36F1_WINDOWS_MONO_BDWGC_X86_64.v_table.vtable,
         0x40
     );
 }

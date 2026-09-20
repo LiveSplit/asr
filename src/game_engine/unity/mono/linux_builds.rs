@@ -1,10 +1,11 @@
-//! Known Linux Mono builds: exact runtime binaries paired with the offsets
-//! measured from them.
+//! The Linux Mono builds where the layout changes, each paired with the
+//! offsets measured from it. A game on any other build takes the newest
+//! entry at or below its version.
 //!
-//! A build is named by its build ID, which a linker computes from the binary
-//! it writes, so it names that one build and nothing else. Mono's library
-//! has one through 2019.4 and none after, so `UnityPlayer.so`'s ID names the
-//! later builds instead. Each entry names the file its ID was read from.
+//! A build is told by its build ID, which a linker computes from the binary
+//! it writes. Mono's library has one through 2019.4 and none after, so the
+//! ID of `UnityPlayer.so` stands in for the later builds. Each entry says
+//! which file its ID was read from.
 
 use super::offsets::{
     AssemblyOffsets, ClassOffsets, FieldInfoOffsets, GenericOffsets, HashTableOffsets,
@@ -71,7 +72,7 @@ const fn id<const N: usize>(written: &str) -> [u8; N] {
     parsed
 }
 
-// 5.6
+// 5.6 through 2017.3
 const UNITY_5_6: Profile = Profile {
     pointer_size: PointerSize::Bit64,
     library: Library::Mono,
@@ -119,7 +120,7 @@ const UNITY_5_6: Profile = Profile {
     v_table: MonoVTableOffsets { vtable: 0x48 },
 };
 
-// 2017.4
+// 2017.4 on
 const UNITY_2017_4: Profile = Profile {
     pointer_size: PointerSize::Bit64,
     library: Library::Mono,
@@ -167,7 +168,7 @@ const UNITY_2017_4: Profile = Profile {
     v_table: MonoVTableOffsets { vtable: 0x48 },
 };
 
-// 2018.4, 2019.4
+// 2018.4 through 2021.1
 const UNITY_2018_4: Profile = Profile {
     pointer_size: PointerSize::Bit64,
     library: Library::MonoBdwgc,
@@ -213,8 +214,8 @@ const UNITY_2018_4: Profile = Profile {
     v_table: MonoVTableOffsets { vtable: 0x40 },
 };
 
-// 2021.3 - 6000.7
-const UNITY_2021_3: Profile = Profile {
+// 2021.2 on
+const UNITY_2021_2: Profile = Profile {
     pointer_size: PointerSize::Bit64,
     library: Library::MonoBdwgc,
     assembly: AssemblyOffsets {
@@ -278,65 +279,11 @@ pub(super) const BUILDS: &[Build] = &[
         unity: (2018, 4, 36, 54151),
         profile: UNITY_2018_4,
     },
-    // 2019.4.41f2, libmonobdwgc-2.0.so
+    // 2021.2.20f1, UnityPlayer.so
     Build {
-        build_id: &id::<20>("4e690f264a2a90120347f94ae43b0b83d578f686"),
-        unity: (2019, 4, 41, 9172),
-        profile: UNITY_2018_4,
-    },
-    // 2021.3.0f1, UnityPlayer.so
-    Build {
-        build_id: &id::<8>("c19105ba5aabaf80"),
-        unity: (2021, 3, 0, 44232),
-        profile: UNITY_2021_3,
-    },
-    // 2021.3.11f1, UnityPlayer.so
-    Build {
-        build_id: &id::<8>("1ecf45334b2b3190"),
-        unity: (2021, 3, 11, 23713),
-        profile: UNITY_2021_3,
-    },
-    // 2022.3.0f1, UnityPlayer.so
-    Build {
-        build_id: &id::<8>("03da1f34b6af4765"),
-        unity: (2022, 3, 0, 4507),
-        profile: UNITY_2021_3,
-    },
-    // 2023.1.0f1, UnityPlayer.so
-    Build {
-        build_id: &id::<8>("63be5bab8a2fbae2"),
-        unity: (2023, 1, 0, 2298),
-        profile: UNITY_2021_3,
-    },
-    // 2023.1.22f1, UnityPlayer.so
-    Build {
-        build_id: &id::<8>("3bc89a83403a19ca"),
-        unity: (2023, 1, 22, 16744),
-        profile: UNITY_2021_3,
-    },
-    // 6000.2.12f1, UnityPlayer.so
-    Build {
-        build_id: &id::<20>("bde00f619381ee2e39d0919cc82f1bb7fd314f21"),
-        unity: (6000, 2, 12, 40285),
-        profile: UNITY_2021_3,
-    },
-    // 6000.3.21f1, UnityPlayer.so
-    Build {
-        build_id: &id::<20>("ad56ac1afbcf42b846610f49f2b6b78d9f24035f"),
-        unity: (6000, 3, 21, 9777),
-        profile: UNITY_2021_3,
-    },
-    // 6000.5.8f1, UnityPlayer.so
-    Build {
-        build_id: &id::<20>("ac33e63fb791d385766540ef0d21b4a6677edf71"),
-        unity: (6000, 5, 8, 47071),
-        profile: UNITY_2021_3,
-    },
-    // 6000.7.0a3, UnityPlayer.so
-    Build {
-        build_id: &id::<20>("c2e66208668984ba644c54c277f63e537a57f00e"),
-        unity: (6000, 7, 0, 5476),
-        profile: UNITY_2021_3,
+        build_id: &id::<8>("8efc4cbe377f5467"),
+        unity: (2021, 2, 20, 62729),
+        profile: UNITY_2021_2,
     },
 ];
 
@@ -345,15 +292,15 @@ mod tests {
     use super::{find, id, BUILDS};
     use crate::PointerSize;
 
-    // The build ID of 2019.4's Mono library, as it is stored.
+    // The build ID of 2018.4's Mono library, as it is stored.
     const STORED: [u8; 20] = [
-        0x4E, 0x69, 0x0F, 0x26, 0x4A, 0x2A, 0x90, 0x12, 0x03, 0x47, 0xF9, 0x4A, 0xE4, 0x3B, 0x0B,
-        0x83, 0xD5, 0x78, 0xF6, 0x86,
+        0xDD, 0x78, 0x8D, 0x18, 0x60, 0xD9, 0xA7, 0x82, 0x46, 0x8C, 0xB7, 0x30, 0x46, 0x37, 0xDC,
+        0xDB, 0x7F, 0xBF, 0xD2, 0x89,
     ];
 
     #[test]
     fn parses_written_build_ids_into_stored_bytes() {
-        assert_eq!(id::<20>("4e690f264a2a90120347f94ae43b0b83d578f686"), STORED);
+        assert_eq!(id::<20>("dd788d1860d9a782468cb7304637dcdb7fbfd289"), STORED);
     }
 
     #[test]

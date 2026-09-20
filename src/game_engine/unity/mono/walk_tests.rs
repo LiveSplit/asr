@@ -1,14 +1,13 @@
 //! Tests pinning the walk's behavior over a hand-laid image of mono's
-//! structures. The fixture is written at the literal offsets of the Unity
-//! 2019.4 x64 runtime, copied by hand, so the walk is checked against the
-//! layout rather than against itself.
+//! structures. The fixture is written at the literal offsets of the x64
+//! runtime of Unity 2017.4 through 2021.1, copied by hand, so the walk is
+//! checked against the layout rather than against itself.
 
 use super::offsets::{
     AssemblyOffsets, ClassOffsets, FieldInfoOffsets, GenericOffsets, HashTableOffsets,
     ImageOffsets, MonoVTableOffsets, TypeOffsets,
 };
-use super::{builds, Library, Module, Profile, UnityPointer};
-use crate::file_format::pe::DebugId;
+use super::{profiles, Library, Module, Profile, UnityPointer};
 use crate::runtime::mock::{poll_once, with_process};
 use crate::{Address, PointerSize, Process};
 
@@ -296,17 +295,7 @@ fn module(profile: Profile) -> Module {
 }
 
 fn measured() -> Profile {
-    // The 2019.4 x64 build the fixture is laid at.
-    let stored = [
-        0xC7, 0xAA, 0x10, 0x77, 0x5A, 0x31, 0x30, 0x4D, 0xA7, 0x7A, 0x08, 0x07, 0x29, 0x69, 0x66,
-        0xF6,
-    ];
-    builds::find(&DebugId {
-        guid: stored,
-        age: 1,
-    })
-    .unwrap()
-    .profile
+    profiles::UNITY_2018_4_36F1_WINDOWS_MONO_BDWGC_X86_64
 }
 
 fn on_fixture(profile: Profile, test: impl FnOnce(&Process, &Module)) {
