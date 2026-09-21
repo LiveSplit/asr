@@ -124,11 +124,14 @@ fn the_version_string_in_the_player_names_major_minor_and_patch() {
             Module::version_string(process, (Address::new(BASE), 0x1000))
         })
     };
-    assert_eq!(version(b"\02021.3.11f1\0"), Some((2021, 3, 11, 0)));
-    assert_eq!(version(b"\06000.5.10f1\0"), Some((6000, 5, 10, 0)));
-    assert_eq!(version(b"\05.6.7f1\0"), Some((5, 6, 7, 0)));
-    assert_eq!(version(b"\02023.05.01\0"), None);
-    assert_eq!(version(b"\02023.05\0\02024.1.0b3\0"), Some((2024, 1, 0, 0)));
+    assert_eq!(version(b"\x002021.3.11f1\0"), Some((2021, 3, 11, 0)));
+    assert_eq!(version(b"\x006000.5.10f1\0"), Some((6000, 5, 10, 0)));
+    assert_eq!(version(b"\x005.6.7f1\0"), Some((5, 6, 7, 0)));
+    assert_eq!(version(b"\x002023.05.01\0"), None);
+    assert_eq!(
+        version(b"\x002023.05\0\x002024.1.0b3\0"),
+        Some((2024, 1, 0, 0))
+    );
 }
 
 // On Windows the file version of `UnityPlayer.dll` is the Unity version.
