@@ -420,6 +420,18 @@ fn main() {
             for (path, value) in &reported.variables {
                 println!("    = {path}: {value}");
             }
+            // The player's own log says whether it started at all.
+            let tail = fs::read_to_string(&log).unwrap_or_default();
+            for line in tail
+                .lines()
+                .rev()
+                .take(20)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+            {
+                println!("    | {line}");
+            }
         }
     }
     if failed > 0 {
