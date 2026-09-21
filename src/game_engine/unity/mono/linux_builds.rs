@@ -124,6 +124,55 @@ pub(super) const BUILDS: &[Build] = &[
             v_table: MonoVTableOffsets { vtable: 0x48 },
         },
     },
+    // 2017.3.0f3, libmonobdwgc-2.0.so
+    Build {
+        build_id: &id::<20>("3cf4e78c4ef6b520fb777738602ac56c15f8ff0f"),
+        unity: (2017, 3, 0, 63597),
+        profile: Profile {
+            pointer_size: PointerSize::Bit64,
+            library: Library::MonoBdwgc,
+            assembly: AssemblyOffsets {
+                aname: Some(0x10),
+                image: 0x60,
+            },
+            image: ImageOffsets {
+                assembly_name: None,
+                class_cache: 0x4C0,
+            },
+            hash_table: HashTableOffsets {
+                size: 0x18,
+                table: 0x20,
+            },
+            class: ClassOffsets {
+                class_kind: Some(0x24),
+                instance_size: Some(0x1C),
+                parent: 0x28,
+                nested_in: Some(0x30),
+                name: 0x40,
+                namespace: 0x48,
+                vtable_size: 0x54,
+                fields: 0x90,
+                runtime_info: 0xC8,
+                field_count: 0xF8,
+                next_class_cache: 0x100,
+            },
+            generic: GenericOffsets {
+                generic_class: Some(0xE8),
+                container_class: Some(0x0),
+            },
+            type_words: TypeOffsets {
+                data: Some(0x0),
+                kind: Some(0xA),
+            },
+            field: FieldInfoOffsets {
+                type_: Some(0x0),
+                name: 0x8,
+                offset: 0x18,
+                alignment: 0x20,
+            },
+            v_table: MonoVTableOffsets { vtable: 0x40 },
+        },
+    },
     // 2017.4.40f1, libmono.so
     Build {
         build_id: &id::<20>("93b5b95d7a6112b3f7d53b40e79a663cbcd62b14"),
@@ -173,55 +222,6 @@ pub(super) const BUILDS: &[Build] = &[
             // Nothing reads this: these builds keep their statics in the slot
             // `vtable_size` points at.
             v_table: MonoVTableOffsets { vtable: 0x48 },
-        },
-    },
-    // 2018.4.36f1, libmonobdwgc-2.0.so
-    Build {
-        build_id: &id::<20>("dd788d1860d9a782468cb7304637dcdb7fbfd289"),
-        unity: (2018, 4, 36, 54151),
-        profile: Profile {
-            pointer_size: PointerSize::Bit64,
-            library: Library::MonoBdwgc,
-            assembly: AssemblyOffsets {
-                aname: Some(0x10),
-                image: 0x60,
-            },
-            image: ImageOffsets {
-                assembly_name: None,
-                class_cache: 0x4C0,
-            },
-            hash_table: HashTableOffsets {
-                size: 0x18,
-                table: 0x20,
-            },
-            class: ClassOffsets {
-                class_kind: Some(0x24),
-                instance_size: Some(0x1C),
-                parent: 0x28,
-                nested_in: Some(0x30),
-                name: 0x40,
-                namespace: 0x48,
-                vtable_size: 0x54,
-                fields: 0x90,
-                runtime_info: 0xC8,
-                field_count: 0xF8,
-                next_class_cache: 0x100,
-            },
-            generic: GenericOffsets {
-                generic_class: Some(0xE8),
-                container_class: Some(0x0),
-            },
-            type_words: TypeOffsets {
-                data: Some(0x0),
-                kind: Some(0xA),
-            },
-            field: FieldInfoOffsets {
-                type_: Some(0x0),
-                name: 0x8,
-                offset: 0x18,
-                alignment: 0x20,
-            },
-            v_table: MonoVTableOffsets { vtable: 0x40 },
         },
     },
     // 2021.2.20f1, UnityPlayer.so
@@ -280,15 +280,15 @@ mod tests {
     use super::{find, id, BUILDS};
     use crate::PointerSize;
 
-    // The build ID of 2018.4's Mono library, as it is stored.
+    // The build ID of 2017.3's Mono library, as it is stored.
     const STORED: [u8; 20] = [
-        0xDD, 0x78, 0x8D, 0x18, 0x60, 0xD9, 0xA7, 0x82, 0x46, 0x8C, 0xB7, 0x30, 0x46, 0x37, 0xDC,
-        0xDB, 0x7F, 0xBF, 0xD2, 0x89,
+        0x3C, 0xF4, 0xE7, 0x8C, 0x4E, 0xF6, 0xB5, 0x20, 0xFB, 0x77, 0x77, 0x38, 0x60, 0x2A, 0xC5,
+        0x6C, 0x15, 0xF8, 0xFF, 0x0F,
     ];
 
     #[test]
     fn parses_written_build_ids_into_stored_bytes() {
-        assert_eq!(id::<20>("dd788d1860d9a782468cb7304637dcdb7fbfd289"), STORED);
+        assert_eq!(id::<20>("3cf4e78c4ef6b520fb777738602ac56c15f8ff0f"), STORED);
     }
 
     #[test]

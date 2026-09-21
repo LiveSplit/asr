@@ -88,7 +88,7 @@ fn module(pointer_size: PointerSize) -> Module {
     Module {
         assemblies: Address::new(BASE),
         profile: match pointer_size {
-            PointerSize::Bit64 => profiles::UNITY_2018_4_36F1_WINDOWS_MONO_BDWGC_X86_64,
+            PointerSize::Bit64 => profiles::UNITY_2017_3_0F3_WINDOWS_MONO_BDWGC_X86_64,
             _ => profiles::UNITY_2018_4_36F1_WINDOWS_MONO_BDWGC_X86,
         },
         pointer_size,

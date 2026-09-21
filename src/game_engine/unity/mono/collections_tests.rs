@@ -362,7 +362,7 @@ fn entry(image: &mut [u8], at: u64, hash: i32, next: i32, key: i32, value: i32) 
 fn module() -> Module {
     Module {
         assemblies: Address::new(BASE),
-        profile: profiles::UNITY_2018_4_36F1_WINDOWS_MONO_BDWGC_X86_64,
+        profile: profiles::UNITY_2017_3_0F3_WINDOWS_MONO_BDWGC_X86_64,
         pointer_size: PointerSize::Bit64,
     }
 }

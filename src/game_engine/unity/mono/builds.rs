@@ -228,6 +228,56 @@ pub(super) const BUILDS: &[Build] = &[
             v_table: MonoVTableOffsets { vtable: 0x0 },
         },
     },
+    // Unity 2017.3.0, mono-2.0-bdwgc.dll, x64. The .NET 4.6 runtime of
+    // 2017.2 reads the same.
+    Build {
+        debug_id: debug_id("32d63a8e-b8d6-4444-8c22-84e695dae93d", 1),
+        unity: (2017, 3, 0, 63597),
+        profile: Profile {
+            pointer_size: PointerSize::Bit64,
+            library: Library::MonoBdwgc,
+            assembly: AssemblyOffsets {
+                aname: None,
+                image: 0x60,
+            },
+            image: ImageOffsets {
+                assembly_name: Some(0x28),
+                class_cache: 0x4c0,
+            },
+            hash_table: HashTableOffsets {
+                size: 0x18,
+                table: 0x20,
+            },
+            class: ClassOffsets {
+                class_kind: Some(0x2a),
+                instance_size: Some(0x1c),
+                parent: 0x30,
+                nested_in: Some(0x38),
+                name: 0x48,
+                namespace: 0x50,
+                vtable_size: 0x5c,
+                fields: 0x98,
+                runtime_info: 0xd0,
+                field_count: 0x100,
+                next_class_cache: 0x108,
+            },
+            generic: GenericOffsets {
+                generic_class: Some(0xf0),
+                container_class: Some(0x0),
+            },
+            type_words: TypeOffsets {
+                data: Some(0x0),
+                kind: Some(0xa),
+            },
+            field: FieldInfoOffsets {
+                type_: Some(0x0),
+                name: 0x8,
+                offset: 0x18,
+                alignment: 0x20,
+            },
+            v_table: MonoVTableOffsets { vtable: 0x40 },
+        },
+    },
     // Unity 2017.4.40, mono.dll, x64.
     Build {
         debug_id: debug_id("c1c35e9c-fd72-4ebf-af5e-e7c932e2865d", 1),
@@ -326,58 +376,9 @@ pub(super) const BUILDS: &[Build] = &[
             v_table: MonoVTableOffsets { vtable: 0x0 },
         },
     },
-    // Unity 2018.4.36, mono-2.0-bdwgc.dll, x64. The .NET 4.6 runtime of
-    // 2017.2 through 2017.4 reads the same.
-    Build {
-        debug_id: debug_id("f469c84e-5b81-4c42-8c3f-72ad629f99cb", 1),
-        unity: (2018, 4, 36, 54151),
-        profile: Profile {
-            pointer_size: PointerSize::Bit64,
-            library: Library::MonoBdwgc,
-            assembly: AssemblyOffsets {
-                aname: None,
-                image: 0x60,
-            },
-            image: ImageOffsets {
-                assembly_name: Some(0x28),
-                class_cache: 0x4c0,
-            },
-            hash_table: HashTableOffsets {
-                size: 0x18,
-                table: 0x20,
-            },
-            class: ClassOffsets {
-                class_kind: Some(0x2a),
-                instance_size: Some(0x1c),
-                parent: 0x30,
-                nested_in: Some(0x38),
-                name: 0x48,
-                namespace: 0x50,
-                vtable_size: 0x5c,
-                fields: 0x98,
-                runtime_info: 0xd0,
-                field_count: 0x100,
-                next_class_cache: 0x108,
-            },
-            generic: GenericOffsets {
-                generic_class: Some(0xf0),
-                container_class: Some(0x0),
-            },
-            type_words: TypeOffsets {
-                data: Some(0x0),
-                kind: Some(0xa),
-            },
-            field: FieldInfoOffsets {
-                type_: Some(0x0),
-                name: 0x8,
-                offset: 0x18,
-                alignment: 0x20,
-            },
-            v_table: MonoVTableOffsets { vtable: 0x40 },
-        },
-    },
-    // Unity 2018.4.36, mono-2.0-bdwgc.dll, x86. The .NET 4.6 runtime of
-    // 2017.2 through 2017.4 reads the same.
+    // Unity 2018.4.36, mono-2.0-bdwgc.dll, x86. No PDB exists for the x86
+    // builds of 2017.2 through 2017.4, so a game on one of them takes this
+    // entry.
     Build {
         debug_id: debug_id("7059c7da-c870-4870-951d-758ba588a378", 1),
         unity: (2018, 4, 36, 54151),

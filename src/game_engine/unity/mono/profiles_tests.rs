@@ -24,6 +24,12 @@ fn windows_constants_name_the_expected_profiles() {
             UNITY_5_6_7F1_WINDOWS_MONO_X86,
         ),
         (
+            (2017, 3, 0, 63597),
+            Library::MonoBdwgc,
+            PointerSize::Bit64,
+            UNITY_2017_3_0F3_WINDOWS_MONO_BDWGC_X86_64,
+        ),
+        (
             (2017, 4, 40, 5126),
             Library::Mono,
             PointerSize::Bit64,
@@ -34,12 +40,6 @@ fn windows_constants_name_the_expected_profiles() {
             Library::Mono,
             PointerSize::Bit32,
             UNITY_2017_4_40F1_WINDOWS_MONO_X86,
-        ),
-        (
-            (2018, 4, 36, 54151),
-            Library::MonoBdwgc,
-            PointerSize::Bit64,
-            UNITY_2018_4_36F1_WINDOWS_MONO_BDWGC_X86_64,
         ),
         (
             (2018, 4, 36, 54151),
@@ -81,14 +81,14 @@ fn linux_constants_name_the_expected_profiles() {
             UNITY_5_6_7F1_LINUX_MONO_X86_64,
         ),
         (
+            (2017, 3, 0, 63597),
+            Library::MonoBdwgc,
+            UNITY_2017_3_0F3_LINUX_MONO_BDWGC_X86_64,
+        ),
+        (
             (2017, 4, 40, 5126),
             Library::Mono,
             UNITY_2017_4_40F1_LINUX_MONO_X86_64,
-        ),
-        (
-            (2018, 4, 36, 54151),
-            Library::MonoBdwgc,
-            UNITY_2018_4_36F1_LINUX_MONO_BDWGC_X86_64,
         ),
         (
             (2021, 2, 20, 62729),
@@ -123,11 +123,11 @@ fn the_old_runtime_is_told_by_the_library() {
     assert_eq!(UNITY_2017_4_40F1_WINDOWS_MONO_X86_64.library, Library::Mono);
     assert_eq!(UNITY_2017_4_40F1_WINDOWS_MONO_X86_64.v_table.vtable, 0);
     assert_eq!(
-        UNITY_2018_4_36F1_WINDOWS_MONO_BDWGC_X86_64.library,
+        UNITY_2017_3_0F3_WINDOWS_MONO_BDWGC_X86_64.library,
         Library::MonoBdwgc
     );
     assert_eq!(
-        UNITY_2018_4_36F1_WINDOWS_MONO_BDWGC_X86_64.v_table.vtable,
+        UNITY_2017_3_0F3_WINDOWS_MONO_BDWGC_X86_64.v_table.vtable,
         0x40
     );
 }

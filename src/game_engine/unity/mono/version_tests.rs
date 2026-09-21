@@ -21,8 +21,11 @@ fn nearest_takes_the_newest_build_at_or_below_the_version() {
             .unity
     };
     let x64 = PointerSize::Bit64;
-    assert_eq!(unity((2020, 2, 0, 8671), x64), (2018, 4, 36, 54151));
-    assert_eq!(unity((2021, 1, 29, 10531), x64), (2018, 4, 36, 54151));
+    assert_eq!(unity((2017, 2, 0, 0), x64), (2017, 3, 0, 63597));
+    assert_eq!(unity((2017, 3, 0, 63597), x64), (2017, 3, 0, 63597));
+    assert_eq!(unity((2018, 4, 36, 54151), x64), (2017, 3, 0, 63597));
+    assert_eq!(unity((2020, 2, 0, 8671), x64), (2017, 3, 0, 63597));
+    assert_eq!(unity((2021, 1, 29, 10531), x64), (2017, 3, 0, 63597));
     assert_eq!(unity((2021, 2, 0, 61932), x64), (2021, 2, 0, 61932));
     assert_eq!(unity((2021, 2, 0, 0), x64), (2021, 2, 0, 61932));
     assert_eq!(unity((2021, 2, 5, 1), x64), (2021, 2, 0, 61932));
@@ -31,6 +34,10 @@ fn nearest_takes_the_newest_build_at_or_below_the_version() {
     assert_eq!(unity((2022, 2, 0, 56532), x64), (2021, 2, 0, 61932));
     assert_eq!(unity((6000, 0, 84, 43887), x64), (2021, 2, 0, 61932));
     assert_eq!(unity((7000, 0, 0, 0), x64), (2021, 2, 0, 61932));
+    assert_eq!(
+        unity((2017, 3, 0, 63597), PointerSize::Bit32),
+        (2018, 4, 36, 54151)
+    );
     assert_eq!(
         unity((2019, 4, 41, 9172), PointerSize::Bit32),
         (2018, 4, 36, 54151)
@@ -89,7 +96,7 @@ fn linux_builds_take_the_nearest_too() {
     };
     assert_eq!(
         linux((2020, 1, 0, 0), Library::MonoBdwgc),
-        (2018, 4, 36, 54151)
+        (2017, 3, 0, 63597)
     );
     assert_eq!(
         linux((6000, 0, 0, 0), Library::MonoBdwgc),

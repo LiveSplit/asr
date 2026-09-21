@@ -1,6 +1,6 @@
 //! Tests pinning the walk's behavior over a hand-laid image of mono's
 //! structures. The fixture is written at the literal offsets of the x64
-//! runtime of Unity 2017.4 through 2021.1, copied by hand, so the walk is
+//! runtime of Unity 2017.3 through 2021.1, copied by hand, so the walk is
 //! checked against the layout rather than against itself.
 
 use super::offsets::{
@@ -295,7 +295,7 @@ fn module(profile: Profile) -> Module {
 }
 
 fn measured() -> Profile {
-    profiles::UNITY_2018_4_36F1_WINDOWS_MONO_BDWGC_X86_64
+    profiles::UNITY_2017_3_0F3_WINDOWS_MONO_BDWGC_X86_64
 }
 
 fn on_fixture(profile: Profile, test: impl FnOnce(&Process, &Module)) {
