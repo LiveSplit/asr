@@ -1,7 +1,9 @@
 //! Tests pinning dictionary resolution over hand-laid class metadata at the
-//! literal offsets of the Unity 2019.4 IL2CPP runtime. The entry class is a
-//! generic instance reached through the instantiation's cached class, which
-//! is the route every corlib dictionary takes.
+//! literal offsets of the Unity 2019.4 IL2CPP runtime. A newer corlib keeps
+//! its entries in a generic class, which is reached through the
+//! instantiation's cached class. An older corlib keeps them in parallel
+//! arrays whose link class is a plain value type, which is reached through
+//! the type info definition table.
 
 use super::super::managed::DictionaryShape;
 use super::Module;
@@ -61,6 +63,14 @@ fn image(unity: (u16, u16, u16, u16)) -> Vec<u8> {
         (0x1B80, "HashSet`1"),
         (0x1BC0, "DerivedHashSet"),
         (0x1C00, "HashSetLookalike"),
+        (0x1C40, "table"),
+        (0x1C80, "linkSlots"),
+        (0x1CC0, "keySlots"),
+        (0x1D00, "valueSlots"),
+        (0x1D40, "touchedSlots"),
+        (0x1D80, "count"),
+        (0x1DC0, "HashCode"),
+        (0x1E00, "Next"),
     ];
     for (at, text) in strings {
         put(&mut i, at, text.as_bytes());
@@ -199,6 +209,38 @@ fn image(unity: (u16, u16, u16, u16)) -> Vec<u8> {
     // array until its first insertion.
     ptr(&mut i, 0x2700, BASE + 0x200);
 
+    // An old corlib dictionary keeps its state in parallel arrays. The type
+    // of the `linkSlots` field is a SzArray of `Link`, a plain value type.
+    // A plain type carries the index of its class in the type info
+    // definition table, here 5.
+    ptr(&mut i, 0x48, BASE + 0x2800);
+    ptr(&mut i, 0x2800, BASE + 0x2840);
+    ptr(&mut i, 0x2840 + 0x10, BASE + 0x1A00);
+    ptr(&mut i, 0x2840 + 0x18, BASE + 0x1A40);
+    put(&mut i, 0x2840 + field_count_at, &6_u16.to_le_bytes());
+    ptr(&mut i, 0x2840 + 0x80, BASE + 0x2A00);
+    field(&mut i, 0x2A00, BASE + 0x1C40, 0, 0x10);
+    field(&mut i, 0x2A20, BASE + 0x1C80, BASE + 0x2B00, 0x18);
+    field(&mut i, 0x2A40, BASE + 0x1CC0, 0, 0x20);
+    field(&mut i, 0x2A60, BASE + 0x1D00, 0, 0x28);
+    field(&mut i, 0x2A80, BASE + 0x1D40, 0, 0x30);
+    field(&mut i, 0x2AA0, BASE + 0x1D80, 0, 0x38);
+
+    ptr(&mut i, 0x2B00, BASE + 0x2B40);
+    put(&mut i, 0x2B0A, &[0x1D]); // SzArray
+    ptr(&mut i, 0x2B40, 5);
+    put(&mut i, 0x2B4A, &[0x11]); // ValueType
+
+    ptr(&mut i, 0x40, BASE + 0x2B80);
+    ptr(&mut i, 0x2B80 + 5 * 0x8, BASE + 0x2C00);
+
+    // The Link class: two ints behind the object header, the hash first.
+    put(&mut i, 0x2C00 + 0xF4, &0x18_i32.to_le_bytes());
+    put(&mut i, 0x2C00 + field_count_at, &2_u16.to_le_bytes());
+    ptr(&mut i, 0x2C00 + 0x80, BASE + 0x2E00);
+    field(&mut i, 0x2E00, BASE + 0x1DC0, 0, 0x10);
+    field(&mut i, 0x2E20, BASE + 0x1E00, 0, 0x14);
+
     i
 }
 
@@ -242,6 +284,37 @@ fn dictionaries_resolve_through_the_cached_class() {
         assert_eq!(layout.next, 0x4);
         assert_eq!(layout.key, 0x8);
         assert_eq!(layout.value, 0xC);
+    });
+}
+
+#[test]
+fn old_corlib_dictionaries_resolve_through_the_type_table() {
+    on_fixture(MEASURED_2019, |process, module| {
+        let offsets = module
+            .get_dictionary_offsets(process, Address::new(BASE + 0x48))
+            .unwrap();
+        let DictionaryShape::Parallel {
+            link_slots,
+            key_slots,
+            value_slots,
+            touched,
+            count,
+            link_hash,
+        } = offsets.shape
+        else {
+            panic!("expected the parallel shape");
+        };
+        assert_eq!(
+            [
+                link_slots,
+                key_slots,
+                value_slots,
+                touched,
+                count,
+                link_hash
+            ],
+            [0x18, 0x20, 0x28, 0x30, 0x38, 0x0]
+        );
     });
 }
 

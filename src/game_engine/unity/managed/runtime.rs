@@ -1,4 +1,4 @@
-use super::{Assemblies, ClassRef, Classes, ImageRef};
+use super::{slot, Assemblies, ClassRef, Classes, ImageRef};
 use crate::{Address, PointerSize, Process};
 
 /// What the runtimes genuinely disagree on. Matching exhaustively is the point:
@@ -19,6 +19,17 @@ const GENERIC_INSTANCE_KIND: u8 = 3;
 /// and a generic instance's data is the instantiation descriptor.
 const SZARRAY: u8 = 0x1D;
 const GENERIC_INSTANCE: u8 = 0x15;
+
+/// The kinds of a plain class and a plain value type. A type of one of these
+/// kinds carries the class in its data, and IL2CPP writes that data two ways.
+/// The older metadata writes the index of the class in the type info
+/// definition table, which is the way this reads. The metadata of Unity
+/// 2020.2 and newer writes a pointer to the class's definition instead, and
+/// a pointer read as an index lands nowhere, so the read misses. The
+/// collections of those corlibs keep their entries in a generic class, so
+/// they never come here.
+const CLASS: u8 = 0x12;
+const VALUE_TYPE: u8 = 0x11;
 
 /// Whether a type of this element kind names a class at all. End, Void,
 /// Ptr, ByRef, Var, multidimensional Array, FnPtr, and MVar do not.
@@ -191,8 +202,8 @@ impl Runtime {
 
     /// Resolves the class a field's type names, for the kinds a collection's
     /// backing field presents: an array of a class the runtimes already
-    /// inflated. Kinds that name no class, and the table-resolved plain
-    /// definitions IL2CPP keeps behind an index or a handle, answer nothing.
+    /// inflated, or a plain class IL2CPP keeps in its type info definition
+    /// table. Kinds that name no class answer nothing.
     pub fn class_from_type(
         &self,
         process: &Process,
@@ -245,6 +256,18 @@ impl Runtime {
                                 .ok()
                                 .filter(|address| !address.is_null())
                                 .map(ClassRef::new)
+                        }
+                        CLASS | VALUE_TYPE => {
+                            let table = process
+                                .read_pointer(il2cpp.type_info_definition_table, pointer_size)
+                                .ok()
+                                .filter(|address| !address.is_null())?;
+                            let at = slot(table, pointer_size, data.value());
+                            return process
+                                .read_pointer(at, pointer_size)
+                                .ok()
+                                .filter(|address| !address.is_null())
+                                .map(ClassRef::new);
                         }
                         _ => return None,
                     }
