@@ -19,6 +19,17 @@ pub enum TimerState {
     Unknown,
 }
 
+/// The timing method that LiveSplit compares against.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+#[repr(u32)]
+pub enum TimingMethod {
+    /// Real time.
+    RealTime = 0,
+    /// Game time.
+    GameTime = 1,
+}
+
 /// Starts the timer.
 #[inline]
 pub fn start() {
@@ -149,4 +160,11 @@ pub fn segment_splitted(idx: u64) -> Option<bool> {
 pub fn set_game_time(time: time::Duration) {
     // SAFETY: It is always safe to call this function.
     unsafe { sys::timer_set_game_time(time.whole_seconds(), time.subsec_nanoseconds()) }
+}
+
+/// Sets whether LiveSplit compares against real time or game time.
+#[inline]
+pub fn set_timing_method(method: TimingMethod) {
+    // SAFETY: Always safe.
+    unsafe { sys::timer_set_timing_method(method as u32) }
 }
