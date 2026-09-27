@@ -18,10 +18,12 @@ pub(super) struct Build {
 
 /// Finds the build for a player at its pointer size. The Unity version is
 /// the four parts of the file version of `UnityPlayer.dll`. A measured
-/// player gets its own build. Any other player gets the newest build whose
-/// major.minor is at or below the player's major.minor, or the oldest build
-/// when no build is below. The table reads from the oldest player to the
-/// newest, so the newest match is the last match.
+/// player gets its own build. Otherwise, within the same major.minor, the
+/// newest measured patch at or below the player's patch is used, or the
+/// earliest measured patch if none is below. The fourth version component
+/// is only used for exact matches. If the major.minor has no measured
+/// builds, the newest build from an earlier major.minor is used, or the
+/// oldest build if none is earlier. The table reads from oldest to newest.
 pub(super) fn nearest(
     unity: (u16, u16, u16, u16),
     pointer_size: PointerSize,
@@ -31,9 +33,13 @@ pub(super) fn nearest(
             .iter()
             .filter(move |build| build.profile.pointer_size == pointer_size)
     };
+    let at_series =
+        || at_size().filter(|build| (build.unity.0, build.unity.1) == (unity.0, unity.1));
 
     at_size()
         .find(|build| build.unity == unity)
+        .or_else(|| at_series().rfind(|build| build.unity.2 <= unity.2))
+        .or_else(|| at_series().next())
         .or_else(|| at_size().rfind(|build| (build.unity.0, build.unity.1) <= (unity.0, unity.1)))
         .or_else(|| at_size().next())
 }

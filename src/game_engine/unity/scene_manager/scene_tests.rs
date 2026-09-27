@@ -113,6 +113,43 @@ fn the_root_list_moves_inside_2023_1() {
 }
 
 #[test]
+fn unmeasured_2023_1_players_take_the_profile_at_or_below_their_patch() {
+    let first = (2023, 1, 0, 2298);
+    let later = (2023, 1, 22, 16744);
+    for pointer_size in [PointerSize::Bit32, PointerSize::Bit64] {
+        for (player, expected) in [
+            ((2023, 1, 0, 0), first),
+            ((2023, 1, 0, u16::MAX), first),
+            ((2023, 1, 1, 1), first),
+            ((2023, 1, 21, 1), first),
+            ((2023, 1, 22, 0), later),
+            ((2023, 1, 22, u16::MAX), later),
+            ((2023, 1, 23, 1), later),
+            ((2023, 2, 0, 1), later),
+        ] {
+            let build = builds::nearest(player, pointer_size).unwrap();
+            assert_eq!(build.unity, expected, "{player:?}, {pointer_size:?}");
+            assert_eq!(build.profile.pointer_size, pointer_size);
+        }
+    }
+}
+
+#[test]
+fn players_before_the_first_measured_patch_stay_in_their_series() {
+    for pointer_size in [PointerSize::Bit32, PointerSize::Bit64] {
+        for (player, expected) in [
+            ((6000, 0, 0, 1), (6000, 0, 84, 43887)),
+            ((6000, 0, 58, 1), (6000, 0, 84, 43887)),
+            ((6000, 3, 0, 1), (6000, 3, 21, 9777)),
+        ] {
+            let build = builds::nearest(player, pointer_size).unwrap();
+            assert_eq!(build.unity, expected, "{player:?}, {pointer_size:?}");
+            assert_eq!(build.profile.pointer_size, pointer_size);
+        }
+    }
+}
+
+#[test]
 fn a_pointer_path_reads_through_the_pointer() {
     let manager = manager((2018, 4, 36, 54151), PointerSize::Bit64);
     let mut image = vec![0; 0x1000];

@@ -55,9 +55,14 @@ pub struct SceneManager {
 
 impl SceneManager {
     /// Attaches to the scene manager in the given process. On Windows, the
-    /// Unity version of the game picks the measured build whose offsets the
-    /// scene manager reads through: the build of that version, or else the
-    /// newest build below it.
+    /// Unity version and pointer size of the game select a measured build.
+    /// An exact version match uses its own build. Otherwise, within the
+    /// same major.minor, the newest measured patch at or below the game's
+    /// patch is used, or the earliest measured patch if none is below.
+    /// If that major.minor has no measured builds, the newest build from
+    /// an earlier major.minor is used, or the oldest build if none is earlier.
+    /// These fallbacks approximate an unmeasured game's layout; they cannot
+    /// guarantee compatibility with a layout change between measured builds.
     pub fn attach(process: &Process) -> Option<Self> {
         let (unity_player, format) = Self::engine_module(process)?;
 
