@@ -101,9 +101,9 @@ const SCENE_AT_GETTER_X86: Anchor = Anchor {
 
 // The table reads from the oldest player to the newest.
 pub(super) const BUILDS: &[Build] = &[
-    // Unity 5.6.7f1, x64.
+    // Unity 5.6.0f1, x64.
     Build {
-        unity: (5, 6, 7, 3267),
+        unity: (5, 6, 0, 23754),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
             anchor: PROLOGUE_LOAD_X64,
@@ -132,9 +132,9 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 5.6.7f1, x86.
+    // Unity 5.6.0f1, x86.
     Build {
-        unity: (5, 6, 7, 3267),
+        unity: (5, 6, 0, 23754),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
             anchor: LOAD_AND_CLEAR_ECX_X86,
@@ -163,9 +163,9 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 2017.1.0f3, x64.
+    // Unity 2017.1.0f1, x64.
     Build {
-        unity: (2017, 1, 0, 9747),
+        unity: (2017, 1, 0, 32737),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
             anchor: PROLOGUE_LOAD_X64,
@@ -194,9 +194,9 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 2017.1.0f3, x86.
+    // Unity 2017.1.0f1, x86.
     Build {
-        unity: (2017, 1, 0, 9747),
+        unity: (2017, 1, 0, 32737),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
             anchor: LOAD_AND_CLEAR_ECX_X86,
@@ -225,9 +225,9 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 2017.3.0f3, x86.
+    // Unity 2017.3.0f1, x86.
     Build {
-        unity: (2017, 3, 0, 63597),
+        unity: (2017, 3, 0, 20311),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
             anchor: LOAD_AND_CLEAR_X86,
@@ -320,9 +320,9 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 2018.4.36f1, x64.
+    // Unity 2018.3.0f1, x64.
     Build {
-        unity: (2018, 4, 36, 54151),
+        unity: (2018, 3, 0, 9156),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
             anchor: PROLOGUE_LOAD_X64,
@@ -351,9 +351,9 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 2018.4.36f1, x86.
+    // Unity 2018.3.0f1, x86.
     Build {
-        unity: (2018, 4, 36, 54151),
+        unity: (2018, 3, 0, 9156),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
             anchor: LOAD_AND_CLEAR_X86,
@@ -413,9 +413,9 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 2022.3.0f1, x64.
+    // Unity 2022.2.0f1, x64.
     Build {
-        unity: (2022, 3, 0, 4507),
+        unity: (2022, 2, 0, 56532),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
             anchor: PROLOGUE_LOAD_X64,
@@ -444,9 +444,9 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 2022.3.0f1, x86.
+    // Unity 2022.2.0f1, x86.
     Build {
-        unity: (2022, 3, 0, 4507),
+        unity: (2022, 2, 0, 56532),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
             anchor: ACTIVE_SCENE_GETTER_X86,
@@ -538,9 +538,9 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 2023.1.22f1, x64.
+    // Unity 2023.1.4f1, x64.
     Build {
-        unity: (2023, 1, 22, 16744),
+        unity: (2023, 1, 4, 6702),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
             anchor: PROLOGUE_LOAD_X64,
@@ -569,9 +569,9 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 2023.1.22f1, x86.
+    // Unity 2023.1.4f1, x86.
     Build {
-        unity: (2023, 1, 22, 16744),
+        unity: (2023, 1, 4, 6702),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
             anchor: ACTIVE_SCENE_GETTER_X86,
@@ -662,40 +662,9 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 6000.0.84f1, x64.
+    // Unity 6000.0.59f2, x86.
     Build {
-        unity: (6000, 0, 84, 43887),
-        profile: Profile {
-            pointer_size: PointerSize::Bit64,
-            anchor: SCENE_COUNT_GETTER_X64,
-            path: PathShape::InlineSpare,
-            reference: ReferenceShape::RootSlot,
-            manager: ManagerOffsets {
-                scenes: 0x8,
-                active_scene: 0x48,
-                dont_destroy_on_load_scene: 0x70,
-            },
-            scene: SceneOffsets {
-                path: 0x10,
-                build_index: 0x98,
-                roots: 0xe8,
-            },
-            transform: TransformOffsets {
-                game_object: 0x20,
-                children: 0x60,
-            },
-            game_object: GameObjectOffsets {
-                components: 0x20,
-                name: 0x50,
-            },
-            object: ObjectOffsets {
-                managed_reference: 0x18,
-            },
-        },
-    },
-    // Unity 6000.0.84f1, x86.
-    Build {
-        unity: (6000, 0, 84, 43887),
+        unity: (6000, 0, 59, 10268),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
             anchor: SCENE_AT_GETTER_X86,
@@ -724,9 +693,9 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 6000.1.17f1, x86.
+    // Unity 6000.1.0f1, x86.
     Build {
-        unity: (6000, 1, 17, 47571),
+        unity: (6000, 1, 0, 41298),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
             anchor: SCENE_AT_GETTER_X86,
@@ -755,9 +724,42 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 6000.2.12f1, x86.
+    // Unity 6000.2.0f1, x64. The layout is the one 2023.2 starts. The entry
+    // is here because the prologue load stops hitting at 6000.2.0, so the
+    // players from here on reach the manager through the scene count getter.
     Build {
-        unity: (6000, 2, 12, 40285),
+        unity: (6000, 2, 0, 53701),
+        profile: Profile {
+            pointer_size: PointerSize::Bit64,
+            anchor: SCENE_COUNT_GETTER_X64,
+            path: PathShape::InlineSpare,
+            reference: ReferenceShape::RootSlot,
+            manager: ManagerOffsets {
+                scenes: 0x8,
+                active_scene: 0x48,
+                dont_destroy_on_load_scene: 0x70,
+            },
+            scene: SceneOffsets {
+                path: 0x10,
+                build_index: 0x98,
+                roots: 0xe8,
+            },
+            transform: TransformOffsets {
+                game_object: 0x20,
+                children: 0x60,
+            },
+            game_object: GameObjectOffsets {
+                components: 0x20,
+                name: 0x50,
+            },
+            object: ObjectOffsets {
+                managed_reference: 0x18,
+            },
+        },
+    },
+    // Unity 6000.2.2f1, x86.
+    Build {
+        unity: (6000, 2, 2, 14734),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
             anchor: SCENE_AT_GETTER_X86,
@@ -786,9 +788,9 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 6000.3.21f1, x64.
+    // Unity 6000.3.0f1, x64.
     Build {
-        unity: (6000, 3, 21, 9777),
+        unity: (6000, 3, 0, 34572),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
             anchor: SCENE_COUNT_GETTER_X64,
@@ -817,9 +819,9 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 6000.3.21f1, x86.
+    // Unity 6000.3.0f1, x86.
     Build {
-        unity: (6000, 3, 21, 9777),
+        unity: (6000, 3, 0, 34572),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
             anchor: SCENE_AT_GETTER_X86,
@@ -848,9 +850,9 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 6000.5.10f1, x64.
+    // Unity 6000.5.0f1, x64.
     Build {
-        unity: (6000, 5, 10, 54518),
+        unity: (6000, 5, 0, 46204),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
             anchor: SCENE_COUNT_GETTER_X64,
@@ -879,9 +881,9 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 6000.5.10f1, x86.
+    // Unity 6000.5.0f1, x86.
     Build {
-        unity: (6000, 5, 10, 54518),
+        unity: (6000, 5, 0, 46204),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
             anchor: SCENE_AT_GETTER_X86,
