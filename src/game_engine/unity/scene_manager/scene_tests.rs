@@ -135,17 +135,18 @@ fn unmeasured_2023_1_players_take_the_profile_at_or_below_their_patch() {
 }
 
 #[test]
-fn players_before_the_first_measured_patch_stay_in_their_series() {
-    for pointer_size in [PointerSize::Bit32, PointerSize::Bit64] {
-        for (player, expected) in [
-            ((6000, 0, 0, 1), (6000, 0, 84, 43887)),
-            ((6000, 0, 58, 1), (6000, 0, 84, 43887)),
-            ((6000, 3, 0, 1), (6000, 3, 21, 9777)),
-        ] {
-            let build = builds::nearest(player, pointer_size).unwrap();
-            assert_eq!(build.unity, expected, "{player:?}, {pointer_size:?}");
-            assert_eq!(build.profile.pointer_size, pointer_size);
-        }
+fn players_under_every_measured_patch_of_their_series_read_the_series_below() {
+    for (player, pointer_size, expected) in [
+        ((6000, 0, 0, 1), PointerSize::Bit32, (2023, 1, 22, 16744)),
+        ((6000, 0, 0, 1), PointerSize::Bit64, (2023, 1, 22, 16744)),
+        ((6000, 0, 58, 1), PointerSize::Bit32, (2023, 1, 22, 16744)),
+        ((6000, 0, 58, 1), PointerSize::Bit64, (2023, 1, 22, 16744)),
+        ((6000, 3, 0, 1), PointerSize::Bit32, (6000, 2, 12, 40285)),
+        ((6000, 3, 0, 1), PointerSize::Bit64, (6000, 0, 84, 43887)),
+    ] {
+        let build = builds::nearest(player, pointer_size).unwrap();
+        assert_eq!(build.unity, expected, "{player:?}, {pointer_size:?}");
+        assert_eq!(build.profile.pointer_size, pointer_size);
     }
 }
 
