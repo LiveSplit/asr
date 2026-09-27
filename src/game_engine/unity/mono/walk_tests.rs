@@ -320,6 +320,23 @@ fn on_fixture(offsets: &'static MonoOffsets, test: impl FnOnce(&Process, &Module
     });
 }
 
+// The instance object heads with its vtable, and the vtable heads with the
+// class.
+#[test]
+fn object_class_names_resolve_through_the_vtable() {
+    for offsets in [era(), measured()] {
+        on_fixture(offsets, |process, module| {
+            let name = module
+                .object_class_name::<128>(process, Address::new(BASE + 0x1900))
+                .unwrap();
+            assert!(name.matches("GameManager"));
+            assert!(module
+                .object_class_name::<128>(process, Address::new(BASE + 0x1908))
+                .is_none());
+        });
+    }
+}
+
 #[test]
 fn images_resolve_by_name_through_both_routes() {
     for offsets in [era(), measured()] {

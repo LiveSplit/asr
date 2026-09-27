@@ -661,6 +661,22 @@ fn on_fixture(unity: (u16, u16, u16, u16), test: impl FnOnce(&Process, &Module))
     });
 }
 
+// The instance object heads with its class.
+#[test]
+fn object_class_names_resolve_from_the_object_head() {
+    for unity in [MEASURED_2019, MEASURED_2022] {
+        on_fixture(unity, |process, module| {
+            let name = module
+                .object_class_name::<128>(process, Address::new(BASE + 0xF80))
+                .unwrap();
+            assert!(name.matches("GameManager"));
+            assert!(module
+                .object_class_name::<128>(process, Address::new(BASE + 0xF88))
+                .is_none());
+        });
+    }
+}
+
 #[test]
 fn images_resolve_by_name_on_both_type_start_shapes() {
     for unity in [MEASURED_2019, MEASURED_2022] {
