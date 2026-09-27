@@ -17,10 +17,10 @@ pub(super) struct Build {
 }
 
 /// Finds the build for a player at its pointer size. The Unity version is
-/// the four parts of the file version of `UnityPlayer.dll`, and the first
-/// three of them are the patch. A player takes the newest build whose patch
-/// is at or below its own patch. A player under every build takes the oldest
-/// build in the table.
+/// the four parts of the file version of `UnityPlayer.dll`, or of the game's
+/// executable before Unity 2017.2, and the first three of them are the
+/// patch. A player takes the newest build whose patch is at or below its own
+/// patch. A player under every build takes the oldest build in the table.
 pub(super) fn nearest(
     unity: (u16, u16, u16, u16),
     pointer_size: PointerSize,
@@ -31,8 +31,8 @@ pub(super) fn nearest(
             .filter(move |build| build.profile.pointer_size == pointer_size)
     };
 
-    // Two players of one patch share a layout, so the comparison drops the
-    // build number, which is the part that tells those two players apart.
+    // The comparison drops the build number, the fourth part, because a later
+    // build of one patch can carry a lower number than an earlier build.
     let patch = |version: (u16, u16, u16, u16)| (version.0, version.1, version.2);
 
     // The table reads from the oldest player to the newest, so the newest
@@ -43,7 +43,7 @@ pub(super) fn nearest(
 }
 
 // A function that loads the global into r13 or r14 right after its
-// prologue. It hits once on every player from Unity 5.6 through 2023.1.
+// prologue. It hits once on every player from Unity 5.6 through 6000.1.
 const PROLOGUE_LOAD_X64: Anchor = Anchor {
     signature: Signature::new(
         "48 83 EC 20 4C 8B ?5 ?? ?? ?? ?? 33 F6 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ??",
@@ -73,7 +73,7 @@ const LOAD_AND_CLEAR_ECX_X86: Anchor = Anchor {
 
 // The same function once the global lands in eax and is stored in a local
 // before the clear. It hits once on every player from Unity 2017.3 through
-// 2021.3.
+// 2022.1.
 const LOAD_AND_CLEAR_X86: Anchor = Anchor {
     signature: Signature::new(
         "A1 ?? ?? ?? ?? 53 33 DB 89 45 FC ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ??",
@@ -81,7 +81,7 @@ const LOAD_AND_CLEAR_X86: Anchor = Anchor {
     displacement: 1,
 };
 
-// The active scene getter of Unity 2022.3 and 2023.1: it loads the global
+// The active scene getter from Unity 2022.2 on: it loads the global
 // into eax and reads the active scene at 0x28.
 const ACTIVE_SCENE_GETTER_X86: Anchor = Anchor {
     signature: Signature::new(
@@ -90,8 +90,8 @@ const ACTIVE_SCENE_GETTER_X86: Anchor = Anchor {
     displacement: 1,
 };
 
-// The scene at index getter of Unity 6: it loads the global into eax and
-// compares the index with the scene count at 0x10.
+// The scene at index getter from Unity 2022.2 on: it loads the global into
+// eax and compares the index with the scene count at 0x10.
 const SCENE_AT_GETTER_X86: Anchor = Anchor {
     signature: Signature::new(
         "A1 ?? ?? ?? ?? 3B 50 10 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ??",
@@ -537,8 +537,7 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 2023.1.0f1, x64. The root list sits at 0xb0 here and at 0xe8 on
-    // 2023.1.22, so Unity moved it somewhere inside 2023.1.
+    // Unity 2023.1.0f1, x64.
     Build {
         unity: (2023, 1, 0, 2298),
         profile: Profile {

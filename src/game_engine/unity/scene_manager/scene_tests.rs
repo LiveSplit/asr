@@ -35,8 +35,7 @@ fn read_path(image: &[u8], manager: &SceneManager) -> Option<ArrayCString<128>> 
     })
 }
 
-// The path field of the scene sits at 0x10 on every x64 build and at 0xC on
-// the x86 builds before Unity 6000.5.
+// The path field of the scene, where the build's profile puts it.
 const fn field(manager: &SceneManager) -> u64 {
     SCENE + manager.profile.scene.path as u64
 }

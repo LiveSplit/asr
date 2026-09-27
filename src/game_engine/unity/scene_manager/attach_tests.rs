@@ -22,9 +22,9 @@ fn put(image: &mut [u8], at: u64, bytes: &[u8]) {
     image[at..at + bytes.len()].copy_from_slice(bytes);
 }
 
-// The Unity 6 x64 anchor is the body of the scene count getter. The load's
-// displacement is relative to the instruction after it, which sits 7 bytes
-// into the body.
+// The x64 anchor from Unity 6000.2 on is the body of the scene count
+// getter. The load's displacement is relative to the instruction after it,
+// which sits 7 bytes into the body.
 fn anchor_x64(image: &mut [u8], at: u64, global: u64) {
     let next = BASE + at + 7;
     let displacement = (global as i64 - next as i64) as i32;
@@ -71,7 +71,7 @@ fn a_player_takes_the_newest_build_at_or_under_its_patch() {
     let patch = |v: (u16, u16, u16, u16)| (v.0, v.1, v.2);
     for pointer_size in [PointerSize::Bit64, PointerSize::Bit32] {
         let picked = |player| builds::nearest(player, pointer_size).unwrap().unity;
-        let table: vec::Vec<_> = builds::BUILDS
+        let table: Vec<_> = builds::BUILDS
             .iter()
             .filter(|build| build.profile.pointer_size == pointer_size)
             .map(|build| build.unity)

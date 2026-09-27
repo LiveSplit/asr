@@ -56,10 +56,9 @@ pub struct SceneManager {
 impl SceneManager {
     /// Attaches to the scene manager in the given process. On Windows, the
     /// Unity version and pointer size of the game select a measured build:
-    /// the newest build at or under the version of the game, or the oldest
-    /// build when the game is under every build. A game on a patch nobody
-    /// measured reads the layout of the patch below it, which holds as long
-    /// as the table has an entry at every patch where the layout changed.
+    /// the newest build whose patch is at or under the game's patch, or the
+    /// oldest build when the game is under every build. A game on a patch
+    /// nobody measured reads the newest build below it.
     pub fn attach(process: &Process) -> Option<Self> {
         let (unity_player, format) = Self::engine_module(process)?;
 
@@ -104,9 +103,9 @@ impl SceneManager {
     }
 
     /// Finds the module that holds the engine: `UnityPlayer.dll` and its
-    /// Linux and Mac siblings, or the game's own executable on Unity 5.6,
-    /// which linked the engine in. Finding the executable needs its name,
-    /// so that part needs the `alloc` feature.
+    /// Linux and Mac siblings, or the game's own executable before Unity
+    /// 2017.2, which linked the engine in. Finding the executable needs its
+    /// name, so that part needs the `alloc` feature.
     fn engine_module(process: &Process) -> Option<((Address, u64), BinaryFormat)> {
         let player = [
             ("UnityPlayer.dll", BinaryFormat::PE),
