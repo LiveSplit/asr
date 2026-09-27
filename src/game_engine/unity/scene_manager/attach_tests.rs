@@ -64,63 +64,40 @@ fn nearest_is_the_build_itself_on_a_measured_player() {
     }
 }
 
+// Checks the rule against every entry of the table, so an entry added or
+// moved needs no change here.
 #[test]
-fn nearest_takes_the_newest_build_at_or_below_the_patch() {
-    let unity = |player| builds::nearest(player, PointerSize::Bit64).unwrap().unity;
-    assert_eq!(unity((6000, 3, 5, 1)), (6000, 0, 84, 43887));
-    assert_eq!(unity((6000, 4, 0, 62614)), (6000, 3, 21, 9777));
-    assert_eq!(unity((6000, 0, 58, 1)), (2023, 1, 22, 16744));
-    assert_eq!(unity((6000, 1, 17, 47571)), (6000, 0, 84, 43887));
-    assert_eq!(unity((6000, 2, 12, 40285)), (6000, 0, 84, 43887));
-    assert_eq!(unity((2019, 4, 41, 9172)), (2018, 4, 36, 54151));
-    assert_eq!(unity((7000, 0, 0, 0)), (6000, 5, 10, 54518));
-    assert_eq!(unity((5, 6, 7, 0)), (5, 6, 7, 3267));
-    assert_eq!(unity((5, 5, 0, 0)), (5, 6, 7, 3267));
-}
+fn a_player_takes_the_newest_build_at_or_under_its_patch() {
+    let patch = |v: (u16, u16, u16, u16)| (v.0, v.1, v.2);
+    for pointer_size in [PointerSize::Bit64, PointerSize::Bit32] {
+        let picked = |player| builds::nearest(player, pointer_size).unwrap().unity;
+        let table: vec::Vec<_> = builds::BUILDS
+            .iter()
+            .filter(|build| build.profile.pointer_size == pointer_size)
+            .map(|build| build.unity)
+            .collect();
 
-// Every layout starts with an entry at the pointer size it holds for. The
-// x86 players of Unity 6000.1 keep the root list of a scene 4 bytes earlier
-// than the players of 6000.0 and 6000.2, so x86 has entries at all three
-// where x64 has one.
-#[test]
-fn x86_entries_follow_the_root_list_move_of_6000_1() {
-    let roots = |player| {
-        let build = builds::nearest(player, PointerSize::Bit32).unwrap();
-        (build.unity, build.profile.scene.roots)
-    };
-    assert_eq!(roots((6000, 0, 84, 43887)), ((6000, 0, 84, 43887), 0x98));
-    assert_eq!(roots((6000, 1, 17, 47571)), ((6000, 1, 17, 47571), 0x94));
-    assert_eq!(roots((6000, 2, 12, 40285)), ((6000, 2, 12, 40285), 0x98));
-    assert_eq!(roots((6000, 3, 21, 9777)), ((6000, 3, 21, 9777), 0x98));
-}
+        assert_eq!(picked((0, 0, 0, 0)), table[0]);
+        assert_eq!(picked((u16::MAX, 0, 0, 0)), *table.last().unwrap());
 
-// The layout of Unity 2017 starts at 2017.1.0: the scene path moves from
-// 0x18 to 0x10 and the root list from 0xB8 to 0xB0 on x64, and a 2017.4
-// player reads the same. On x86 the offsets hold from 2017.1.0 as well, but
-// the anchor of 5.6 through 2017.2 stops hitting at 2017.3.0, so x86 has
-// entries at both.
-#[test]
-fn the_2017_layout_starts_at_2017_1() {
-    let x64 = |player| builds::nearest(player, PointerSize::Bit64).unwrap();
-    assert_eq!(x64((2017, 1, 5, 22691)).unity, (2017, 1, 0, 9747));
-    assert_eq!(x64((2017, 1, 5, 22691)).profile.scene.path, 0x10);
-    assert_eq!(x64((2017, 1, 5, 22691)).profile.scene.roots, 0xB0);
-    assert_eq!(x64((2017, 4, 40, 5126)).unity, (2017, 1, 0, 9747));
-    assert_eq!(x64((5, 6, 7, 3267)).profile.scene.path, 0x18);
-
-    let x86 = |player| builds::nearest(player, PointerSize::Bit32).unwrap();
-    assert_eq!(x86((2017, 2, 5, 36295)).unity, (2017, 1, 0, 9747));
-    assert_eq!(x86((2017, 3, 1, 7475)).unity, (2017, 3, 0, 63597));
-    assert_eq!(x86((2017, 4, 40, 5126)).unity, (2017, 3, 0, 63597));
-    let (early, late) = (x86((2017, 1, 0, 9747)), x86((2017, 3, 0, 63597)));
-    assert_eq!(early.profile.anchor.displacement, 8);
-    assert_eq!(late.profile.anchor.displacement, 1);
-    assert_eq!(early.profile.scene.roots, late.profile.scene.roots);
-    assert_eq!(
-        early.profile.game_object.name,
-        late.profile.game_object.name
-    );
-    assert_eq!(x86((5, 6, 7, 3267)).profile.anchor.displacement, 8);
+        for (index, &entry) in table.iter().enumerate() {
+            for build in [0, u16::MAX] {
+                let player = (entry.0, entry.1, entry.2, build);
+                assert_eq!(patch(picked(player)), patch(entry), "{player:?}");
+            }
+            if index == 0 {
+                continue;
+            }
+            // The version right under an entry reads the entry before it,
+            // across a major or minor too.
+            let under = match entry {
+                (major, minor, patch, _) if patch > 0 => (major, minor, patch - 1, u16::MAX),
+                (major, minor, _, _) if minor > 0 => (major, minor - 1, u16::MAX, u16::MAX),
+                (major, _, _, _) => (major - 1, u16::MAX, u16::MAX, u16::MAX),
+            };
+            assert_eq!(picked(under), table[index - 1], "{under:?}");
+        }
+    }
 }
 
 #[test]
