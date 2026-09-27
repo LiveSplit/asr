@@ -475,6 +475,68 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
+    // Unity 2022.3.5f1, x64.
+    Build {
+        unity: (2022, 3, 5, 29734),
+        profile: Profile {
+            pointer_size: PointerSize::Bit64,
+            anchor: PROLOGUE_LOAD_X64,
+            path: PathShape::InlineNul,
+            reference: ReferenceShape::CachedObject,
+            manager: ManagerOffsets {
+                scenes: 0x8,
+                active_scene: 0x48,
+                dont_destroy_on_load_scene: 0x70,
+            },
+            scene: SceneOffsets {
+                path: 0x10,
+                build_index: 0x98,
+                roots: 0xe8,
+            },
+            transform: TransformOffsets {
+                game_object: 0x30,
+                children: 0x70,
+            },
+            game_object: GameObjectOffsets {
+                components: 0x30,
+                name: 0x60,
+            },
+            object: ObjectOffsets {
+                managed_reference: 0x28,
+            },
+        },
+    },
+    // Unity 2022.3.5f1, x86.
+    Build {
+        unity: (2022, 3, 5, 29734),
+        profile: Profile {
+            pointer_size: PointerSize::Bit32,
+            anchor: ACTIVE_SCENE_GETTER_X86,
+            path: PathShape::Pointer,
+            reference: ReferenceShape::CachedObject,
+            manager: ManagerOffsets {
+                scenes: 0x8,
+                active_scene: 0x28,
+                dont_destroy_on_load_scene: 0x40,
+            },
+            scene: SceneOffsets {
+                path: 0xc,
+                build_index: 0x70,
+                roots: 0xac,
+            },
+            transform: TransformOffsets {
+                game_object: 0x1c,
+                children: 0x50,
+            },
+            game_object: GameObjectOffsets {
+                components: 0x1c,
+                name: 0x3c,
+            },
+            object: ObjectOffsets {
+                managed_reference: 0x18,
+            },
+        },
+    },
     // Unity 2023.1.0f1, x64. The root list sits at 0xb0 here and at 0xe8 on
     // 2023.1.22, so Unity moved it somewhere inside 2023.1.
     Build {
