@@ -124,8 +124,8 @@ impl Player {
 }
 
 const MEASURED_2019: (u16, u16, u16, u16) = (2019, 1, 0, 11155);
-const MEASURED_2022: (u16, u16, u16, u16) = (2022, 3, 0, 4507);
-const MEASURED_6000_5: (u16, u16, u16, u16) = (6000, 5, 10, 54518);
+const MEASURED_2022: (u16, u16, u16, u16) = (2022, 2, 0, 56532);
+const MEASURED_6000_5: (u16, u16, u16, u16) = (6000, 5, 0, 46204);
 
 fn measured(unity: (u16, u16, u16, u16), pointer_size: PointerSize) -> Profile {
     super::builds::nearest(unity, pointer_size).unwrap().profile
@@ -154,11 +154,11 @@ fn attach_uses_the_explicit_profile_and_checks_its_width() {
         unity: MEASURED_6000_5,
     };
     let module = player
-        .attach_profile(super::profiles::UNITY_6000_5_10F1_X86_64)
+        .attach_profile(super::profiles::UNITY_6000_5_0F1_X86_64)
         .unwrap();
     assert_eq!(module.profile.class.static_fields, 0xa0);
     assert!(player
-        .attach_profile(super::profiles::UNITY_6000_5_10F1_X86)
+        .attach_profile(super::profiles::UNITY_6000_5_0F1_X86)
         .is_none());
 }
 
@@ -936,10 +936,10 @@ fn class_walk_reads_the_type_start_where_the_build_keeps_it() {
     };
 
     for pointer_size in [PointerSize::Bit64, PointerSize::Bit32] {
-        let inline = measured((2018, 4, 36, 54151), pointer_size);
+        let inline = measured((2018, 3, 0, 9156), pointer_size);
         assert!(matches!(inline.image.type_start, TypeStart::Inline(_)));
         assert_eq!(
-            walk((2018, 4, 36, 54151), pointer_size),
+            walk((2018, 3, 0, 9156), pointer_size),
             Some(Address::new(BASE + 0x300))
         );
 

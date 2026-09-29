@@ -20,10 +20,10 @@ macro_rules! profiles {
 }
 
 profiles! {
-    /// Unity 2018.4.36f1, file version `2018.4.36.54151`, x86-64.
-    UNITY_2018_4_36F1_X86_64 = 0;
-    /// Unity 2018.4.36f1, file version `2018.4.36.54151`, x86.
-    UNITY_2018_4_36F1_X86 = 1;
+    /// Unity 2018.3.0f1, file version `2018.3.0.9156`, x86-64.
+    UNITY_2018_3_0F1_X86_64 = 0;
+    /// Unity 2018.3.0f1, file version `2018.3.0.9156`, x86.
+    UNITY_2018_3_0F1_X86 = 1;
     /// Unity 2019.1.0f2, file version `2019.1.0.11155`, x86-64.
     UNITY_2019_1_0F2_X86_64 = 2;
     /// Unity 2019.1.0f2, file version `2019.1.0.11155`, x86.
@@ -32,14 +32,14 @@ profiles! {
     UNITY_2020_2_0F1_X86_64 = 4;
     /// Unity 2020.2.0f1, file version `2020.2.0.8671`, x86.
     UNITY_2020_2_0F1_X86 = 5;
-    /// Unity 2022.3.0f1, file version `2022.3.0.4507`, x86-64.
-    UNITY_2022_3_0F1_X86_64 = 6;
-    /// Unity 2022.3.0f1, file version `2022.3.0.4507`, x86.
-    UNITY_2022_3_0F1_X86 = 7;
-    /// Unity 6000.5.10f1, file version `6000.5.10.54518`, x86-64.
-    UNITY_6000_5_10F1_X86_64 = 8;
-    /// Unity 6000.5.10f1, file version `6000.5.10.54518`, x86.
-    UNITY_6000_5_10F1_X86 = 9;
+    /// Unity 2022.2.0f1, file version `2022.2.0.56532`, x86-64.
+    UNITY_2022_2_0F1_X86_64 = 6;
+    /// Unity 2022.2.0f1, file version `2022.2.0.56532`, x86.
+    UNITY_2022_2_0F1_X86 = 7;
+    /// Unity 6000.5.0f1, file version `6000.5.0.46204`, x86-64.
+    UNITY_6000_5_0F1_X86_64 = 8;
+    /// Unity 6000.5.0f1, file version `6000.5.0.46204`, x86.
+    UNITY_6000_5_0F1_X86 = 9;
     /// Unity 6000.6.0f1, file version `6000.6.0.63725`, x86-64.
     UNITY_6000_6_0F1_X86_64 = 10;
     /// Unity 6000.6.0f1, file version `6000.6.0.63725`, x86.
@@ -55,9 +55,9 @@ mod tests {
     fn constants_are_the_expected_profiles() {
         let profiles = [
             (
-                (2018, 4, 36, 54151),
-                UNITY_2018_4_36F1_X86_64,
-                UNITY_2018_4_36F1_X86,
+                (2018, 3, 0, 9156),
+                UNITY_2018_3_0F1_X86_64,
+                UNITY_2018_3_0F1_X86,
             ),
             (
                 (2019, 1, 0, 11155),
@@ -70,14 +70,14 @@ mod tests {
                 UNITY_2020_2_0F1_X86,
             ),
             (
-                (2022, 3, 0, 4507),
-                UNITY_2022_3_0F1_X86_64,
-                UNITY_2022_3_0F1_X86,
+                (2022, 2, 0, 56532),
+                UNITY_2022_2_0F1_X86_64,
+                UNITY_2022_2_0F1_X86,
             ),
             (
-                (6000, 5, 10, 54518),
-                UNITY_6000_5_10F1_X86_64,
-                UNITY_6000_5_10F1_X86,
+                (6000, 5, 0, 46204),
+                UNITY_6000_5_0F1_X86_64,
+                UNITY_6000_5_0F1_X86,
             ),
             (
                 (6000, 6, 0, 63725),

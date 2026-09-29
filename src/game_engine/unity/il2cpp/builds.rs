@@ -44,9 +44,9 @@ pub(super) fn nearest(
 
 // The table reads from the oldest player to the newest.
 pub(super) const BUILDS: &[Build] = &[
-    // Unity 2018.4.36f1, metadata version 24, x64.
+    // Unity 2018.3.0f1, metadata version 24, x64.
     Build {
-        unity: (2018, 4, 36, 54151),
+        unity: (2018, 3, 0, 9156),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
             assembly: AssemblyOffsets {
@@ -83,9 +83,9 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 2018.4.36f1, metadata version 24, x86.
+    // Unity 2018.3.0f1, metadata version 24, x86.
     Build {
-        unity: (2018, 4, 36, 54151),
+        unity: (2018, 3, 0, 9156),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
             assembly: AssemblyOffsets {
@@ -278,9 +278,9 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 2022.3.0f1, metadata version 29, x64.
+    // Unity 2022.2.0f1, metadata version 29, x64.
     Build {
-        unity: (2022, 3, 0, 4507),
+        unity: (2022, 2, 0, 56532),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
             assembly: AssemblyOffsets {
@@ -317,9 +317,9 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 2022.3.0f1, metadata version 29, x86.
+    // Unity 2022.2.0f1, metadata version 29, x86.
     Build {
-        unity: (2022, 3, 0, 4507),
+        unity: (2022, 2, 0, 56532),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
             assembly: AssemblyOffsets {
@@ -356,9 +356,9 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 6000.5.10f1, metadata version 107, x64.
+    // Unity 6000.5.0f1, metadata version 106, x64.
     Build {
-        unity: (6000, 5, 10, 54518),
+        unity: (6000, 5, 0, 46204),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
             assembly: AssemblyOffsets {
@@ -395,9 +395,9 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 6000.5.10f1, metadata version 107, x86.
+    // Unity 6000.5.0f1, metadata version 106, x86.
     Build {
-        unity: (6000, 5, 10, 54518),
+        unity: (6000, 5, 0, 46204),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
             assembly: AssemblyOffsets {
@@ -550,16 +550,16 @@ mod tests {
         let unity = |player| nearest(player, x64).unwrap().unity;
         assert_eq!(unity((2021, 3, 5, 1)), (2020, 2, 0, 8671));
         assert_eq!(unity((2021, 3, 45, 1)), (2020, 2, 0, 8671));
-        assert_eq!(unity((2023, 1, 10, 1)), (2022, 3, 0, 4507));
-        assert_eq!(unity((2023, 1, 0, 2298)), (2022, 3, 0, 4507));
+        assert_eq!(unity((2023, 1, 10, 1)), (2022, 2, 0, 56532));
+        assert_eq!(unity((2023, 1, 0, 2298)), (2022, 2, 0, 56532));
         assert_eq!(unity((2022, 1, 0, 1)), (2020, 2, 0, 8671));
         assert_eq!(unity((2019, 2, 0, 1)), (2019, 1, 0, 11155));
         assert_eq!(unity((2020, 3, 48, 1)), (2020, 2, 0, 8671));
         assert_eq!(unity((2021, 1, 0, 1)), (2020, 2, 0, 8671));
-        assert_eq!(unity((6000, 5, 10, 54518)), (6000, 5, 10, 54518));
+        assert_eq!(unity((6000, 5, 0, 46204)), (6000, 5, 0, 46204));
         assert_eq!(unity((6000, 6, 5, 1)), (6000, 6, 0, 63725));
         assert_eq!(unity((7000, 0, 0, 0)), (6000, 6, 0, 63725));
-        assert_eq!(unity((5, 6, 7, 0)), (2018, 4, 36, 54151));
+        assert_eq!(unity((5, 6, 7, 0)), (2018, 3, 0, 9156));
     }
 
     // Every entry starts a layout: it reads differently from the entry
