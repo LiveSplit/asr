@@ -56,9 +56,9 @@ pub struct SceneManager {
 impl SceneManager {
     /// Attaches to the scene manager in the given process. On Windows, the
     /// Unity version and pointer size of the game select a measured build:
-    /// the newest build whose patch is at or under the game's patch, or the
-    /// oldest build when the game is under every build. A game on a patch
-    /// nobody measured reads the newest build below it.
+    /// the newest build whose patch is at or under the game's patch. A game
+    /// on a patch nobody measured reads the newest build below it. A game
+    /// under every build does not attach.
     pub fn attach(process: &Process) -> Option<Self> {
         let (unity_player, format) = Self::engine_module(process)?;
 

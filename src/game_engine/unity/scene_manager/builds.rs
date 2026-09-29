@@ -20,26 +20,21 @@ pub(super) struct Build {
 /// the four parts of the file version of `UnityPlayer.dll`, or of the game's
 /// executable before Unity 2017.2, and the first three of them are the
 /// patch. A player takes the newest build whose patch is at or below its own
-/// patch. A player under every build takes the oldest build in the table.
+/// patch. A player under every build takes none.
 pub(super) fn nearest(
     unity: (u16, u16, u16, u16),
     pointer_size: PointerSize,
 ) -> Option<&'static Build> {
-    let at_size = || {
-        BUILDS
-            .iter()
-            .filter(move |build| build.profile.pointer_size == pointer_size)
-    };
-
     // The comparison drops the build number, the fourth part, because a later
     // build of one patch can carry a lower number than an earlier build.
     let patch = |version: (u16, u16, u16, u16)| (version.0, version.1, version.2);
 
     // The table reads from the oldest player to the newest, so the newest
     // build at or under the player's patch is the last one under it.
-    at_size()
+    BUILDS
+        .iter()
+        .filter(|build| build.profile.pointer_size == pointer_size)
         .rfind(|build| patch(build.unity) <= patch(unity))
-        .or_else(|| at_size().next())
 }
 
 // A function that loads the global into r13 or r14 right after its

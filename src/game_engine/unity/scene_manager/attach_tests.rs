@@ -78,7 +78,7 @@ fn a_player_takes_the_newest_build_at_or_under_its_patch() {
             .map(|build| build.unity)
             .collect();
 
-        assert_eq!(picked((0, 0, 0, 0)), table[0]);
+        assert!(builds::nearest((0, 0, 0, 0), pointer_size).is_none());
         assert_eq!(picked((u16::MAX, 0, 0, 0)), *table.last().unwrap());
 
         for (index, &entry) in table.iter().enumerate() {
@@ -86,17 +86,18 @@ fn a_player_takes_the_newest_build_at_or_under_its_patch() {
                 let player = (entry.0, entry.1, entry.2, build);
                 assert_eq!(patch(picked(player)), patch(entry), "{player:?}");
             }
-            if index == 0 {
-                continue;
-            }
             // The version right under an entry reads the entry before it,
-            // across a major or minor too.
+            // across a major or minor too, and nothing under the first entry.
             let under = match entry {
                 (major, minor, patch, _) if patch > 0 => (major, minor, patch - 1, u16::MAX),
                 (major, minor, _, _) if minor > 0 => (major, minor - 1, u16::MAX, u16::MAX),
                 (major, _, _, _) => (major - 1, u16::MAX, u16::MAX, u16::MAX),
             };
-            assert_eq!(picked(under), table[index - 1], "{under:?}");
+            if index == 0 {
+                assert!(builds::nearest(under, pointer_size).is_none(), "{under:?}");
+            } else {
+                assert_eq!(picked(under), table[index - 1], "{under:?}");
+            }
         }
     }
 }
