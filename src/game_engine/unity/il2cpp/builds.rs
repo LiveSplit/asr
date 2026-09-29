@@ -1,7 +1,7 @@
 //! The IL2CPP builds where the layout changes. Each entry is one measured
-//! player, told by its full Unity version, and the offsets come from that
-//! player's `GameAssembly.pdb`. A game on any other player takes the newest
-//! entry at or below its patch.
+//! player, identified by its full Unity version, and the offsets come from
+//! that player's `GameAssembly.pdb`. A game on any other player takes the
+//! newest entry at or below its patch.
 
 use super::offsets::{
     AssemblyOffsets, ClassOffsets, FieldInfoOffsets, GenericOffsets, ImageOffsets, Profile,
@@ -717,7 +717,7 @@ mod tests {
                 // The version right below an entry reads the entry before it,
                 // across a major or minor too, and nothing below the first entry.
                 let below = match entry {
-                    (major, minor, patch, _) if patch > 0 => (major, minor, patch - 1, u16::MAX),
+                    (major, minor, number, _) if number > 0 => (major, minor, number - 1, u16::MAX),
                     (major, minor, _, _) if minor > 0 => (major, minor - 1, u16::MAX, u16::MAX),
                     (major, _, _, _) => (major - 1, u16::MAX, u16::MAX, u16::MAX),
                 };
@@ -730,7 +730,7 @@ mod tests {
         }
     }
 
-    // Every entry starts a layout: it reads differently from the entry
+    // Every entry starts a layout: its offsets differ from the entry
     // before it at its pointer size.
     #[test]
     fn each_build_starts_a_layout() {

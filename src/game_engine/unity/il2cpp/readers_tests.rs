@@ -52,7 +52,7 @@ fn on_fixture(test: impl FnOnce(&Process, &Module)) {
         let module = Module {
             assemblies: Address::new(BASE),
             type_info_definition_table: Address::new(BASE + 0x10),
-            profile: super::builds::nearest((2022, 3, 0, 4507), PointerSize::Bit64)
+            profile: super::builds::nearest((2022, 2, 0, 56532), PointerSize::Bit64)
                 .unwrap()
                 .profile,
             pointer_size: PointerSize::Bit64,

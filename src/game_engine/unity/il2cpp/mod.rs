@@ -533,7 +533,8 @@ impl Module {
     }
 
     /// Attaches to a Unity game that is using the IL2CPP backend. The game
-    /// gets the offsets of the measured build nearest to its Unity version.
+    /// gets the offsets of the newest measured build whose patch is at or
+    /// below its own patch. A game below every build never attaches.
     ///
     /// This is the `await`able version of the
     /// [`attach_auto_detect`](Self::attach_auto_detect) function, yielding back

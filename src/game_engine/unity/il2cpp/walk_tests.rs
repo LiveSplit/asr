@@ -162,9 +162,9 @@ fn attach_uses_the_explicit_profile_and_checks_its_width() {
         .is_none());
 }
 
-// A player nobody measured takes the nearest build.
+// A player nobody measured takes the newest build at or below its patch.
 #[test]
-fn attach_auto_detect_takes_the_nearest_build_for_an_unmeasured_player() {
+fn attach_auto_detect_takes_the_newest_build_below_an_unmeasured_player() {
     let module = Player {
         unity: (2021, 3, 5, 1),
     }
