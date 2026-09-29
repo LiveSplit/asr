@@ -117,7 +117,7 @@ pub(super) const BUILDS: &[Build] = &[
                 type_: Some(0x0),
                 name: 0x8,
                 offset: 0x18,
-                alignment: 0x20,
+                stride: 0x20,
             },
             // Nothing reads this: these builds keep their statics in the slot
             // `vtable_size` points at.
@@ -168,7 +168,7 @@ pub(super) const BUILDS: &[Build] = &[
                 type_: Some(0x0),
                 name: 0x8,
                 offset: 0x18,
-                alignment: 0x20,
+                stride: 0x20,
             },
             v_table: MonoVTableOffsets { vtable: 0x40 },
         },
@@ -217,7 +217,7 @@ pub(super) const BUILDS: &[Build] = &[
                 type_: Some(0x0),
                 name: 0x8,
                 offset: 0x18,
-                alignment: 0x20,
+                stride: 0x20,
             },
             // Nothing reads this: these builds keep their statics in the slot
             // `vtable_size` points at.
@@ -268,7 +268,7 @@ pub(super) const BUILDS: &[Build] = &[
                 type_: Some(0x0),
                 name: 0x8,
                 offset: 0x18,
-                alignment: 0x20,
+                stride: 0x20,
             },
             v_table: MonoVTableOffsets { vtable: 0x48 },
         },

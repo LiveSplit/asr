@@ -488,7 +488,7 @@ impl Module {
                     name: self.profile.field.name.into(),
                     type_: self.profile.field.type_,
                     offset: self.profile.field.offset.into(),
-                    stride: self.profile.field.alignment.into(),
+                    stride: self.profile.field.stride.into(),
                 },
             },
             stop: managed::ClimbStop::UNITY,

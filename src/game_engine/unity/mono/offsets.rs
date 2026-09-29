@@ -62,7 +62,7 @@ use crate::PointerSize;
 ///         type_: Some(0x0),
 ///         name: 0x8,
 ///         offset: 0x18,
-///         alignment: 0x20,
+///         stride: 0x20,
 ///     },
 ///     v_table: MonoVTableOffsets { vtable: 0x48 },
 /// };
@@ -179,8 +179,8 @@ pub struct FieldInfoOffsets {
     pub name: u8,
     /// The field offset.
     pub offset: u8,
-    /// The stride of the field array.
-    pub alignment: u8,
+    /// The byte distance from one `MonoClassField` to the next.
+    pub stride: u8,
 }
 
 /// Offsets within `MonoVTable`.

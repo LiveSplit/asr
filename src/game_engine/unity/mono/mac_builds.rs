@@ -118,7 +118,7 @@ const UNITY_6000_5: Profile = Profile {
         type_: Some(0x0),
         name: 0x8,
         offset: 0x18,
-        alignment: 0x20,
+        stride: 0x20,
     },
     v_table: MonoVTableOffsets { vtable: 0x48 },
 };
