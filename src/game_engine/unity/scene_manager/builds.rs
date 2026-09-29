@@ -81,15 +81,6 @@ const LOAD_AND_CLEAR_X86: Anchor = Anchor {
     displacement: 1,
 };
 
-// The active scene getter from Unity 2022.2 on: it loads the global
-// into eax and reads the active scene at 0x28.
-const ACTIVE_SCENE_GETTER_X86: Anchor = Anchor {
-    signature: Signature::new(
-        "A1 ?? ?? ?? ?? 8B 48 28 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ??",
-    ),
-    displacement: 1,
-};
-
 // The scene at index getter from Unity 2022.2 on: it loads the global into
 // eax and compares the index with the scene count at 0x10.
 const SCENE_AT_GETTER_X86: Anchor = Anchor {
@@ -418,7 +409,7 @@ pub(super) const BUILDS: &[Build] = &[
         unity: (2022, 2, 0, 56532),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
-            anchor: ACTIVE_SCENE_GETTER_X86,
+            anchor: SCENE_AT_GETTER_X86,
             path: PathShape::Pointer,
             reference: ReferenceShape::CachedObject,
             manager: ManagerOffsets {
@@ -480,7 +471,7 @@ pub(super) const BUILDS: &[Build] = &[
         unity: (2022, 3, 5, 29734),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
-            anchor: ACTIVE_SCENE_GETTER_X86,
+            anchor: SCENE_AT_GETTER_X86,
             path: PathShape::Pointer,
             reference: ReferenceShape::CachedObject,
             manager: ManagerOffsets {
@@ -542,7 +533,7 @@ pub(super) const BUILDS: &[Build] = &[
         unity: (2023, 1, 0, 2298),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
-            anchor: ACTIVE_SCENE_GETTER_X86,
+            anchor: SCENE_AT_GETTER_X86,
             path: PathShape::Pointer,
             reference: ReferenceShape::RootSlot,
             manager: ManagerOffsets {
@@ -604,7 +595,7 @@ pub(super) const BUILDS: &[Build] = &[
         unity: (2023, 1, 4, 6702),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
-            anchor: ACTIVE_SCENE_GETTER_X86,
+            anchor: SCENE_AT_GETTER_X86,
             path: PathShape::Pointer,
             reference: ReferenceShape::RootSlot,
             manager: ManagerOffsets {
