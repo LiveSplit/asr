@@ -1,7 +1,7 @@
 //! The IL2CPP builds where the layout changes. Each entry is one measured
 //! player, told by its full Unity version, and the offsets come from that
 //! player's `GameAssembly.pdb`. A game on any other player takes the newest
-//! entry at or below its major.minor.
+//! entry at or below its patch.
 
 use super::offsets::{
     AssemblyOffsets, ClassOffsets, FieldInfoOffsets, GenericOffsets, ImageOffsets, Profile,
@@ -17,29 +17,23 @@ pub(super) struct Build {
 }
 
 /// Finds the build for a player at its width. The Unity version is the four
-/// parts of the file version of `UnityPlayer.dll`. The last part tells `f1`
-/// from `f2` and an alpha from its release. A measured player gets its own
-/// build. Any other player gets the newest build whose major.minor is at or
-/// below the player's major.minor, or the oldest build when no build is
-/// below. This answer is right when the table holds the first player of
-/// every layout, because a layout lasts until the next layout starts. When a
-/// layout changed between two measured players, a player in that gap gets the
-/// older layout. The table reads from the oldest player to the newest, so the
-/// newest match is the last match.
+/// parts of the file version of `UnityPlayer.dll`, and the first three of
+/// them are the patch. A player takes the newest build whose patch is at or
+/// below its own patch. A player below every build takes none.
 pub(super) fn nearest(
     unity: (u16, u16, u16, u16),
     pointer_size: PointerSize,
 ) -> Option<&'static Build> {
-    let at_width = || {
-        BUILDS
-            .iter()
-            .filter(move |build| build.profile.pointer_size == pointer_size)
-    };
+    // The comparison drops the build number, the fourth part, because a later
+    // build of one patch can carry a lower number than an earlier build.
+    let patch = |version: (u16, u16, u16, u16)| (version.0, version.1, version.2);
 
-    at_width()
-        .find(|build| build.unity == unity)
-        .or_else(|| at_width().rfind(|build| (build.unity.0, build.unity.1) <= (unity.0, unity.1)))
-        .or_else(|| at_width().next())
+    // The table reads from the oldest player to the newest, so the last match
+    // is the newest build at or below the player's patch.
+    BUILDS
+        .iter()
+        .filter(|build| build.profile.pointer_size == pointer_size)
+        .rfind(|build| patch(build.unity) <= patch(unity))
 }
 
 // The table reads from the oldest player to the newest.
@@ -518,6 +512,7 @@ pub(super) const BUILDS: &[Build] = &[
 mod tests {
     use super::{nearest, BUILDS};
     use crate::PointerSize;
+    use std::vec::Vec;
 
     #[test]
     fn table_reads_oldest_to_newest() {
@@ -542,24 +537,41 @@ mod tests {
         }
     }
 
-    // A player nobody measured takes the newest build at or below its
-    // major.minor, or the oldest build when nothing is below.
+    // Checks the rule against every entry of the table, so an entry added or
+    // moved needs no change here.
     #[test]
-    fn nearest_takes_the_newest_build_at_or_below_the_major_minor() {
-        let x64 = PointerSize::Bit64;
-        let unity = |player| nearest(player, x64).unwrap().unity;
-        assert_eq!(unity((2021, 3, 5, 1)), (2020, 2, 0, 8671));
-        assert_eq!(unity((2021, 3, 45, 1)), (2020, 2, 0, 8671));
-        assert_eq!(unity((2023, 1, 10, 1)), (2022, 2, 0, 56532));
-        assert_eq!(unity((2023, 1, 0, 2298)), (2022, 2, 0, 56532));
-        assert_eq!(unity((2022, 1, 0, 1)), (2020, 2, 0, 8671));
-        assert_eq!(unity((2019, 2, 0, 1)), (2019, 1, 0, 11155));
-        assert_eq!(unity((2020, 3, 48, 1)), (2020, 2, 0, 8671));
-        assert_eq!(unity((2021, 1, 0, 1)), (2020, 2, 0, 8671));
-        assert_eq!(unity((6000, 5, 0, 46204)), (6000, 5, 0, 46204));
-        assert_eq!(unity((6000, 6, 5, 1)), (6000, 6, 0, 63725));
-        assert_eq!(unity((7000, 0, 0, 0)), (6000, 6, 0, 63725));
-        assert_eq!(unity((5, 6, 7, 0)), (2018, 3, 0, 9156));
+    fn a_player_takes_the_newest_build_at_or_below_its_patch() {
+        let patch = |v: (u16, u16, u16, u16)| (v.0, v.1, v.2);
+        for pointer_size in [PointerSize::Bit64, PointerSize::Bit32] {
+            let picked = |player| nearest(player, pointer_size).unwrap().unity;
+            let table: Vec<_> = BUILDS
+                .iter()
+                .filter(|build| build.profile.pointer_size == pointer_size)
+                .map(|build| build.unity)
+                .collect();
+
+            assert!(nearest((0, 0, 0, 0), pointer_size).is_none());
+            assert_eq!(picked((u16::MAX, 0, 0, 0)), *table.last().unwrap());
+
+            for (index, &entry) in table.iter().enumerate() {
+                for build in [0, u16::MAX] {
+                    let player = (entry.0, entry.1, entry.2, build);
+                    assert_eq!(patch(picked(player)), patch(entry), "{player:?}");
+                }
+                // The version right below an entry reads the entry before it,
+                // across a major or minor too, and nothing below the first entry.
+                let below = match entry {
+                    (major, minor, patch, _) if patch > 0 => (major, minor, patch - 1, u16::MAX),
+                    (major, minor, _, _) if minor > 0 => (major, minor - 1, u16::MAX, u16::MAX),
+                    (major, _, _, _) => (major - 1, u16::MAX, u16::MAX, u16::MAX),
+                };
+                if index == 0 {
+                    assert!(nearest(below, pointer_size).is_none(), "{below:?}");
+                } else {
+                    assert_eq!(picked(below), table[index - 1], "{below:?}");
+                }
+            }
+        }
     }
 
     // Every entry starts a layout: it reads differently from the entry

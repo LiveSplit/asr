@@ -40,8 +40,8 @@ pub struct Module {
 
 impl Module {
     /// Tries attaching to a Unity game that is using the IL2CPP backend. The
-    /// game gets the offsets of the measured build nearest to its Unity
-    /// version, its own build when someone measured that version.
+    /// game gets the offsets of the newest measured build whose patch is at
+    /// or below its own patch. A game below every build does not attach.
     pub fn attach_auto_detect(process: &Process) -> Option<Self> {
         let il2cpp_module = Self::find_runtime_module(process)?;
         let pointer_size = pe::MachineType::read(process, il2cpp_module.0)?.pointer_size()?;
