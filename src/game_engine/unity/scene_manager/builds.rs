@@ -745,9 +745,8 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 6000.2.0f1, x64. The layout is the one 2023.2 starts. The entry
-    // is here because the prologue load stops hitting at 6000.2.0, so the
-    // players from here on reach the manager through the scene count getter.
+    // Unity 6000.2.0f1, x64. Same layout as 2023.2.0, but the anchor changed
+    // from PROLOGUE_LOAD_X64 to SCENE_COUNT_GETTER_X64.
     Build {
         unity: (6000, 2, 0, 53701),
         profile: Profile {
