@@ -1,8 +1,9 @@
 //! Complete Mono layouts measured from specific Unity players.
 //!
-//! Each constant is the layout of one runtime library at one pointer size,
-//! measured on the first player that has it. The layout holds until the
-//! version of the next constant for that library. Pass a profile directly
+//! Each constant is the layout measured on one Unity player, for the
+//! platform, runtime library and pointer size in its name. Matching a player
+//! nobody measured by its version is a guess, not proof that the layout
+//! changes exactly at the listed versions. Pass a profile directly
 //! to [`Module::attach`](super::Module::attach) or
 //! [`Module::wait_attach`](super::Module::wait_attach) when the target game
 //! is known. This avoids linking the automatic lookup tables and their other

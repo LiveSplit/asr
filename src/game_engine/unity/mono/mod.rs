@@ -134,7 +134,8 @@ impl Module {
     /// If the Mono runtime is a known build, this function uses the offsets
     /// measured for that exact build. Otherwise the Unity version of the game
     /// picks the measured build whose offsets are used: the newest build of
-    /// the same runtime library at or below that version. A game that ships
+    /// the same runtime library at or below that version, or the oldest
+    /// build of that library when none is at or below it. A game that ships
     /// no player module (Windows games before Unity 2017.2, Mac and Linux
     /// games for some versions more) carries its version in its own
     /// executable, and reading it there needs the `alloc` feature.
