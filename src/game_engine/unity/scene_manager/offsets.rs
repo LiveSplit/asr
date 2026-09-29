@@ -4,6 +4,7 @@ use crate::{signature::Signature, PointerSize};
 /// the global, with the displacement of the load masked out, and where that
 /// displacement starts inside a match. A body shorter than the signature is
 /// padded with wildcards.
+#[derive(Debug)]
 pub(super) struct Anchor {
     pub(super) signature: Signature<24>,
     pub(super) displacement: u8,
@@ -37,6 +38,7 @@ pub(super) enum ReferenceShape {
 /// are a dynamic array, with the pointer to the scenes at `scenes` and the
 /// count two pointers after it. The `DontDestroyOnLoad` scene is embedded in
 /// the manager by value.
+#[derive(Debug)]
 pub(super) struct ManagerOffsets {
     pub(super) scenes: u8,
     pub(super) active_scene: u8,
@@ -45,6 +47,7 @@ pub(super) struct ManagerOffsets {
 
 /// The members of `UnityScene` the walk reads. The roots are a circular list
 /// whose head is embedded in the scene at `roots`.
+#[derive(Debug)]
 pub(super) struct SceneOffsets {
     pub(super) path: u8,
     pub(super) build_index: u8,
@@ -53,6 +56,7 @@ pub(super) struct SceneOffsets {
 
 /// The members of `Transform` the walk reads. The game object is a member of
 /// the `Component` base. The children are a dynamic array of transforms.
+#[derive(Debug)]
 pub(super) struct TransformOffsets {
     pub(super) game_object: u8,
     pub(super) children: u8,
@@ -60,6 +64,7 @@ pub(super) struct TransformOffsets {
 
 /// The members of `GameObject` the walk reads. The components are a dynamic
 /// array of pairs, each a type index and a pointer to the component.
+#[derive(Debug)]
 pub(super) struct GameObjectOffsets {
     pub(super) components: u8,
     pub(super) name: u8,
@@ -68,11 +73,13 @@ pub(super) struct GameObjectOffsets {
 /// The members of `Object` the walk reads, which every component starts
 /// with. The managed reference leads to the managed object of the component
 /// by the [`ReferenceShape`] of the build.
+#[derive(Debug)]
 pub(super) struct ObjectOffsets {
     pub(super) managed_reference: u8,
 }
 
 /// What the walk needs to know about one player.
+#[derive(Debug)]
 pub(super) struct Profile {
     pub(super) pointer_size: PointerSize,
     pub(super) anchor: Anchor,

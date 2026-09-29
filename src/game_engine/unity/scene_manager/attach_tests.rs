@@ -4,6 +4,7 @@
 
 use super::{builds, Scene, SceneManager};
 use crate::{runtime::mock::with_modules, Address, PointerSize, Process};
+use std::format;
 use std::vec;
 use std::vec::Vec;
 
@@ -110,6 +111,25 @@ fn table_reads_oldest_to_newest() {
             }
             assert!(build.unity > last, "{:?} after {:?}", build.unity, last);
             last = build.unity;
+        }
+    }
+}
+
+#[test]
+fn each_build_differs_from_the_one_before_it() {
+    for pointer_size in [PointerSize::Bit64, PointerSize::Bit32] {
+        let table: Vec<_> = builds::BUILDS
+            .iter()
+            .filter(|build| build.profile.pointer_size == pointer_size)
+            .collect();
+        for pair in table.windows(2) {
+            assert_ne!(
+                format!("{:?}", pair[0].profile),
+                format!("{:?}", pair[1].profile),
+                "{:?} repeats {:?}",
+                pair[1].unity,
+                pair[0].unity,
+            );
         }
     }
 }
