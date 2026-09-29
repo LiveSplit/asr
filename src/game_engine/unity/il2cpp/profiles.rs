@@ -20,30 +20,38 @@ macro_rules! profiles {
 }
 
 profiles! {
+    /// Unity 2018.1.0f1, file version `2018.1.0.30795`, x86-64.
+    UNITY_2018_1_0F1_X86_64 = 0;
+    /// Unity 2018.1.0f1, file version `2018.1.0.30795`, x86.
+    UNITY_2018_1_0F1_X86 = 1;
+    /// Unity 2018.2.0f2, file version `2018.2.0.30296`, x86-64.
+    UNITY_2018_2_0F2_X86_64 = 2;
+    /// Unity 2018.2.0f2, file version `2018.2.0.30296`, x86.
+    UNITY_2018_2_0F2_X86 = 3;
     /// Unity 2018.3.0f1, file version `2018.3.0.9156`, x86-64.
-    UNITY_2018_3_0F1_X86_64 = 0;
+    UNITY_2018_3_0F1_X86_64 = 4;
     /// Unity 2018.3.0f1, file version `2018.3.0.9156`, x86.
-    UNITY_2018_3_0F1_X86 = 1;
+    UNITY_2018_3_0F1_X86 = 5;
     /// Unity 2019.1.0f2, file version `2019.1.0.11155`, x86-64.
-    UNITY_2019_1_0F2_X86_64 = 2;
+    UNITY_2019_1_0F2_X86_64 = 6;
     /// Unity 2019.1.0f2, file version `2019.1.0.11155`, x86.
-    UNITY_2019_1_0F2_X86 = 3;
+    UNITY_2019_1_0F2_X86 = 7;
     /// Unity 2020.2.0f1, file version `2020.2.0.8671`, x86-64.
-    UNITY_2020_2_0F1_X86_64 = 4;
+    UNITY_2020_2_0F1_X86_64 = 8;
     /// Unity 2020.2.0f1, file version `2020.2.0.8671`, x86.
-    UNITY_2020_2_0F1_X86 = 5;
+    UNITY_2020_2_0F1_X86 = 9;
     /// Unity 2022.2.0f1, file version `2022.2.0.56532`, x86-64.
-    UNITY_2022_2_0F1_X86_64 = 6;
+    UNITY_2022_2_0F1_X86_64 = 10;
     /// Unity 2022.2.0f1, file version `2022.2.0.56532`, x86.
-    UNITY_2022_2_0F1_X86 = 7;
+    UNITY_2022_2_0F1_X86 = 11;
     /// Unity 6000.5.0f1, file version `6000.5.0.46204`, x86-64.
-    UNITY_6000_5_0F1_X86_64 = 8;
+    UNITY_6000_5_0F1_X86_64 = 12;
     /// Unity 6000.5.0f1, file version `6000.5.0.46204`, x86.
-    UNITY_6000_5_0F1_X86 = 9;
+    UNITY_6000_5_0F1_X86 = 13;
     /// Unity 6000.6.0f1, file version `6000.6.0.63725`, x86-64.
-    UNITY_6000_6_0F1_X86_64 = 10;
+    UNITY_6000_6_0F1_X86_64 = 14;
     /// Unity 6000.6.0f1, file version `6000.6.0.63725`, x86.
-    UNITY_6000_6_0F1_X86 = 11;
+    UNITY_6000_6_0F1_X86 = 15;
 }
 
 #[cfg(all(test, not(target_family = "wasm")))]
@@ -54,6 +62,16 @@ mod tests {
     #[test]
     fn constants_are_the_expected_profiles() {
         let profiles = [
+            (
+                (2018, 1, 0, 30795),
+                UNITY_2018_1_0F1_X86_64,
+                UNITY_2018_1_0F1_X86,
+            ),
+            (
+                (2018, 2, 0, 30296),
+                UNITY_2018_2_0F2_X86_64,
+                UNITY_2018_2_0F2_X86,
+            ),
             (
                 (2018, 3, 0, 9156),
                 UNITY_2018_3_0F1_X86_64,

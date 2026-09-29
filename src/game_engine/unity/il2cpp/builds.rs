@@ -38,6 +38,162 @@ pub(super) fn nearest(
 
 // The table reads from the oldest player to the newest.
 pub(super) const BUILDS: &[Build] = &[
+    // Unity 2018.1.0f1, metadata version 24, x64.
+    Build {
+        unity: (2018, 1, 0, 30795),
+        profile: Profile {
+            pointer_size: PointerSize::Bit64,
+            assembly: AssemblyOffsets {
+                image: 0x0,
+                name: None,
+            },
+            image: ImageOffsets {
+                assembly_name: Some(0x8),
+                type_count: 0x1c,
+                type_start: TypeStart::Inline(0x18),
+            },
+            class: ClassOffsets {
+                name: 0x10,
+                namespace: 0x18,
+                declaring_type: Some(0x50),
+                parent: 0x58,
+                fields: 0x80,
+                static_fields: 0xb8,
+                instance_size: Some(0xe8),
+                field_count: 0x110,
+            },
+            generic: GenericOffsets {
+                cached_class: Some(0x18),
+            },
+            type_: TypeOffsets {
+                data: Some(0x0),
+                kind: Some(0xa),
+            },
+            field: FieldInfoOffsets {
+                name: 0x0,
+                type_: Some(0x8),
+                offset: 0x18,
+                size: 0x28,
+            },
+        },
+    },
+    // Unity 2018.1.0f1, metadata version 24, x86.
+    Build {
+        unity: (2018, 1, 0, 30795),
+        profile: Profile {
+            pointer_size: PointerSize::Bit32,
+            assembly: AssemblyOffsets {
+                image: 0x0,
+                name: None,
+            },
+            image: ImageOffsets {
+                assembly_name: Some(0x4),
+                type_count: 0x10,
+                type_start: TypeStart::Inline(0xc),
+            },
+            class: ClassOffsets {
+                name: 0x8,
+                namespace: 0xc,
+                declaring_type: Some(0x28),
+                parent: 0x2c,
+                fields: 0x40,
+                static_fields: 0x5c,
+                instance_size: Some(0x80),
+                field_count: 0xa8,
+            },
+            generic: GenericOffsets {
+                cached_class: Some(0xc),
+            },
+            type_: TypeOffsets {
+                data: Some(0x0),
+                kind: Some(0x6),
+            },
+            field: FieldInfoOffsets {
+                name: 0x0,
+                type_: Some(0x4),
+                offset: 0xc,
+                size: 0x18,
+            },
+        },
+    },
+    // Unity 2018.2.0f2, metadata version 24, x64.
+    Build {
+        unity: (2018, 2, 0, 30296),
+        profile: Profile {
+            pointer_size: PointerSize::Bit64,
+            assembly: AssemblyOffsets {
+                image: 0x0,
+                name: None,
+            },
+            image: ImageOffsets {
+                assembly_name: Some(0x8),
+                type_count: 0x1c,
+                type_start: TypeStart::Inline(0x18),
+            },
+            class: ClassOffsets {
+                name: 0x10,
+                namespace: 0x18,
+                declaring_type: Some(0x50),
+                parent: 0x58,
+                fields: 0x80,
+                static_fields: 0xb8,
+                instance_size: Some(0xf0),
+                field_count: 0x118,
+            },
+            generic: GenericOffsets {
+                cached_class: Some(0x18),
+            },
+            type_: TypeOffsets {
+                data: Some(0x0),
+                kind: Some(0xa),
+            },
+            field: FieldInfoOffsets {
+                name: 0x0,
+                type_: Some(0x8),
+                offset: 0x18,
+                size: 0x28,
+            },
+        },
+    },
+    // Unity 2018.2.0f2, metadata version 24, x86.
+    Build {
+        unity: (2018, 2, 0, 30296),
+        profile: Profile {
+            pointer_size: PointerSize::Bit32,
+            assembly: AssemblyOffsets {
+                image: 0x0,
+                name: None,
+            },
+            image: ImageOffsets {
+                assembly_name: Some(0x4),
+                type_count: 0x10,
+                type_start: TypeStart::Inline(0xc),
+            },
+            class: ClassOffsets {
+                name: 0x8,
+                namespace: 0xc,
+                declaring_type: Some(0x28),
+                parent: 0x2c,
+                fields: 0x40,
+                static_fields: 0x5c,
+                instance_size: Some(0x88),
+                field_count: 0xb0,
+            },
+            generic: GenericOffsets {
+                cached_class: Some(0xc),
+            },
+            type_: TypeOffsets {
+                data: Some(0x0),
+                kind: Some(0x6),
+            },
+            field: FieldInfoOffsets {
+                name: 0x0,
+                type_: Some(0x4),
+                offset: 0xc,
+                size: 0x18,
+            },
+        },
+    },
     // Unity 2018.3.0f1, metadata version 24, x64.
     Build {
         unity: (2018, 3, 0, 9156),
