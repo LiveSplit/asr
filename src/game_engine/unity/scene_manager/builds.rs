@@ -20,7 +20,7 @@ pub(super) struct Build {
 /// the four parts of the file version of `UnityPlayer.dll`, or of the game's
 /// executable before Unity 2017.2, and the first three of them are the
 /// patch. A player takes the newest build whose patch is at or below its own
-/// patch. A player under every build takes none.
+/// patch. A player below every build takes none.
 pub(super) fn nearest(
     unity: (u16, u16, u16, u16),
     pointer_size: PointerSize,
@@ -29,8 +29,8 @@ pub(super) fn nearest(
     // build of one patch can carry a lower number than an earlier build.
     let patch = |version: (u16, u16, u16, u16)| (version.0, version.1, version.2);
 
-    // The table reads from the oldest player to the newest, so the newest
-    // build at or under the player's patch is the last one under it.
+    // The table reads from the oldest player to the newest, so the last match
+    // is the newest build at or below the player's patch.
     BUILDS
         .iter()
         .filter(|build| build.profile.pointer_size == pointer_size)
@@ -46,8 +46,8 @@ const PROLOGUE_LOAD_X64: Anchor = Anchor {
     displacement: 7,
 };
 
-// The scene count getter of Unity 6: it loads the global into rax and reads
-// the count at 0x18.
+// The scene count getter from Unity 6000.0 on: it loads the global into rax
+// and reads the count at 0x18.
 const SCENE_COUNT_GETTER_X64: Anchor = Anchor {
     signature: Signature::new(
         "48 8B 05 ?? ?? ?? ?? 8B 40 18 C3 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ??",
@@ -709,7 +709,7 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 6000.1.0f1, x86.
+    // Unity 6000.1.0f1, x86. Same layout as 2023.2.0.
     Build {
         unity: (6000, 1, 0, 41298),
         profile: Profile {
@@ -772,7 +772,7 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 6000.2.2f1, x86.
+    // Unity 6000.2.2f1, x86. Same layout as 6000.0.59.
     Build {
         unity: (6000, 2, 2, 14734),
         profile: Profile {

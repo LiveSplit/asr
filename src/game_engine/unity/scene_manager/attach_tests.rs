@@ -34,7 +34,8 @@ fn anchor_x64(image: &mut [u8], at: u64, global: u64) {
     put(image, at + 7, &[0x8B, 0x40, 0x18, 0xC3]);
 }
 
-// The Unity 6 x86 anchor loads the global through its absolute address.
+// The x86 anchor from Unity 2022.2 on loads the global through its absolute
+// address.
 fn anchor_x86(image: &mut [u8], at: u64, global: u64) {
     put(image, at, &[0xA1]);
     put(image, at + 1, &(global as u32).to_le_bytes());
@@ -68,7 +69,7 @@ fn nearest_is_the_build_itself_on_a_measured_player() {
 // Checks the rule against every entry of the table, so an entry added or
 // moved needs no change here.
 #[test]
-fn a_player_takes_the_newest_build_at_or_under_its_patch() {
+fn a_player_takes_the_newest_build_at_or_below_its_patch() {
     let patch = |v: (u16, u16, u16, u16)| (v.0, v.1, v.2);
     for pointer_size in [PointerSize::Bit64, PointerSize::Bit32] {
         let picked = |player| builds::nearest(player, pointer_size).unwrap().unity;
@@ -86,17 +87,17 @@ fn a_player_takes_the_newest_build_at_or_under_its_patch() {
                 let player = (entry.0, entry.1, entry.2, build);
                 assert_eq!(patch(picked(player)), patch(entry), "{player:?}");
             }
-            // The version right under an entry reads the entry before it,
-            // across a major or minor too, and nothing under the first entry.
-            let under = match entry {
+            // The version right below an entry reads the entry before it,
+            // across a major or minor too, and nothing below the first entry.
+            let below = match entry {
                 (major, minor, patch, _) if patch > 0 => (major, minor, patch - 1, u16::MAX),
                 (major, minor, _, _) if minor > 0 => (major, minor - 1, u16::MAX, u16::MAX),
                 (major, _, _, _) => (major - 1, u16::MAX, u16::MAX, u16::MAX),
             };
             if index == 0 {
-                assert!(builds::nearest(under, pointer_size).is_none(), "{under:?}");
+                assert!(builds::nearest(below, pointer_size).is_none(), "{below:?}");
             } else {
-                assert_eq!(picked(under), table[index - 1], "{under:?}");
+                assert_eq!(picked(below), table[index - 1], "{below:?}");
             }
         }
     }
