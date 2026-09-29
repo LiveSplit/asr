@@ -413,37 +413,6 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 2022.2.0f1, x64.
-    Build {
-        unity: (2022, 2, 0, 56532),
-        profile: Profile {
-            pointer_size: PointerSize::Bit64,
-            anchor: PROLOGUE_LOAD_X64,
-            path: PathShape::InlineNul,
-            reference: ReferenceShape::CachedObject,
-            manager: ManagerOffsets {
-                scenes: 0x8,
-                active_scene: 0x48,
-                dont_destroy_on_load_scene: 0x70,
-            },
-            scene: SceneOffsets {
-                path: 0x10,
-                build_index: 0x98,
-                roots: 0xb0,
-            },
-            transform: TransformOffsets {
-                game_object: 0x30,
-                children: 0x70,
-            },
-            game_object: GameObjectOffsets {
-                components: 0x30,
-                name: 0x60,
-            },
-            object: ObjectOffsets {
-                managed_reference: 0x28,
-            },
-        },
-    },
     // Unity 2022.2.0f1, x86.
     Build {
         unity: (2022, 2, 0, 56532),
