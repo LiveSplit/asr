@@ -126,12 +126,10 @@ const fn guid(canonical: &str) -> [u8; 16] {
 // set `v_table.vtable` to 0. Their statics path reads `MonoVTable.data`
 // through `vtable_size` and never reads `v_table.vtable`.
 pub(super) const BUILDS: &[Build] = &[
-    // Unity 5.6.7, mono.dll, x64.
-    // No PDB exists for this exact binary. The offsets come from another
-    // build's mono.pdb.
+    // Unity 5.0.0, mono.dll, x64.
     Build {
-        debug_id: debug_id("924a8172-8d25-496f-b684-20c9f04d4f92", 1),
-        unity: (5, 6, 7, 3267),
+        debug_id: debug_id("5136738d-3ea6-4d1e-9648-6b32e5c9bd88", 1),
+        unity: (5, 0, 0, 39095),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
             library: Library::Mono,
@@ -177,12 +175,10 @@ pub(super) const BUILDS: &[Build] = &[
             v_table: MonoVTableOffsets { vtable: 0x0 },
         },
     },
-    // Unity 5.6.7, mono.dll, x86.
-    // No x86 PDB exists for this binary. The offsets are the x64 layout with
-    // 32-bit field sizes, worked out by hand.
+    // Unity 5.0.0, mono.dll, x86.
     Build {
-        debug_id: debug_id("064ccfd8-ab0c-4a5b-b33d-7a59b8eafbab", 1),
-        unity: (5, 6, 7, 3267),
+        debug_id: debug_id("eba34511-cb2c-49b7-a5cb-2887ed792a46", 1),
+        unity: (5, 0, 0, 39095),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
             library: Library::Mono,
@@ -228,11 +224,11 @@ pub(super) const BUILDS: &[Build] = &[
             v_table: MonoVTableOffsets { vtable: 0x0 },
         },
     },
-    // Unity 2017.3.0, mono-2.0-bdwgc.dll, x64. The .NET 4.6 runtime of
-    // 2017.2 reads the same.
+    // Unity 2017.2.0, mono-2.0-bdwgc.dll, x64. The offsets come from the PDB
+    // of the 2017.3.0 runtime, which has the same layout.
     Build {
-        debug_id: debug_id("32d63a8e-b8d6-4444-8c22-84e695dae93d", 1),
-        unity: (2017, 3, 0, 63597),
+        debug_id: debug_id("e3d757e3-23e3-44a7-bb3a-c6735ca84523", 1),
+        unity: (2017, 2, 0, 58714),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
             library: Library::MonoBdwgc,
@@ -278,110 +274,10 @@ pub(super) const BUILDS: &[Build] = &[
             v_table: MonoVTableOffsets { vtable: 0x40 },
         },
     },
-    // Unity 2017.4.40, mono.dll, x64.
+    // Unity 2017.2.0, mono-2.0-bdwgc.dll, x86.
     Build {
-        debug_id: debug_id("c1c35e9c-fd72-4ebf-af5e-e7c932e2865d", 1),
-        unity: (2017, 4, 40, 5126),
-        profile: Profile {
-            pointer_size: PointerSize::Bit64,
-            library: Library::Mono,
-            assembly: AssemblyOffsets {
-                aname: None,
-                image: 0x58,
-            },
-            image: ImageOffsets {
-                assembly_name: Some(0x28),
-                class_cache: 0x3d0,
-            },
-            hash_table: HashTableOffsets {
-                size: 0x18,
-                table: 0x20,
-            },
-            class: ClassOffsets {
-                class_kind: None,
-                instance_size: Some(0x1c),
-                parent: 0x30,
-                nested_in: Some(0x38),
-                name: 0x50,
-                namespace: 0x58,
-                vtable_size: 0x18,
-                fields: 0xb0,
-                runtime_info: 0x100,
-                field_count: 0x9c,
-                next_class_cache: 0x108,
-            },
-            generic: GenericOffsets {
-                generic_class: None,
-                container_class: None,
-            },
-            type_words: TypeOffsets {
-                data: Some(0x0),
-                kind: Some(0xa),
-            },
-            field: FieldInfoOffsets {
-                type_: Some(0x0),
-                name: 0x8,
-                offset: 0x18,
-                stride: 0x20,
-            },
-            v_table: MonoVTableOffsets { vtable: 0x0 },
-        },
-    },
-    // Unity 2017.4.40, mono.dll, x86.
-    Build {
-        debug_id: debug_id("d45555b8-4783-4fba-9eeb-f830cb655d89", 1),
-        unity: (2017, 4, 40, 5126),
-        profile: Profile {
-            pointer_size: PointerSize::Bit32,
-            library: Library::Mono,
-            assembly: AssemblyOffsets {
-                aname: None,
-                image: 0x40,
-            },
-            image: ImageOffsets {
-                assembly_name: Some(0x18),
-                class_cache: 0x2a0,
-            },
-            hash_table: HashTableOffsets {
-                size: 0xc,
-                table: 0x14,
-            },
-            class: ClassOffsets {
-                class_kind: None,
-                instance_size: Some(0x10),
-                parent: 0x24,
-                nested_in: Some(0x28),
-                name: 0x34,
-                namespace: 0x38,
-                vtable_size: 0xc,
-                fields: 0x78,
-                runtime_info: 0xa8,
-                field_count: 0x68,
-                next_class_cache: 0xac,
-            },
-            generic: GenericOffsets {
-                generic_class: None,
-                container_class: None,
-            },
-            type_words: TypeOffsets {
-                data: Some(0x0),
-                kind: Some(0x6),
-            },
-            field: FieldInfoOffsets {
-                type_: Some(0x0),
-                name: 0x4,
-                offset: 0xc,
-                stride: 0x10,
-            },
-            v_table: MonoVTableOffsets { vtable: 0x0 },
-        },
-    },
-    // Unity 2018.4.36, mono-2.0-bdwgc.dll, x86. No PDB exists for the x86
-    // builds of 2017.2 through 2017.4, so a game on one of them takes this
-    // entry.
-    Build {
-        debug_id: debug_id("7059c7da-c870-4870-951d-758ba588a378", 1),
-        unity: (2018, 4, 36, 54151),
+        debug_id: debug_id("01871050-7e1d-491b-9083-0c5d4bf2c3ae", 1),
+        unity: (2017, 2, 0, 58714),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
             library: Library::MonoBdwgc,
@@ -427,8 +323,106 @@ pub(super) const BUILDS: &[Build] = &[
             v_table: MonoVTableOffsets { vtable: 0x28 },
         },
     },
-    // Unity 2021.2.0, mono-2.0-bdwgc.dll, x64. The first player with this
-    // layout.
+    // Unity 2017.4.6, mono.dll, x64. The offsets come from the PDB of the
+    // 2017.4.40 runtime, which has the same layout.
+    Build {
+        debug_id: debug_id("2b555578-2909-4668-a7a9-65356291192a", 1),
+        unity: (2017, 4, 6, 20272),
+        profile: Profile {
+            pointer_size: PointerSize::Bit64,
+            library: Library::Mono,
+            assembly: AssemblyOffsets {
+                aname: None,
+                image: 0x58,
+            },
+            image: ImageOffsets {
+                assembly_name: Some(0x28),
+                class_cache: 0x3d0,
+            },
+            hash_table: HashTableOffsets {
+                size: 0x18,
+                table: 0x20,
+            },
+            class: ClassOffsets {
+                class_kind: None,
+                instance_size: Some(0x1c),
+                parent: 0x30,
+                nested_in: Some(0x38),
+                name: 0x50,
+                namespace: 0x58,
+                vtable_size: 0x18,
+                fields: 0xb0,
+                runtime_info: 0x100,
+                field_count: 0x9c,
+                next_class_cache: 0x108,
+            },
+            generic: GenericOffsets {
+                generic_class: None,
+                container_class: None,
+            },
+            type_words: TypeOffsets {
+                data: Some(0x0),
+                kind: Some(0xa),
+            },
+            field: FieldInfoOffsets {
+                type_: Some(0x0),
+                name: 0x8,
+                offset: 0x18,
+                stride: 0x20,
+            },
+            v_table: MonoVTableOffsets { vtable: 0x0 },
+        },
+    },
+    // Unity 2017.4.6, mono.dll, x86.
+    Build {
+        debug_id: debug_id("60283a3e-8c5c-4de0-bcb2-eb794ba9ea7c", 1),
+        unity: (2017, 4, 6, 20272),
+        profile: Profile {
+            pointer_size: PointerSize::Bit32,
+            library: Library::Mono,
+            assembly: AssemblyOffsets {
+                aname: None,
+                image: 0x40,
+            },
+            image: ImageOffsets {
+                assembly_name: Some(0x18),
+                class_cache: 0x2a0,
+            },
+            hash_table: HashTableOffsets {
+                size: 0xc,
+                table: 0x14,
+            },
+            class: ClassOffsets {
+                class_kind: None,
+                instance_size: Some(0x10),
+                parent: 0x24,
+                nested_in: Some(0x28),
+                name: 0x34,
+                namespace: 0x38,
+                vtable_size: 0xc,
+                fields: 0x78,
+                runtime_info: 0xa8,
+                field_count: 0x68,
+                next_class_cache: 0xac,
+            },
+            generic: GenericOffsets {
+                generic_class: None,
+                container_class: None,
+            },
+            type_words: TypeOffsets {
+                data: Some(0x0),
+                kind: Some(0x6),
+            },
+            field: FieldInfoOffsets {
+                type_: Some(0x0),
+                name: 0x4,
+                offset: 0xc,
+                stride: 0x10,
+            },
+            v_table: MonoVTableOffsets { vtable: 0x0 },
+        },
+    },
+    // Unity 2021.2.0, mono-2.0-bdwgc.dll, x64.
     Build {
         debug_id: debug_id("1d844e97-52aa-4f02-8bca-3078b5a96371", 1),
         unity: (2021, 2, 0, 61932),
@@ -477,8 +471,7 @@ pub(super) const BUILDS: &[Build] = &[
             v_table: MonoVTableOffsets { vtable: 0x48 },
         },
     },
-    // Unity 2021.2.0, mono-2.0-bdwgc.dll, x86. The first player with this
-    // layout.
+    // Unity 2021.2.0, mono-2.0-bdwgc.dll, x86.
     Build {
         debug_id: debug_id("6d0f69e4-7a71-449a-b952-35cf3caac221", 1),
         unity: (2021, 2, 0, 61932),

@@ -21,11 +21,11 @@ fn nearest_takes_the_newest_build_at_or_below_the_version() {
             .unity
     };
     let x64 = PointerSize::Bit64;
-    assert_eq!(unity((2017, 2, 0, 0), x64), (2017, 3, 0, 63597));
-    assert_eq!(unity((2017, 3, 0, 63597), x64), (2017, 3, 0, 63597));
-    assert_eq!(unity((2018, 4, 36, 54151), x64), (2017, 3, 0, 63597));
-    assert_eq!(unity((2020, 2, 0, 8671), x64), (2017, 3, 0, 63597));
-    assert_eq!(unity((2021, 1, 29, 10531), x64), (2017, 3, 0, 63597));
+    assert_eq!(unity((2017, 2, 0, 0), x64), (2017, 2, 0, 58714));
+    assert_eq!(unity((2017, 3, 0, 63597), x64), (2017, 2, 0, 58714));
+    assert_eq!(unity((2018, 4, 36, 54151), x64), (2017, 2, 0, 58714));
+    assert_eq!(unity((2020, 2, 0, 8671), x64), (2017, 2, 0, 58714));
+    assert_eq!(unity((2021, 1, 29, 10531), x64), (2017, 2, 0, 58714));
     assert_eq!(unity((2021, 2, 0, 61932), x64), (2021, 2, 0, 61932));
     assert_eq!(unity((2021, 2, 0, 0), x64), (2021, 2, 0, 61932));
     assert_eq!(unity((2021, 2, 5, 1), x64), (2021, 2, 0, 61932));
@@ -36,17 +36,16 @@ fn nearest_takes_the_newest_build_at_or_below_the_version() {
     assert_eq!(unity((7000, 0, 0, 0), x64), (2021, 2, 0, 61932));
     assert_eq!(
         unity((2017, 3, 0, 63597), PointerSize::Bit32),
-        (2018, 4, 36, 54151)
+        (2017, 2, 0, 58714)
     );
     assert_eq!(
         unity((2019, 4, 41, 9172), PointerSize::Bit32),
-        (2018, 4, 36, 54151)
+        (2017, 2, 0, 58714)
     );
 }
 
-// The layout of mono.dll changes inside Unity 2017.4: 2017.4.0 reads like
-// 5.6, 2017.4.40 does not. A 2017.4 game below the measured patch takes the
-// build before it.
+// The layout of mono.dll changes at Unity 2017.4.6. A 2017.4 game below that
+// patch takes the build before it.
 #[test]
 fn a_patch_below_the_measured_one_takes_the_build_before_it() {
     let mono = |player| {
@@ -54,10 +53,10 @@ fn a_patch_below_the_measured_one_takes_the_build_before_it() {
             .unwrap()
             .unity
     };
-    assert_eq!(mono((2017, 4, 0, 48407)), (5, 6, 7, 3267));
-    assert_eq!(mono((2017, 4, 39, 1)), (5, 6, 7, 3267));
-    assert_eq!(mono((2017, 4, 40, 5126)), (2017, 4, 40, 5126));
-    assert_eq!(mono((2017, 4, 41, 1)), (2017, 4, 40, 5126));
+    assert_eq!(mono((2017, 4, 0, 48407)), (5, 0, 0, 39095));
+    assert_eq!(mono((2017, 4, 5, 1)), (5, 0, 0, 39095));
+    assert_eq!(mono((2017, 4, 6, 20272)), (2017, 4, 6, 20272));
+    assert_eq!(mono((2017, 4, 40, 5126)), (2017, 4, 6, 20272));
 }
 
 #[test]
@@ -67,10 +66,10 @@ fn libraries_do_not_mix() {
             .unwrap()
             .unity
     };
-    assert_eq!(mono((2019, 4, 41, 9172)), (2017, 4, 40, 5126));
-    assert_eq!(mono((2017, 1, 5, 1)), (5, 6, 7, 3267));
-    assert_eq!(mono((5, 4, 0, 0)), (5, 6, 7, 3267));
-    assert_eq!(mono((2018, 2, 0, 0)), (2017, 4, 40, 5126));
+    assert_eq!(mono((2019, 4, 41, 9172)), (2017, 4, 6, 20272));
+    assert_eq!(mono((2017, 1, 5, 1)), (5, 0, 0, 39095));
+    assert_eq!(mono((5, 4, 0, 0)), (5, 0, 0, 39095));
+    assert_eq!(mono((2018, 2, 0, 0)), (2017, 4, 6, 20272));
 }
 
 #[test]
@@ -161,7 +160,7 @@ fn nothing_is_nearest_where_nothing_was_measured() {
         builds::nearest((0, 0, 0, 0), Library::Mono, PointerSize::Bit32)
             .unwrap()
             .unity,
-        (5, 6, 7, 3267)
+        (5, 0, 0, 39095)
     );
 }
 
