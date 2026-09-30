@@ -18,14 +18,15 @@ pub(super) struct Build {
     pub(super) profile: Profile,
 }
 
-/// Finds the newest build of the library at the pointer size at or below
-/// the player's version, or the oldest one when none is below.
+/// Finds the newest Windows build at or below the player's version, for the
+/// player's library and pointer size. Returns `None` for a player older than
+/// every build.
 pub(super) fn nearest(
     unity: (u16, u16, u16, u16),
     library: Library,
     pointer_size: PointerSize,
 ) -> Option<&'static Build> {
-    nearest_by_version(
+    newest_at_or_below(
         BUILDS,
         unity,
         |build| {
@@ -40,31 +41,45 @@ pub(super) fn nearest(
     )
 }
 
-/// Finds the newest build at or below the player's major.minor.patch, or
-/// the oldest one when none is below. The build number is ignored because
-/// Linux and Mac players only carry three parts of the version.
-pub(super) fn nearest_by_version<B>(
+/// Finds the newest build at or below the player's version, for the
+/// player's library and pointer size. Only major.minor.patch is compared,
+/// because Linux and Mac players don't carry a build number.
+pub(super) fn newest_at_or_below<B>(
     builds: &'static [B],
     unity: (u16, u16, u16, u16),
     key: impl Fn(&B) -> ((u16, u16, u16, u16), Library, PointerSize),
     library: Library,
     pointer_size: PointerSize,
 ) -> Option<&'static B> {
-    let same = || {
-        builds.iter().filter(|build| {
-            let (_, built_for, width) = key(build);
-            built_for == library && width == pointer_size
-        })
-    };
-    let version = |build: &B| key(build).0;
-
-    same()
+    builds
+        .iter()
         .filter(|build| {
-            let built = version(build);
-            (built.0, built.1, built.2) <= (unity.0, unity.1, unity.2)
+            let (built, built_for, width) = key(build);
+            built_for == library
+                && width == pointer_size
+                && (built.0, built.1, built.2) <= (unity.0, unity.1, unity.2)
         })
-        .max_by_key(|build| version(build))
-        .or_else(|| same().min_by_key(|build| version(build)))
+        .max_by_key(|build| key(build).0)
+}
+
+/// Like [`newest_at_or_below`], but a player older than every build gets the
+/// oldest build.
+pub(super) fn nearest_by_version<B>(
+    builds: &'static [B],
+    unity: (u16, u16, u16, u16),
+    key: impl Fn(&B) -> ((u16, u16, u16, u16), Library, PointerSize) + Copy,
+    library: Library,
+    pointer_size: PointerSize,
+) -> Option<&'static B> {
+    newest_at_or_below(builds, unity, key, library, pointer_size).or_else(|| {
+        builds
+            .iter()
+            .filter(|build| {
+                let (_, built_for, width) = key(build);
+                built_for == library && width == pointer_size
+            })
+            .min_by_key(|build| key(build).0)
+    })
 }
 
 /// Finds the build with this GUID and age. A relink keeps the GUID and

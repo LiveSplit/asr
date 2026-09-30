@@ -8,68 +8,54 @@ use super::{builds, linux_builds, Library, Module};
 use crate::runtime::mock::{unity_player_image, with_modules, with_process};
 use crate::{Address, PointerSize, Process};
 use std::vec;
+use std::vec::Vec;
 
 const BASE: u64 = 0x1900_0000;
 
-// The build number does not count: a Linux or Mac player carries only
-// major.minor.patch, and no two builds of one patch are measured.
+// Checks the rule against every entry of the Windows table, so adding or
+// moving an entry needs no change here.
 #[test]
-fn nearest_takes_the_newest_build_at_or_below_the_version() {
-    let unity = |player, pointer_size| {
-        builds::nearest(player, Library::MonoBdwgc, pointer_size)
-            .unwrap()
-            .unity
-    };
-    let x64 = PointerSize::Bit64;
-    assert_eq!(unity((2017, 2, 0, 0), x64), (2017, 2, 0, 58714));
-    assert_eq!(unity((2017, 3, 0, 63597), x64), (2017, 2, 0, 58714));
-    assert_eq!(unity((2018, 4, 36, 54151), x64), (2017, 2, 0, 58714));
-    assert_eq!(unity((2020, 2, 0, 8671), x64), (2017, 2, 0, 58714));
-    assert_eq!(unity((2021, 1, 29, 10531), x64), (2017, 2, 0, 58714));
-    assert_eq!(unity((2021, 2, 0, 61932), x64), (2021, 2, 0, 61932));
-    assert_eq!(unity((2021, 2, 0, 0), x64), (2021, 2, 0, 61932));
-    assert_eq!(unity((2021, 2, 5, 1), x64), (2021, 2, 0, 61932));
-    assert_eq!(unity((2021, 2, 20, 62729), x64), (2021, 2, 0, 61932));
-    assert_eq!(unity((2021, 3, 0, 44232), x64), (2021, 2, 0, 61932));
-    assert_eq!(unity((2022, 2, 0, 56532), x64), (2021, 2, 0, 61932));
-    assert_eq!(unity((6000, 0, 84, 43887), x64), (2021, 2, 0, 61932));
-    assert_eq!(unity((7000, 0, 0, 0), x64), (2021, 2, 0, 61932));
-    assert_eq!(
-        unity((2017, 3, 0, 63597), PointerSize::Bit32),
-        (2017, 2, 0, 58714)
-    );
-    assert_eq!(
-        unity((2019, 4, 41, 9172), PointerSize::Bit32),
-        (2017, 2, 0, 58714)
-    );
-}
+fn a_player_takes_the_newest_build_at_or_below_its_patch() {
+    let patch = |v: (u16, u16, u16, u16)| (v.0, v.1, v.2);
+    for library in [Library::Mono, Library::MonoBdwgc] {
+        for pointer_size in [PointerSize::Bit64, PointerSize::Bit32] {
+            let picked = |player| {
+                builds::nearest(player, library, pointer_size)
+                    .unwrap()
+                    .unity
+            };
+            let table: Vec<_> = builds::BUILDS
+                .iter()
+                .filter(|build| {
+                    build.profile.library == library && build.profile.pointer_size == pointer_size
+                })
+                .map(|build| build.unity)
+                .collect();
 
-// The layout of mono.dll changes at Unity 2017.4.6. A 2017.4 game below that
-// patch takes the build before it.
-#[test]
-fn a_patch_below_the_measured_one_takes_the_build_before_it() {
-    let mono = |player| {
-        builds::nearest(player, Library::Mono, PointerSize::Bit64)
-            .unwrap()
-            .unity
-    };
-    assert_eq!(mono((2017, 4, 0, 48407)), (5, 0, 0, 39095));
-    assert_eq!(mono((2017, 4, 5, 1)), (5, 0, 0, 39095));
-    assert_eq!(mono((2017, 4, 6, 20272)), (2017, 4, 6, 20272));
-    assert_eq!(mono((2017, 4, 40, 5126)), (2017, 4, 6, 20272));
-}
+            assert!(builds::nearest((0, 0, 0, 0), library, pointer_size).is_none());
+            assert_eq!(picked((u16::MAX, 0, 0, 0)), *table.last().unwrap());
 
-#[test]
-fn libraries_do_not_mix() {
-    let mono = |player| {
-        builds::nearest(player, Library::Mono, PointerSize::Bit64)
-            .unwrap()
-            .unity
-    };
-    assert_eq!(mono((2019, 4, 41, 9172)), (2017, 4, 6, 20272));
-    assert_eq!(mono((2017, 1, 5, 1)), (5, 0, 0, 39095));
-    assert_eq!(mono((5, 4, 0, 0)), (5, 0, 0, 39095));
-    assert_eq!(mono((2018, 2, 0, 0)), (2017, 4, 6, 20272));
+            for (index, &entry) in table.iter().enumerate() {
+                for build in [0, u16::MAX] {
+                    let player = (entry.0, entry.1, entry.2, build);
+                    assert_eq!(patch(picked(player)), patch(entry), "{player:?}");
+                }
+                // The version right below an entry reads the entry before it,
+                // across a major or minor too, and nothing below the first entry.
+                let below = match entry {
+                    (major, minor, number, _) if number > 0 => (major, minor, number - 1, u16::MAX),
+                    (major, minor, _, _) if minor > 0 => (major, minor - 1, u16::MAX, u16::MAX),
+                    (major, _, _, _) => (major - 1, u16::MAX, u16::MAX, u16::MAX),
+                };
+                if index == 0 {
+                    let found = builds::nearest(below, library, pointer_size);
+                    assert!(found.is_none(), "{below:?}");
+                } else {
+                    assert_eq!(picked(below), table[index - 1], "{below:?}");
+                }
+            }
+        }
+    }
 }
 
 #[test]
@@ -156,12 +142,7 @@ fn nothing_is_nearest_where_nothing_was_measured() {
     assert!(
         builds::nearest((2020, 1, 18, 38512), Library::MonoBdwgc, PointerSize::Bit16).is_none()
     );
-    assert_eq!(
-        builds::nearest((0, 0, 0, 0), Library::Mono, PointerSize::Bit32)
-            .unwrap()
-            .unity,
-        (5, 0, 0, 39095)
-    );
+    assert!(builds::nearest((0, 0, 0, 0), Library::Mono, PointerSize::Bit32).is_none());
 }
 
 // A Windows game before Unity 2017.2 ships no player module. Its executable
