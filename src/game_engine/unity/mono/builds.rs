@@ -26,7 +26,7 @@ pub(super) fn nearest(
     library: Library,
     pointer_size: PointerSize,
 ) -> Option<&'static Build> {
-    newest_at_or_below(
+    nearest_by_version(
         BUILDS,
         unity,
         |build| {
@@ -44,7 +44,7 @@ pub(super) fn nearest(
 /// Finds the newest build at or below the player's version, for the
 /// player's library and pointer size. Only major.minor.patch is compared,
 /// because Linux and Mac players don't carry a build number.
-pub(super) fn newest_at_or_below<B>(
+pub(super) fn nearest_by_version<B>(
     builds: &'static [B],
     unity: (u16, u16, u16, u16),
     key: impl Fn(&B) -> ((u16, u16, u16, u16), Library, PointerSize),
@@ -62,16 +62,16 @@ pub(super) fn newest_at_or_below<B>(
         .max_by_key(|build| key(build).0)
 }
 
-/// Like [`newest_at_or_below`], but a player older than every build gets the
+/// Like [`nearest_by_version`], but a player older than every build gets the
 /// oldest build.
-pub(super) fn nearest_by_version<B>(
+pub(super) fn nearest_or_oldest<B>(
     builds: &'static [B],
     unity: (u16, u16, u16, u16),
     key: impl Fn(&B) -> ((u16, u16, u16, u16), Library, PointerSize) + Copy,
     library: Library,
     pointer_size: PointerSize,
 ) -> Option<&'static B> {
-    newest_at_or_below(builds, unity, key, library, pointer_size).or_else(|| {
+    nearest_by_version(builds, unity, key, library, pointer_size).or_else(|| {
         builds
             .iter()
             .filter(|build| {

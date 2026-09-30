@@ -10,7 +10,7 @@ use super::offsets::{
     AssemblyOffsets, ClassOffsets, FieldInfoOffsets, GenericOffsets, HashTableOffsets,
     ImageOffsets, MonoVTableOffsets, Profile, TypeOffsets,
 };
-use super::{builds::nearest_by_version, Library};
+use super::{builds::nearest_or_oldest, Library};
 use crate::PointerSize;
 
 /// One exact Mono library and the offsets measured from it.
@@ -21,13 +21,13 @@ pub(super) struct Build {
 }
 
 /// Finds the build for a player that is no known build, by the rule of
-/// [`nearest_by_version`].
+/// [`nearest_or_oldest`].
 pub(super) fn nearest(
     unity: (u16, u16, u16, u16),
     library: Library,
     pointer_size: PointerSize,
 ) -> Option<&'static Build> {
-    nearest_by_version(
+    nearest_or_oldest(
         BUILDS,
         unity,
         |build| {
