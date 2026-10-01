@@ -125,11 +125,23 @@ impl Module {
         // pointer past its begin.
         const ASSEMBLIES: Signature<16> =
             Signature::new("75 ?? 48 8B 1D ?? ?? ?? ?? 48 3B 1D ?? ?? ?? ??");
+        // mov rax, [begin]; mov r11, [end]; cmp rax, r11. Unity 2018.1
+        // loads both ends before it compares them.
+        const ASSEMBLIES_2018_1: Signature<17> =
+            Signature::new("48 8B 05 ?? ?? ?? ?? 4C 8B 1D ?? ?? ?? ?? 49 3B C3");
         let assemblies = ASSEMBLIES
             .scan_iter(process, il2cpp_module)
             .find_map(|addr| {
                 let begin = displaced(addr + 5)?;
                 (displaced(addr + 12)? == begin + 8u64).then_some(begin)
+            })
+            .or_else(|| {
+                ASSEMBLIES_2018_1
+                    .scan_iter(process, il2cpp_module)
+                    .find_map(|addr| {
+                        let begin = displaced(addr + 3)?;
+                        (displaced(addr + 10)? == begin + 8u64).then_some(begin)
+                    })
             })?;
 
         let s_metadata = Self::metadata_name(process, il2cpp_module)?;
@@ -165,11 +177,23 @@ impl Module {
         // vector sits one pointer past its begin.
         const ASSEMBLIES: Signature<16> =
             Signature::new("75 ?? 8B 35 ?? ?? ?? ?? 2B F9 3B 35 ?? ?? ?? ??");
+        // mov eax, [begin]; mov esi, [end]; cmp eax, esi. Unity 2018.1
+        // loads both ends before it compares them.
+        const ASSEMBLIES_2018_1: Signature<13> =
+            Signature::new("A1 ?? ?? ?? ?? 8B 35 ?? ?? ?? ?? 3B C6");
         let assemblies = ASSEMBLIES
             .scan_iter(process, il2cpp_module)
             .find_map(|addr| {
                 let begin = absolute(addr + 4)?;
                 (absolute(addr + 12)? == begin + 4u64).then_some(begin)
+            })
+            .or_else(|| {
+                ASSEMBLIES_2018_1
+                    .scan_iter(process, il2cpp_module)
+                    .find_map(|addr| {
+                        let begin = absolute(addr + 1)?;
+                        (absolute(addr + 7)? == begin + 4u64).then_some(begin)
+                    })
             })?;
 
         let s_metadata = Self::metadata_name(process, il2cpp_module)?;
