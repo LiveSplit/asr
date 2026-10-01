@@ -18,7 +18,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 /// The commit of the fixtures repo whose manifest and contract are used.
-const FIXTURES: &str = "7a7dcc2e704c491c38cd7bb10a81add1f5d151db";
+const FIXTURES: &str = "12e6d7a2693e3f8dd0b898ab7476d8ed4e0acb00";
 
 /// One asset of the fixtures repo: a player for one Unity version and
 /// variant, with what the manifest says about the zip.
