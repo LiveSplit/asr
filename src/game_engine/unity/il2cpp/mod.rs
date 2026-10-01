@@ -4,8 +4,8 @@ use arrayvec::ArrayVec;
 use bytemuck::CheckedBitPattern;
 
 use crate::{
-    file_format::pe, future::retry, print_limited, signature::Signature, string::ArrayCString,
-    Address, Error, PointerSize, Process,
+    file_format::pe, future::retry, print_limited, string::ArrayCString, Address, Error,
+    PointerSize, Process,
 };
 
 mod builds;
@@ -106,11 +106,7 @@ impl Module {
     ) -> Option<Self> {
         let pointer_size = profile.pointer_size;
         let assemblies = globals::assemblies(process, il2cpp_module, pointer_size)?;
-        let table = match pointer_size {
-            PointerSize::Bit64 => Self::globals_x64(process, il2cpp_module)?,
-            PointerSize::Bit32 => Self::globals_x86(process, il2cpp_module)?,
-            _ => return None,
-        };
+        let table = globals::type_info_definition_table(process, il2cpp_module, pointer_size)?;
         let (assemblies, type_info_definition_table) =
             Self::inside(il2cpp_module, assemblies, table)?;
 
@@ -120,87 +116,6 @@ impl Module {
             profile,
             pointer_size,
         })
-    }
-
-    /// Finds the type-info table in x64 code. It is given as a displacement
-    /// from the next instruction.
-    fn globals_x64(process: &Process, il2cpp_module: (Address, u64)) -> Option<Address> {
-        let displaced = |addr: Address| Some(addr + 0x4 + process.read::<i32>(addr).ok()?);
-
-        let s_metadata = Self::metadata_name(process, il2cpp_module)?;
-
-        // lea rcx, [name]
-        const LEA: Signature<7> = Signature::new("48 8D 0D ?? ?? ?? ??");
-        let lea: Address = LEA
-            .scan_iter(process, il2cpp_module)
-            .map(|addr| addr + 3)
-            .find(|&addr| displaced(addr) == Some(s_metadata))?;
-
-        // shr rcx, imm8, then mov [table], rax
-        const SHR: Signature<3> = Signature::new("48 C1 E9");
-        let shr: Address = SHR
-            .scan_process_range(process, Self::within(il2cpp_module, lea, 0x200))
-            .map(|addr| addr + 3)?;
-
-        const RAX: Signature<7> = Signature::new("48 89 05 ?? ?? ?? ??");
-        RAX.scan_process_range(process, Self::within(il2cpp_module, shr, 0x100))
-            .map(|addr| addr + 3)
-            .and_then(displaced)
-    }
-
-    /// Finds the type-info table in x86 code. It is given as an absolute
-    /// address.
-    fn globals_x86(process: &Process, il2cpp_module: (Address, u64)) -> Option<Address> {
-        let absolute = |addr: Address| Some(Address::new(process.read::<u32>(addr).ok()? as u64));
-
-        let s_metadata = Self::metadata_name(process, il2cpp_module)?;
-
-        // push offset name; call
-        const PUSH: Signature<6> = Signature::new("68 ?? ?? ?? ?? E8");
-        let push: Address = PUSH
-            .scan_iter(process, il2cpp_module)
-            .map(|addr| addr + 1)
-            .find(|&addr| absolute(addr) == Some(s_metadata))?;
-
-        // The table is the first store after the name. Three shapes store
-        // it. Through Unity 6000.2 the count is a byte size, so a shift
-        // divides it first, and some of those builds reload ecx after the
-        // call. From 6000.3 the count comes straight from the header, at
-        // 0xF4.
-        const DIVIDED: Signature<14> = Signature::new("C1 EA ?? 52 E8 ?? ?? ?? ?? A3 ?? ?? ?? ??");
-        const DIVIDED_RELOAD: Signature<20> =
-            Signature::new("C1 EA ?? 52 E8 ?? ?? ?? ?? 8B 0D ?? ?? ?? ?? A3 ?? ?? ?? ??");
-        const PUSHED: Signature<16> =
-            Signature::new("FF B0 F4 00 00 00 E8 ?? ?? ?? ?? A3 ?? ?? ?? ??");
-        let window = Self::within(il2cpp_module, push, 0x400);
-        let store = [
-            DIVIDED
-                .scan_process_range(process, window)
-                .map(|addr| addr + 10),
-            DIVIDED_RELOAD
-                .scan_process_range(process, window)
-                .map(|addr| addr + 16),
-            PUSHED
-                .scan_process_range(process, window)
-                .map(|addr| addr + 12),
-        ]
-        .into_iter()
-        .flatten()
-        .min()?;
-        absolute(store)
-    }
-
-    /// Finds the string `global-metadata.dat` in the module.
-    fn metadata_name(process: &Process, il2cpp_module: (Address, u64)) -> Option<Address> {
-        const GLOBAL_METADATA: Signature<20> =
-            Signature::new("67 6C 6F 62 61 6C 2D 6D 65 74 61 64 61 74 61 2E 64 61 74 00");
-        GLOBAL_METADATA.scan_process_range(process, il2cpp_module)
-    }
-
-    /// The range from `start` for up to `len` bytes, cut at the module's end.
-    fn within(module: (Address, u64), start: Address, len: u64) -> (Address, u64) {
-        let end = module.0.value().saturating_add(module.1);
-        (start, len.min(end.saturating_sub(start.value())))
     }
 
     /// The two globals, once both lie inside the module.
