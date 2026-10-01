@@ -10,7 +10,7 @@ use crate::PointerSize;
 // splitter.
 #[test]
 fn windows_constants_name_the_expected_profiles() {
-    let profiles: [((u16, u16, u16, u16), Library, PointerSize, Profile); 8] = [
+    let profiles: [((u16, u16, u16, u16), Library, PointerSize, Profile); 12] = [
         (
             (5, 0, 0, 39095),
             Library::Mono,
@@ -46,6 +46,30 @@ fn windows_constants_name_the_expected_profiles() {
             Library::Mono,
             PointerSize::Bit32,
             UNITY_2017_4_6F1_WINDOWS_MONO_X86,
+        ),
+        (
+            (2018, 1, 0, 30795),
+            Library::Mono,
+            PointerSize::Bit64,
+            UNITY_2018_1_0F1_WINDOWS_MONO_X86_64,
+        ),
+        (
+            (2018, 1, 0, 30795),
+            Library::Mono,
+            PointerSize::Bit32,
+            UNITY_2018_1_0F1_WINDOWS_MONO_X86,
+        ),
+        (
+            (2018, 1, 7, 46210),
+            Library::Mono,
+            PointerSize::Bit64,
+            UNITY_2018_1_7F1_WINDOWS_MONO_X86_64,
+        ),
+        (
+            (2018, 1, 7, 46210),
+            Library::Mono,
+            PointerSize::Bit32,
+            UNITY_2018_1_7F1_WINDOWS_MONO_X86,
         ),
         (
             (2021, 2, 0, 61932),
