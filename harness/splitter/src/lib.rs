@@ -50,7 +50,6 @@ enum Backend {
 }
 
 async fn report(process: &Process) {
-    report_scenes(process).await;
     let backend = retry(|| {
         if has_module(
             process,
@@ -87,6 +86,7 @@ async fn report(process: &Process) {
             report_classes(process, &Mono(module)).await;
         }
     }
+    report_scenes(process).await;
     set("done", "1");
 }
 
