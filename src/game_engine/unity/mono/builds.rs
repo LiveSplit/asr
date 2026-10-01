@@ -239,6 +239,104 @@ pub(super) const BUILDS: &[Build] = &[
             v_table: MonoVTableOffsets { vtable: 0x0 },
         },
     },
+    // Unity 2017.1.0, mono-2.0-bdwgc.dll, x64.
+    Build {
+        debug_id: debug_id("f6e9366e-08b8-4e78-bafe-7c8aafaaf7b8", 1),
+        unity: (2017, 1, 0, 9747),
+        profile: Profile {
+            pointer_size: PointerSize::Bit64,
+            library: Library::MonoBdwgc,
+            assembly: AssemblyOffsets {
+                aname: None,
+                image: 0x60,
+            },
+            image: ImageOffsets {
+                assembly_name: Some(0x28),
+                class_cache: 0x4a8,
+            },
+            hash_table: HashTableOffsets {
+                size: 0x18,
+                table: 0x20,
+            },
+            class: ClassOffsets {
+                class_kind: None,
+                instance_size: Some(0x1c),
+                parent: 0x30,
+                nested_in: Some(0x38),
+                name: 0x48,
+                namespace: 0x50,
+                vtable_size: 0x5c,
+                fields: 0xb0,
+                runtime_info: 0xf8,
+                field_count: 0x94,
+                next_class_cache: 0x100,
+            },
+            generic: GenericOffsets {
+                generic_class: None,
+                container_class: None,
+            },
+            type_words: TypeOffsets {
+                data: Some(0x0),
+                kind: Some(0xa),
+            },
+            field: FieldInfoOffsets {
+                type_: Some(0x0),
+                name: 0x8,
+                offset: 0x18,
+                stride: 0x20,
+            },
+            v_table: MonoVTableOffsets { vtable: 0x40 },
+        },
+    },
+    // Unity 2017.1.0, mono-2.0-bdwgc.dll, x86.
+    Build {
+        debug_id: debug_id("aef8adb1-0052-4953-88f2-fd56544ccb87", 1),
+        unity: (2017, 1, 0, 9747),
+        profile: Profile {
+            pointer_size: PointerSize::Bit32,
+            library: Library::MonoBdwgc,
+            assembly: AssemblyOffsets {
+                aname: None,
+                image: 0x44,
+            },
+            image: ImageOffsets {
+                assembly_name: Some(0x18),
+                class_cache: 0x340,
+            },
+            hash_table: HashTableOffsets {
+                size: 0xc,
+                table: 0x14,
+            },
+            class: ClassOffsets {
+                class_kind: None,
+                instance_size: Some(0x10),
+                parent: 0x24,
+                nested_in: Some(0x28),
+                name: 0x30,
+                namespace: 0x34,
+                vtable_size: 0x3c,
+                fields: 0x78,
+                runtime_info: 0xa4,
+                field_count: 0x64,
+                next_class_cache: 0xa8,
+            },
+            generic: GenericOffsets {
+                generic_class: None,
+                container_class: None,
+            },
+            type_words: TypeOffsets {
+                data: Some(0x0),
+                kind: Some(0x6),
+            },
+            field: FieldInfoOffsets {
+                type_: Some(0x0),
+                name: 0x4,
+                offset: 0xc,
+                stride: 0x10,
+            },
+            v_table: MonoVTableOffsets { vtable: 0x24 },
+        },
+    },
     // Unity 2017.2.0, mono-2.0-bdwgc.dll, x64. The offsets come from the PDB
     // of the 2017.3.0 runtime, which has the same layout.
     Build {
