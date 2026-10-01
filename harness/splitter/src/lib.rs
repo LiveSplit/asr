@@ -264,8 +264,8 @@ managed!(Mono, mono::Class);
 managed!(Il2cpp, il2cpp::Class);
 
 /// Reports `FixtureData`'s statics and the fields of its instance under
-/// `classes.FixtureData`. `Instance` is set in `Awake`, so the reads wait
-/// for it.
+/// `classes.FixtureData`. `Awake` sets `Instance` first and `dict` last, so
+/// the reads wait for both.
 async fn report_classes(process: &Process, module: &impl Managed) {
     let class = retry(|| module.class(process, "FixtureData")).await;
     asr::print_message("found FixtureData");
@@ -282,6 +282,13 @@ async fn report_classes(process: &Process, module: &impl Managed) {
     })
     .await;
     asr::print_message("FixtureData.Instance is set");
+    retry(|| {
+        process
+            .read_pointer(instance + field("dict")?, pointer)
+            .ok()
+            .filter(|address| !address.is_null())
+    })
+    .await;
 
     let prefix = "classes.FixtureData";
     if let Some(offset) = field("StaticInt") {
