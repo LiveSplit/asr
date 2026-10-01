@@ -211,6 +211,21 @@ const REQUIRED: &[&str] = &[
     "classes.FixtureData.fields.dict.three",
 ];
 
+/// Returns the paths a player of the Unity version has to report. No
+/// scene manager build goes below 5.6, so older players only report the
+/// classes.
+fn required(version: &str) -> impl Iterator<Item = &'static str> {
+    let mut parts = version.split('.').map(|part| part.parse::<u32>().ok());
+    let below_5_6 = matches!(
+        (parts.next(), parts.next()),
+        (Some(Some(major)), Some(Some(minor))) if (major, minor) < (5, 6)
+    );
+    REQUIRED
+        .iter()
+        .copied()
+        .filter(move |path| !below_5_6 || path.starts_with("classes."))
+}
+
 /// The variables the auto splitter sets about the run itself, not about
 /// the contract.
 const ABOUT_THE_RUN: &[&str] = &["runtime", "done"];
@@ -402,7 +417,8 @@ fn main() {
         let dir = player(entry, &cache);
         let log = cache.join(format!("{}.log", zip_name(entry).trim_end_matches(".zip")));
         let reported = run(&dir, &splitter, &log);
-        let problems = check(&reported.variables, &contract, REQUIRED);
+        let required: Vec<_> = required(&entry.version).collect();
+        let problems = check(&reported.variables, &contract, &required);
         let runtime = reported
             .variables
             .get("runtime")
@@ -537,6 +553,16 @@ mod tests {
             ),
             ["d is not in the contract"]
         );
+    }
+
+    #[test]
+    fn a_player_below_5_6_needs_no_scenes() {
+        let required = |version| super::required(version).collect::<Vec<_>>();
+        let below = required("5.5.6f1");
+        assert!(!below.is_empty());
+        assert!(below.iter().all(|path| path.starts_with("classes.")));
+        assert_eq!(required("5.6.0f1"), super::REQUIRED);
+        assert_eq!(required("2017.1.0f3"), super::REQUIRED);
     }
 
     #[test]
