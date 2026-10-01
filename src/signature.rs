@@ -254,7 +254,10 @@ impl<const N: usize> Signature<N> {
             _buffer: [u8; MEM_SIZE.saturating_sub(1)],
         }
 
-        let mut last_page_success = false;
+        // Counts the bytes read in a row up to the end of the last chunk. A
+        // failed read resets it to 0.
+        let mut last_valid: usize = 0;
+        let mut last_len: usize = 0;
 
         // Although a bit slower, we need to ensure the compiler doesn't do unexpected optimizations
         // to the MaybeUninit struct. For this reason we are explicitly zero-initializing our buffer.
@@ -288,11 +291,15 @@ impl<const N: usize> Signature<N> {
             let end = ((addr.value() & !((4 << 10) - 1)) + (4 << 10)).min(overall_end);
             let len = end.saturating_sub(addr.value()) as usize;
 
-            // If we have read the previous memory page successfully, then we can copy the last
-            // elements to the start of the buffer.
-            if last_page_success {
-                let (start, end) = buffer.split_at_mut(N.saturating_sub(1));
-                start.copy_from_slice(&end[len.saturating_sub(N).saturating_add(1)..]);
+            // Carry the last bytes of the previous chunk to just before this
+            // one, so a match across the boundary is found. Only bytes that
+            // were really read count, so a short first chunk carries fewer
+            // than N - 1.
+            let head = N.saturating_sub(1);
+            let carried = last_valid.min(head);
+            if carried > 0 {
+                let from = head + last_len - carried;
+                buffer.copy_within(from..from + carried, head - carried);
             }
 
             let current_page_success = process
@@ -303,36 +310,26 @@ impl<const N: usize> Signature<N> {
             // this returns an empty slice so the subsequent iterator will result into an empty iterator.
             // If we managed to read the current memory page, instead, we check if we have successfully read the data
             // from the previous memory page.
-            let scan_buf = unsafe {
-                if current_page_success {
-                    if last_page_success {
-                        slice::from_raw_parts(
-                            buffer.as_ptr(),
-                            len.saturating_add(N).saturating_sub(1),
-                        )
-                    } else {
-                        slice::from_raw_parts(buffer.as_ptr().byte_add(N).byte_sub(1), len)
-                    }
-                } else {
-                    &[]
-                }
+            let scan_buf: &[u8] = if current_page_success {
+                &buffer[head - carried..head + len]
+            } else {
+                &[]
             };
 
             let cur_addr = addr;
-            let cur_suc = last_page_success;
 
             addr = Address::new(end);
-            last_page_success = current_page_success;
+            last_valid = if current_page_success {
+                carried + len
+            } else {
+                0
+            };
+            last_len = len;
 
-            Some(self.scan_internal(&scan_buf).map(move |pos| {
-                let mut address = cur_addr.add(pos as u64);
-
-                if cur_suc {
-                    address = address.add_signed(-(N.saturating_sub(1) as i64))
-                }
-
-                address
-            }))
+            Some(
+                self.scan_internal(scan_buf)
+                    .map(move |pos| cur_addr.add(pos as u64).add_signed(-(carried as i64))),
+            )
         })
         .flatten()
     }
@@ -631,4 +628,59 @@ fn find_byte_swar(haystack: &[u8], needle: u8, mut start: usize) -> Option<usize
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Signature;
+    use crate::{runtime::mock::with_process, Address};
+
+    const SIGNATURE: Signature<4> = Signature::new("AA BB CC DD");
+
+    /// Two pages of zeros starting at 0x10000, with the signature at `at`.
+    fn pages_with_signature_at(at: u64) -> [u8; 0x2000] {
+        let mut memory = [0; 0x2000];
+        let at = (at - 0x10000) as usize;
+        memory[at..at + 4].copy_from_slice(&[0xAA, 0xBB, 0xCC, 0xDD]);
+        memory
+    }
+
+    #[test]
+    fn finds_a_match_in_a_range_that_ends_partway_through_a_page() {
+        let memory = pages_with_signature_at(0x11008);
+        with_process(&[(0x10000, &memory)], |process| {
+            assert_eq!(
+                SIGNATURE.scan_process_range(process, (Address::new(0x10FF0), 0x20)),
+                Some(Address::new(0x11008))
+            );
+        });
+    }
+
+    #[test]
+    fn finds_a_match_across_the_first_page_boundary() {
+        let memory = pages_with_signature_at(0x10FFE);
+        with_process(&[(0x10000, &memory)], |process| {
+            assert_eq!(
+                SIGNATURE.scan_process_range(process, (Address::new(0x10FF0), 0x1010)),
+                Some(Address::new(0x10FFE))
+            );
+        });
+    }
+
+    #[test]
+    fn finds_no_match_in_bytes_before_a_short_first_chunk() {
+        // The range starts one byte before a page end, so the first chunk
+        // holds AA alone. The signature would match two bytes before the
+        // range if those bytes got scanned.
+        let mut memory = [0x11; 0x2000];
+        memory[0xFFF] = 0xAA;
+        memory[0x1000] = 0xBB;
+        let signature: Signature<4> = Signature::new("00 00 AA BB");
+        with_process(&[(0x10000, &memory)], |process| {
+            assert_eq!(
+                signature.scan_process_range(process, (Address::new(0x10FFF), 0x100)),
+                None
+            );
+        });
+    }
 }
