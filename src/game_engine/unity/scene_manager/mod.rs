@@ -213,11 +213,13 @@ impl SceneManager {
     /// `DontDestroyOnLoad` is a special Unity scene containing game objects
     /// that must be preserved when switching between different scenes (eg. a
     /// `scene1` starting some background music that continues when `scene2`
-    /// loads).
-    pub fn get_dont_destroy_on_load_scene(&self) -> Scene {
-        Scene {
-            address: self.address + self.profile.manager.dont_destroy_on_load_scene,
-        }
+    /// loads). Returns `None` on Unity 5.6.0 and 5.6.1, which keep those
+    /// objects in a list of instance IDs, not in a scene.
+    pub fn get_dont_destroy_on_load_scene(&self) -> Option<Scene> {
+        let offset = self.profile.manager.dont_destroy_on_load_scene?;
+        Some(Scene {
+            address: self.address + offset,
+        })
     }
 
     /// Returns the current scene index.

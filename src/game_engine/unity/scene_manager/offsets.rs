@@ -37,12 +37,13 @@ pub(super) enum ReferenceShape {
 /// The members of `RuntimeSceneManager` the walk reads. The loaded scenes
 /// are a dynamic array, with the pointer to the scenes at `scenes` and the
 /// count two pointers after it. The `DontDestroyOnLoad` scene is embedded in
-/// the manager by value.
+/// the manager by value. Unity 5.6.0 and 5.6.1 have no such scene, so it is
+/// `None` for them.
 #[derive(Debug)]
 pub(super) struct ManagerOffsets {
     pub(super) scenes: u8,
     pub(super) active_scene: u8,
-    pub(super) dont_destroy_on_load_scene: u8,
+    pub(super) dont_destroy_on_load_scene: Option<u8>,
 }
 
 /// The members of `UnityScene` the walk reads. The roots are a circular list

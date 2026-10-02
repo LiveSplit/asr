@@ -98,7 +98,7 @@ pub(super) const BUILDS: &[Build] = &[
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x48,
-                dont_destroy_on_load_scene: 0x70,
+                dont_destroy_on_load_scene: None,
             },
             scene: SceneOffsets {
                 path: 0x18,
@@ -129,7 +129,71 @@ pub(super) const BUILDS: &[Build] = &[
             manager: ManagerOffsets {
                 scenes: 0x4,
                 active_scene: 0x24,
-                dont_destroy_on_load_scene: 0x38,
+                dont_destroy_on_load_scene: None,
+            },
+            scene: SceneOffsets {
+                path: 0x10,
+                build_index: 0x74,
+                roots: 0x8c,
+            },
+            transform: TransformOffsets {
+                game_object: 0x1c,
+                children: 0x50,
+            },
+            game_object: GameObjectOffsets {
+                components: 0x1c,
+                name: 0x3c,
+            },
+            object: ObjectOffsets {
+                managed_reference: 0x18,
+            },
+        },
+    },
+    // Unity 5.6.2f1, x64. Same layout as 5.6.0, but with the DontDestroyOnLoad
+    // scene.
+    Build {
+        unity: (5, 6, 2, 37180),
+        profile: Profile {
+            pointer_size: PointerSize::Bit64,
+            anchor: PROLOGUE_LOAD_X64,
+            path: PathShape::Pointer,
+            reference: ReferenceShape::CachedObject,
+            manager: ManagerOffsets {
+                scenes: 0x8,
+                active_scene: 0x48,
+                dont_destroy_on_load_scene: Some(0x70),
+            },
+            scene: SceneOffsets {
+                path: 0x18,
+                build_index: 0xa0,
+                roots: 0xb8,
+            },
+            transform: TransformOffsets {
+                game_object: 0x30,
+                children: 0x70,
+            },
+            game_object: GameObjectOffsets {
+                components: 0x30,
+                name: 0x60,
+            },
+            object: ObjectOffsets {
+                managed_reference: 0x28,
+            },
+        },
+    },
+    // Unity 5.6.2f1, x86. Same layout as 5.6.0, but with the DontDestroyOnLoad
+    // scene.
+    Build {
+        unity: (5, 6, 2, 37180),
+        profile: Profile {
+            pointer_size: PointerSize::Bit32,
+            anchor: LOAD_AND_CLEAR_ECX_X86,
+            path: PathShape::Pointer,
+            reference: ReferenceShape::CachedObject,
+            manager: ManagerOffsets {
+                scenes: 0x4,
+                active_scene: 0x24,
+                dont_destroy_on_load_scene: Some(0x38),
             },
             scene: SceneOffsets {
                 path: 0x10,
@@ -160,7 +224,7 @@ pub(super) const BUILDS: &[Build] = &[
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x48,
-                dont_destroy_on_load_scene: 0x70,
+                dont_destroy_on_load_scene: Some(0x70),
             },
             scene: SceneOffsets {
                 path: 0x10,
@@ -191,7 +255,7 @@ pub(super) const BUILDS: &[Build] = &[
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x28,
-                dont_destroy_on_load_scene: 0x40,
+                dont_destroy_on_load_scene: Some(0x40),
             },
             scene: SceneOffsets {
                 path: 0xc,
@@ -222,7 +286,7 @@ pub(super) const BUILDS: &[Build] = &[
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x28,
-                dont_destroy_on_load_scene: 0x40,
+                dont_destroy_on_load_scene: Some(0x40),
             },
             scene: SceneOffsets {
                 path: 0xc,
@@ -255,7 +319,7 @@ pub(super) const BUILDS: &[Build] = &[
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x48,
-                dont_destroy_on_load_scene: 0x70,
+                dont_destroy_on_load_scene: Some(0x70),
             },
             scene: SceneOffsets {
                 path: 0x18,
@@ -286,7 +350,7 @@ pub(super) const BUILDS: &[Build] = &[
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x28,
-                dont_destroy_on_load_scene: 0x40,
+                dont_destroy_on_load_scene: Some(0x40),
             },
             scene: SceneOffsets {
                 path: 0x10,
@@ -317,7 +381,7 @@ pub(super) const BUILDS: &[Build] = &[
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x48,
-                dont_destroy_on_load_scene: 0x70,
+                dont_destroy_on_load_scene: Some(0x70),
             },
             scene: SceneOffsets {
                 path: 0x10,
@@ -348,7 +412,7 @@ pub(super) const BUILDS: &[Build] = &[
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x28,
-                dont_destroy_on_load_scene: 0x40,
+                dont_destroy_on_load_scene: Some(0x40),
             },
             scene: SceneOffsets {
                 path: 0xc,
@@ -379,7 +443,7 @@ pub(super) const BUILDS: &[Build] = &[
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x48,
-                dont_destroy_on_load_scene: 0x70,
+                dont_destroy_on_load_scene: Some(0x70),
             },
             scene: SceneOffsets {
                 path: 0x10,
@@ -410,7 +474,7 @@ pub(super) const BUILDS: &[Build] = &[
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x28,
-                dont_destroy_on_load_scene: 0x40,
+                dont_destroy_on_load_scene: Some(0x40),
             },
             scene: SceneOffsets {
                 path: 0xc,
@@ -441,7 +505,7 @@ pub(super) const BUILDS: &[Build] = &[
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x48,
-                dont_destroy_on_load_scene: 0x70,
+                dont_destroy_on_load_scene: Some(0x70),
             },
             scene: SceneOffsets {
                 path: 0x10,
@@ -472,7 +536,7 @@ pub(super) const BUILDS: &[Build] = &[
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x28,
-                dont_destroy_on_load_scene: 0x40,
+                dont_destroy_on_load_scene: Some(0x40),
             },
             scene: SceneOffsets {
                 path: 0xc,
@@ -503,7 +567,7 @@ pub(super) const BUILDS: &[Build] = &[
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x48,
-                dont_destroy_on_load_scene: 0x70,
+                dont_destroy_on_load_scene: Some(0x70),
             },
             scene: SceneOffsets {
                 path: 0x10,
@@ -534,7 +598,7 @@ pub(super) const BUILDS: &[Build] = &[
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x28,
-                dont_destroy_on_load_scene: 0x40,
+                dont_destroy_on_load_scene: Some(0x40),
             },
             scene: SceneOffsets {
                 path: 0xc,
@@ -565,7 +629,7 @@ pub(super) const BUILDS: &[Build] = &[
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x48,
-                dont_destroy_on_load_scene: 0x70,
+                dont_destroy_on_load_scene: Some(0x70),
             },
             scene: SceneOffsets {
                 path: 0x10,
@@ -596,7 +660,7 @@ pub(super) const BUILDS: &[Build] = &[
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x28,
-                dont_destroy_on_load_scene: 0x40,
+                dont_destroy_on_load_scene: Some(0x40),
             },
             scene: SceneOffsets {
                 path: 0xc,
@@ -627,7 +691,7 @@ pub(super) const BUILDS: &[Build] = &[
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x48,
-                dont_destroy_on_load_scene: 0x70,
+                dont_destroy_on_load_scene: Some(0x70),
             },
             scene: SceneOffsets {
                 path: 0x10,
@@ -658,7 +722,7 @@ pub(super) const BUILDS: &[Build] = &[
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x28,
-                dont_destroy_on_load_scene: 0x40,
+                dont_destroy_on_load_scene: Some(0x40),
             },
             scene: SceneOffsets {
                 path: 0xc,
@@ -689,7 +753,7 @@ pub(super) const BUILDS: &[Build] = &[
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x28,
-                dont_destroy_on_load_scene: 0x40,
+                dont_destroy_on_load_scene: Some(0x40),
             },
             scene: SceneOffsets {
                 path: 0xc,
@@ -720,7 +784,7 @@ pub(super) const BUILDS: &[Build] = &[
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x28,
-                dont_destroy_on_load_scene: 0x40,
+                dont_destroy_on_load_scene: Some(0x40),
             },
             scene: SceneOffsets {
                 path: 0xc,
@@ -752,7 +816,7 @@ pub(super) const BUILDS: &[Build] = &[
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x48,
-                dont_destroy_on_load_scene: 0x70,
+                dont_destroy_on_load_scene: Some(0x70),
             },
             scene: SceneOffsets {
                 path: 0x10,
@@ -783,7 +847,7 @@ pub(super) const BUILDS: &[Build] = &[
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x28,
-                dont_destroy_on_load_scene: 0x40,
+                dont_destroy_on_load_scene: Some(0x40),
             },
             scene: SceneOffsets {
                 path: 0xc,
@@ -814,7 +878,7 @@ pub(super) const BUILDS: &[Build] = &[
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x48,
-                dont_destroy_on_load_scene: 0x70,
+                dont_destroy_on_load_scene: Some(0x70),
             },
             scene: SceneOffsets {
                 path: 0x10,
@@ -845,7 +909,7 @@ pub(super) const BUILDS: &[Build] = &[
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x28,
-                dont_destroy_on_load_scene: 0x40,
+                dont_destroy_on_load_scene: Some(0x40),
             },
             scene: SceneOffsets {
                 path: 0xc,
@@ -876,7 +940,7 @@ pub(super) const BUILDS: &[Build] = &[
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x48,
-                dont_destroy_on_load_scene: 0x70,
+                dont_destroy_on_load_scene: Some(0x70),
             },
             scene: SceneOffsets {
                 path: 0x10,
@@ -907,7 +971,7 @@ pub(super) const BUILDS: &[Build] = &[
             manager: ManagerOffsets {
                 scenes: 0x8,
                 active_scene: 0x28,
-                dont_destroy_on_load_scene: 0x40,
+                dont_destroy_on_load_scene: Some(0x40),
             },
             scene: SceneOffsets {
                 path: 0x10,
@@ -946,7 +1010,7 @@ pub(super) const ELF_AND_MACHO_X64: Profile = Profile {
     manager: ManagerOffsets {
         scenes: 0x8,
         active_scene: 0x48,
-        dont_destroy_on_load_scene: 0x70,
+        dont_destroy_on_load_scene: Some(0x70),
     },
     scene: SceneOffsets {
         path: 0x10,
