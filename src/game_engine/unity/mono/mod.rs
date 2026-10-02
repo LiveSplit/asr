@@ -24,18 +24,24 @@ mod mac_builds;
 pub use image::Image;
 mod class;
 pub use class::Class;
-mod version;
-pub use version::Version;
 mod pointer;
+pub mod profiles;
 pub use pointer::UnityPointer;
 mod offsets;
-use offsets::MonoOffsets;
+pub use offsets::{
+    AssemblyOffsets, ClassOffsets, FieldInfoOffsets, GenericOffsets, HashTableOffsets,
+    ImageOffsets, MonoVTableOffsets, Profile, TypeOffsets,
+};
 #[cfg(all(test, not(target_family = "wasm")))]
 mod collections_tests;
 #[cfg(all(test, not(target_family = "wasm")))]
 mod identity_tests;
 #[cfg(all(test, not(target_family = "wasm")))]
+mod profiles_tests;
+#[cfg(all(test, not(target_family = "wasm")))]
 mod readers_tests;
+#[cfg(all(test, not(target_family = "wasm")))]
+mod version_tests;
 #[cfg(all(test, not(target_family = "wasm")))]
 mod walk_tests;
 
@@ -44,9 +50,20 @@ use super::{managed, BinaryFormat, DictionaryOffsets, HashSetOffsets, ListOffset
 /// Represents access to a Unity game that is using the standard Mono backend.
 pub struct Module {
     assemblies: Address,
-    version: Version,
-    offsets: &'static MonoOffsets,
+    profile: Profile,
     pointer_size: PointerSize,
+}
+
+/// The Mono runtime a game runs. Unity has shipped two.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Library {
+    /// The old runtime: `mono.dll`, `libmono.so` or `libmono.0.dylib`. It
+    /// keeps a class's statics in the data slot of the vtable.
+    Mono,
+    /// The newer runtime named after its garbage collector:
+    /// `mono-2.0-bdwgc.dll`, `libmonobdwgc-2.0.so` or
+    /// `libmonobdwgc-2.0.dylib`.
+    MonoBdwgc,
 }
 
 /// The identity of one exact runtime binary, and the module it was read
@@ -88,21 +105,16 @@ impl Identity {
         }
     }
 
-    /// The version and offsets measured from the build this names, when it is
-    /// one that was measured at the width the target runs at.
-    fn find(&self, pointer_size: PointerSize) -> Option<(Version, &'static MonoOffsets)> {
-        match self {
-            Self::Debug(debug_id) => builds::find(debug_id)
-                .filter(|build| build.pointer_size == pointer_size)
-                .map(|build| (build.version, &build.offsets)),
-            Self::Build(build_id, _) => linux_builds::find(build_id.as_bytes())
-                .filter(|build| build.pointer_size == pointer_size)
-                .map(|build| (build.version, build.offsets)),
+    /// The profile measured from this build, when it is one that was
+    /// measured at the pointer size the target runs at.
+    fn find(&self, pointer_size: PointerSize) -> Option<Profile> {
+        let profile = match self {
+            Self::Debug(debug_id) => builds::find(debug_id)?.profile,
+            Self::Build(build_id, _) => linux_builds::find(build_id.as_bytes())?.profile,
             #[cfg(feature = "alloc")]
-            Self::Uuid(uuid) => mac_builds::find(&uuid.bytes)
-                .filter(|build| build.pointer_size == pointer_size)
-                .map(|build| (build.version, build.offsets)),
-        }
+            Self::Uuid(uuid) => mac_builds::find(&uuid.bytes)?.profile,
+        };
+        (profile.pointer_size == pointer_size).then_some(profile)
     }
 }
 
@@ -120,12 +132,17 @@ impl fmt::Debug for Identity {
 impl Module {
     /// Tries attaching to a Unity game that is using the standard Mono backend.
     /// If the Mono runtime is a known build, this function uses the offsets
-    /// measured for that exact build. Otherwise this function detects the
-    /// [Mono version](Version).
-    /// If you know the version in advance or it fails detecting it, use
-    /// [`attach`](Self::attach) instead.
+    /// measured for that exact build. Otherwise the Unity version of the game
+    /// picks the measured build whose offsets are used: the newest build of
+    /// the same runtime library at or below that version, or the oldest
+    /// build of that library when none is at or below it. A game that ships
+    /// no player module (Windows games before Unity 2017.2, Mac and Linux
+    /// games for some versions more) carries its version in its own
+    /// executable, and reading it there needs the `alloc` feature.
+    /// If you know the build in advance, use [`attach`](Self::attach) with
+    /// its profile instead.
     pub fn attach_auto_detect(process: &Process) -> Option<Self> {
-        let (module_range, format, name) = Self::find_runtime_module(process)?;
+        let (module_range, format, name, library) = Self::find_runtime_module(process)?;
         let pointer_size = Self::pointer_size(process, module_range, format)?;
 
         // The player names the build for a Mono library that has no ID of its
@@ -137,67 +154,147 @@ impl Module {
         let identity = Identity::read(process, (module_range, name), player, format);
 
         if let Some(identity) = &identity {
-            if let Some((version, offsets)) = identity.find(pointer_size) {
-                if let Some(module) = Self::attach_with(
-                    process,
-                    module_range,
-                    format,
-                    pointer_size,
-                    version,
-                    offsets,
-                ) {
+            if let Some(profile) = identity.find(pointer_size) {
+                if let Some(module) = Self::attach_with(process, module_range, format, profile) {
                     print_limited::<128>(&format_args!("known mono build: {identity:?}"));
                     return Some(module);
                 }
             }
         }
 
-        let version = Version::detect(process)?;
-        let module = Self::attach(process, version)?;
+        let unity = Self::unity_version(process, format)?;
+        let (built, profile) = match format {
+            BinaryFormat::PE => builds::nearest(unity, library, pointer_size)
+                .map(|build| (build.unity, build.profile))?,
+            BinaryFormat::ELF => linux_builds::nearest(unity, library, pointer_size)
+                .map(|build| (build.unity, build.profile))?,
+            #[cfg(feature = "alloc")]
+            BinaryFormat::MachO => mac_builds::nearest(unity, library, pointer_size)
+                .map(|build| (build.unity, build.profile))?,
+            #[allow(unreachable_patterns)]
+            _ => return None,
+        };
 
+        let module = Self::attach_with(process, module_range, format, profile)?;
         if let Some(identity) = &identity {
-            if identity.find(pointer_size).is_none() {
-                print_limited::<128>(&format_args!("unknown mono build: {identity:?}"));
-            }
+            print_limited::<128>(&format_args!("unknown mono build: {identity:?}"));
         }
-
+        print_limited::<128>(&format_args!(
+            "mono: unity {}.{}.{}.{} takes the build measured on {}.{}.{}.{}",
+            unity.0, unity.1, unity.2, unity.3, built.0, built.1, built.2, built.3,
+        ));
         Some(module)
     }
 
     /// Tries attaching to a Unity game that is using the standard Mono backend
-    /// with the [Mono version](Version) provided. The version needs to be
-    /// correct for this function to work. If you don't know the version in
+    /// with the provided measured [`Profile`]. The profile's pointer width
+    /// and runtime library must match the target process. Use a built-in
+    /// [`profiles`] constant for a known player, or construct a custom
+    /// profile for another measured layout. If the target is not known in
     /// advance, use [`attach_auto_detect`](Self::attach_auto_detect) instead.
-    pub fn attach(process: &Process, version: Version) -> Option<Self> {
-        let (module_range, format, _) = Self::find_runtime_module(process)?;
+    pub fn attach(process: &Process, profile: Profile) -> Option<Self> {
+        let (module_range, format, _, library) = Self::find_runtime_module(process)?;
         let pointer_size = Self::pointer_size(process, module_range, format)?;
-        let offsets = MonoOffsets::new(version, pointer_size, format)?;
+        if library != profile.library || pointer_size != profile.pointer_size {
+            return None;
+        }
 
-        Self::attach_with(
-            process,
-            module_range,
-            format,
-            pointer_size,
-            version,
-            offsets,
-        )
+        Self::attach_with(process, module_range, format, profile)
     }
 
     fn find_runtime_module(
         process: &Process,
-    ) -> Option<((Address, u64), BinaryFormat, &'static str)> {
+    ) -> Option<((Address, u64), BinaryFormat, &'static str, Library)> {
         [
-            ("mono.dll", BinaryFormat::PE),
-            ("libmono.so", BinaryFormat::ELF),
+            ("mono.dll", BinaryFormat::PE, Library::Mono),
+            ("libmono.so", BinaryFormat::ELF, Library::Mono),
             #[cfg(feature = "alloc")]
-            ("libmono.0.dylib", BinaryFormat::MachO),
-            ("mono-2.0-bdwgc.dll", BinaryFormat::PE),
-            ("libmonobdwgc-2.0.so", BinaryFormat::ELF),
+            ("libmono.0.dylib", BinaryFormat::MachO, Library::Mono),
+            ("mono-2.0-bdwgc.dll", BinaryFormat::PE, Library::MonoBdwgc),
+            ("libmonobdwgc-2.0.so", BinaryFormat::ELF, Library::MonoBdwgc),
             #[cfg(feature = "alloc")]
-            ("libmonobdwgc-2.0.dylib", BinaryFormat::MachO),
+            (
+                "libmonobdwgc-2.0.dylib",
+                BinaryFormat::MachO,
+                Library::MonoBdwgc,
+            ),
         ]
         .into_iter()
-        .find_map(|(name, format)| Some((process.get_module_range(name).ok()?, format, name)))
+        .find_map(|(name, format, library)| {
+            Some((process.get_module_range(name).ok()?, format, name, library))
+        })
+    }
+
+    /// Reads the Unity version of the game. On Windows it is the file version
+    /// of `UnityPlayer.dll`. On Linux and Mac the player carries it as a
+    /// string. A game without a player module keeps both in its executable,
+    /// which only the `alloc` feature can name.
+    fn unity_version(process: &Process, format: BinaryFormat) -> Option<(u16, u16, u16, u16)> {
+        let player = match format {
+            BinaryFormat::PE => process.get_module_range("UnityPlayer.dll").ok(),
+            BinaryFormat::ELF => process.get_module_range("UnityPlayer.so").ok(),
+            #[cfg(feature = "alloc")]
+            BinaryFormat::MachO => process.get_module_range("UnityPlayer.dylib").ok(),
+            #[allow(unreachable_patterns)]
+            _ => None,
+        };
+        #[cfg(feature = "alloc")]
+        let player = player.or_else(|| process.get_main_module_range().ok());
+        let player = player?;
+
+        match format {
+            BinaryFormat::PE => {
+                let file_version = pe::FileVersion::read(process, player.0)?;
+                Some((
+                    file_version.major_version,
+                    file_version.minor_version,
+                    file_version.build_part,
+                    file_version.private_part,
+                ))
+            }
+            _ => Self::version_string(process, player),
+        }
+    }
+
+    /// Finds the Unity version string in a player, `2021.3.11f1` for
+    /// example, and returns its three numbers. The fourth part of a file
+    /// version has no equal in the string, so it is 0. A NUL heads the
+    /// string, and only a run of the shape `major.minor.patch` followed by
+    /// the letter of the release counts, so a date or a build number in the
+    /// same module is passed over.
+    fn version_string(process: &Process, module: (Address, u64)) -> Option<(u16, u16, u16, u16)> {
+        const FOUR_DIGITS: Signature<6> = Signature::new("00 3? 3? 3? 3? 2E");
+        const ONE_DIGIT: Signature<4> = Signature::new("00 3? 2E 3?");
+
+        FOUR_DIGITS
+            .scan_iter(process, module)
+            .chain(ONE_DIGIT.scan_iter(process, module))
+            .find_map(|at| {
+                let text = process.read::<[u8; 16]>(at + 1).ok()?;
+                Self::parse_version(&text)
+            })
+    }
+
+    /// Parses `major.minor.patch` followed by a release letter out of the
+    /// head of `text`.
+    fn parse_version(text: &[u8]) -> Option<(u16, u16, u16, u16)> {
+        // Reads a number of up to four digits and returns what follows it.
+        fn number(text: &[u8]) -> Option<(u16, &[u8])> {
+            let digits = text.iter().take_while(|byte| byte.is_ascii_digit()).count();
+            if digits == 0 || digits > 4 {
+                return None;
+            }
+            let value = text[..digits]
+                .iter()
+                .fold(0_u16, |value, byte| value * 10 + (byte - b'0') as u16);
+            Some((value, &text[digits..]))
+        }
+
+        let (major, rest) = number(text)?;
+        let (minor, rest) = number(rest.strip_prefix(b".")?)?;
+        let (patch, rest) = number(rest.strip_prefix(b".")?)?;
+        matches!(rest.first(), Some(b'a' | b'b' | b'f' | b'p' | b'x'))
+            .then_some((major, minor, patch, 0))
     }
 
     fn pointer_size(
@@ -219,11 +316,10 @@ impl Module {
         process: &Process,
         module_range: (Address, u64),
         format: BinaryFormat,
-        pointer_size: PointerSize,
-        version: Version,
-        offsets: &'static MonoOffsets,
+        profile: Profile,
     ) -> Option<Self> {
         let (mono_module, _) = module_range;
+        let pointer_size = profile.pointer_size;
 
         let root_domain_function_address = match format {
             BinaryFormat::PE => {
@@ -334,15 +430,9 @@ impl Module {
 
         Some(Self {
             assemblies,
-            version,
-            offsets,
+            profile,
             pointer_size,
         })
-    }
-
-    /// Retrieve the [Mono version](Version) of the module.
-    pub fn get_version(&self) -> Version {
-        self.version
     }
 
     /// Retrieve the [pointer size](PointerSize) of the process/module.
@@ -366,40 +456,40 @@ impl Module {
         managed::Walk {
             runtime: managed::Runtime::Mono(managed::MonoRuntime {
                 assemblies: self.assemblies,
-                class_cache: self.offsets.image.class_cache,
-                hash_table_size: self.offsets.hash_table.size.into(),
-                hash_table_table: self.offsets.hash_table.table.into(),
-                next_class_cache: self.offsets.class.next_class_cache,
-                field_count: self.offsets.class.field_count,
-                class_kind: self.offsets.class.class_kind,
-                generic_class: self.offsets.generic.generic_class,
-                container_class: self.offsets.generic.container_class,
-                type_data: self.offsets.type_words.data,
-                type_kind: self.offsets.type_words.kind,
-                runtime_info: self.offsets.class.runtime_info,
-                vtable_size: self.offsets.class.vtable_size.into(),
-                vtable: self.offsets.v_table.vtable.into(),
-                statics_in_vtable_data: matches!(self.version, Version::V1 | Version::V1Cattrs),
+                class_cache: self.profile.image.class_cache,
+                hash_table_size: self.profile.hash_table.size.into(),
+                hash_table_table: self.profile.hash_table.table.into(),
+                next_class_cache: self.profile.class.next_class_cache,
+                field_count: self.profile.class.field_count,
+                class_kind: self.profile.class.class_kind,
+                generic_class: self.profile.generic.generic_class,
+                container_class: self.profile.generic.container_class,
+                type_data: self.profile.type_words.data,
+                type_kind: self.profile.type_words.kind,
+                runtime_info: self.profile.class.runtime_info,
+                vtable_size: self.profile.class.vtable_size.into(),
+                vtable: self.profile.v_table.vtable.into(),
+                statics_in_vtable_data: self.profile.library == Library::Mono,
             }),
             offsets: managed::WalkOffsets {
                 assembly: managed::AssemblyOffsets {
-                    name_in_image: self.offsets.image.assembly_name.map(u16::from),
-                    name_in_assembly: self.offsets.assembly.aname.map(u16::from),
-                    image: self.offsets.assembly.image.into(),
+                    name_in_image: self.profile.image.assembly_name.map(u16::from),
+                    name_in_assembly: self.profile.assembly.aname.map(u16::from),
+                    image: self.profile.assembly.image.into(),
                 },
                 class: managed::ClassOffsets {
-                    name: self.offsets.class.name.into(),
-                    namespace: self.offsets.class.namespace.into(),
-                    parent: self.offsets.class.parent.into(),
-                    declaring: self.offsets.class.nested_in,
-                    instance_size: self.offsets.class.instance_size,
-                    fields: self.offsets.class.fields.into(),
+                    name: self.profile.class.name.into(),
+                    namespace: self.profile.class.namespace.into(),
+                    parent: self.profile.class.parent.into(),
+                    declaring: self.profile.class.nested_in,
+                    instance_size: self.profile.class.instance_size,
+                    fields: self.profile.class.fields.into(),
                 },
                 field: managed::FieldOffsets {
-                    name: self.offsets.field.name.into(),
-                    type_: self.offsets.field.type_,
-                    offset: self.offsets.field.offset.into(),
-                    stride: self.offsets.field.alignment.into(),
+                    name: self.profile.field.name.into(),
+                    type_: self.profile.field.type_,
+                    offset: self.profile.field.offset.into(),
+                    stride: self.profile.field.stride.into(),
                 },
             },
             stop: managed::ClimbStop::UNITY,
@@ -640,10 +730,9 @@ impl Module {
         managed::read_reference_list(process, self.pointer_size, offsets, at)
     }
 
-    /// Attaches to a Unity game that is using the standard Mono backend. This
-    /// function automatically detects the [Mono version](Version). If you
-    /// know the version in advance or it fails detecting it, use
-    /// [`wait_attach`](Self::wait_attach) instead.
+    /// Attaches to a Unity game that is using the standard Mono backend. A
+    /// known build gets the offsets measured for it, and any other game gets
+    /// the offsets of the measured build nearest to its Unity version.
     ///
     /// This is the `await`able version of the
     /// [`attach_auto_detect`](Self::attach_auto_detect) function, yielding back
@@ -652,15 +741,14 @@ impl Module {
         retry(|| Self::attach_auto_detect(process)).await
     }
 
-    /// Attaches to a Unity game that is using the standard Mono backend with the
-    /// [Mono version](Version) provided. The version needs to be correct
-    /// for this function to work. If you don't know the version in advance, use
-    /// [`wait_attach_auto_detect`](Self::wait_attach_auto_detect) instead.
+    /// Attaches to a Unity game that is using the standard Mono backend with
+    /// the provided measured [`Profile`]. The profile's pointer width and
+    /// runtime library must match the target process.
     ///
-    /// This is the `await`able version of the [`attach`](Self::attach)
-    /// function, yielding back to the runtime between each try.
-    pub async fn wait_attach(process: &Process, version: Version) -> Self {
-        retry(|| Self::attach(process, version)).await
+    /// This is the `await`able version of [`attach`](Self::attach), yielding
+    /// back to the runtime between each try.
+    pub async fn wait_attach(process: &Process, profile: Profile) -> Self {
+        retry(|| Self::attach(process, profile)).await
     }
 
     /// Looks for the specified binary [image](Image) inside the target process.
