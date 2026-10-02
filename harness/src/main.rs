@@ -213,17 +213,29 @@ const REQUIRED: &[&str] = &[
 
 /// Returns the paths a player of the Unity version has to report. No
 /// scene manager build goes below 5.6, so older players only report the
-/// classes.
+/// classes. Unity 5.6.0 and 5.6.1 have no `DontDestroyOnLoad` scene, so
+/// those players report no `dontDestroyOnLoad` paths.
 fn required(version: &str) -> impl Iterator<Item = &'static str> {
-    let mut parts = version.split('.').map(|part| part.parse::<u32>().ok());
-    let below_5_6 = matches!(
-        (parts.next(), parts.next()),
-        (Some(Some(major)), Some(Some(minor))) if (major, minor) < (5, 6)
+    // The patch part starts with digits and goes on with letters, as in `0f1`.
+    let number = |part: &str| {
+        let digits = part.split(|c: char| !c.is_ascii_digit()).next()?;
+        digits.parse::<u32>().ok()
+    };
+    let mut parts = version.split('.').map(number);
+    let unity = (
+        parts.next().flatten().unwrap_or(0),
+        parts.next().flatten().unwrap_or(0),
+        parts.next().flatten().unwrap_or(0),
     );
-    REQUIRED
-        .iter()
-        .copied()
-        .filter(move |path| !below_5_6 || path.starts_with("classes."))
+    REQUIRED.iter().copied().filter(move |path| {
+        if unity < (5, 6, 0) {
+            path.starts_with("classes.")
+        } else if unity < (5, 6, 2) {
+            !path.starts_with("dontDestroyOnLoad.")
+        } else {
+            true
+        }
+    })
 }
 
 /// The variables the auto splitter sets about the run itself, not about
@@ -561,8 +573,20 @@ mod tests {
         let below = required("5.5.6f1");
         assert!(!below.is_empty());
         assert!(below.iter().all(|path| path.starts_with("classes.")));
-        assert_eq!(required("5.6.0f1"), super::REQUIRED);
         assert_eq!(required("2017.1.0f3"), super::REQUIRED);
+    }
+
+    #[test]
+    fn a_player_below_5_6_2_needs_no_dont_destroy_on_load() {
+        let required = |version| super::required(version).collect::<Vec<_>>();
+        for version in ["5.6.0f1", "5.6.1f1"] {
+            let paths = required(version);
+            assert!(paths.contains(&"scenes.0.path"));
+            assert!(!paths
+                .iter()
+                .any(|path| path.starts_with("dontDestroyOnLoad.")));
+        }
+        assert_eq!(required("5.6.2f1"), super::REQUIRED);
     }
 
     #[test]
