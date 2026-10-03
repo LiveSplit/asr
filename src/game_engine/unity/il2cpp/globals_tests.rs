@@ -653,3 +653,46 @@ fn counts_a_jump_inside_a_function_as_a_branch() {
     });
     assert_eq!(found, Some(Address::new(BASE + 0x3000)));
 }
+
+#[test]
+fn skips_a_load_of_something_outside_the_module() {
+    // The export first calls a function that loads 1, then the getter.
+    let calls = [
+        &[0xE8][..],
+        &displacement(0x1005, 0x1100),
+        &[0xE8],
+        &displacement(0x100A, 0x1200),
+        &[0xC3],
+    ]
+    .concat();
+    let one = [0xB8, 0x01, 0x00, 0x00, 0x00, 0xC3];
+    let getter = [&[0xB8][..], &absolute(0x3000), &[0xC3]].concat();
+    assert_eq!(
+        assemblies(
+            PointerSize::Bit32,
+            &[(0x1000, &calls), (0x1100, &one), (0x1200, &getter)]
+        ),
+        Some(Address::new(BASE + 0x3000))
+    );
+}
+
+#[test]
+fn needs_a_lea_after_a_load_to_count_it_as_the_table() {
+    // A load followed by a jge whose displacement starts with the same bytes
+    // as a lea's ModRM and SIB, then the real accessor.
+    let decoy = [
+        &[0x48, 0x8B, 0x05][..],
+        &displacement(0x1007, 0x3800),
+        &[0x0F, 0x8D, 0x34, 0x00, 0x00, 0x00],
+    ]
+    .concat();
+    let code = [decoy, accessor_x64(0x100D)].concat();
+    assert_eq!(
+        table(
+            PointerSize::Bit64,
+            "il2cpp_image_get_class",
+            &[(0x1000, &code)]
+        ),
+        Some(Address::new(BASE + 0x3000))
+    );
+}

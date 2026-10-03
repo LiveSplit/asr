@@ -61,7 +61,8 @@ pub(super) fn type_info_definition_table(
             // mov rax, [table]; then cmp qword ptr [reg + rax], 0, or
             // lea rsi or r14, [rax + reg * 8]
             let compared = bytes_at(code, 7, &[0x48, 0x83, 0x3C]) && bytes_at(code, 11, &[0]);
-            let addressed = bytes_at(code, 8, &[0x8D, 0x34]);
+            let addressed =
+                matches!(code.get(7), Some(0x48 | 0x4C)) && bytes_at(code, 8, &[0x8D, 0x34]);
             (bytes_at(code, 0, &[0x48, 0x8B, 0x05]) && (compared || addressed)).then_some(3)
         } else {
             // mov eax, [table]; then cmp dword ptr [eax + reg * 4], 0, or
@@ -140,15 +141,20 @@ fn walk(
                     let Some(instruction) = decode(bytes, x64) else {
                         break;
                     };
-                    if let Some(offset) = look(bytes) {
-                        let operand = &bytes[offset..offset + 4];
+                    // A match whose global lies outside the module is some
+                    // other load, so the walk goes on past it.
+                    let global = look(bytes).and_then(|offset| {
+                        let operand = bytes.get(offset..offset + 4)?;
                         let value =
                             u32::from_le_bytes([operand[0], operand[1], operand[2], operand[3]]);
-                        return Some(if x64 {
+                        Some(if x64 {
                             at + offset as u64 + 4 + value as i32
                         } else {
                             Address::new(value as u64)
-                        });
+                        })
+                    });
+                    if let Some(global) = global.filter(|&global| inside(global)) {
+                        return Some(global);
                     }
                     let after = at + instruction.len as u64;
                     let target = |rel: i32| Some(after + rel).filter(|&target| inside(target));
