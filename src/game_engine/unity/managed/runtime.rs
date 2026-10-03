@@ -1,4 +1,4 @@
-use super::{Assemblies, ClassRef, Classes, ImageRef};
+use super::{slot, Assemblies, ClassRef, Classes, ImageRef};
 use crate::{Address, PointerSize, Process};
 
 /// What the runtimes genuinely disagree on. Matching exhaustively is the point:
@@ -19,6 +19,16 @@ const GENERIC_INSTANCE_KIND: u8 = 3;
 /// and a generic instance's data is the instantiation descriptor.
 const SZARRAY: u8 = 0x1D;
 const GENERIC_INSTANCE: u8 = 0x15;
+
+/// The kinds of a plain class and a plain value type. A type of one of these
+/// kinds carries the class in its data, and IL2CPP writes that data two ways.
+/// The older metadata writes the index of the class in the type info
+/// definition table, which is the way this reads. The metadata of Unity
+/// 2020.2 and newer writes a pointer to the class's definition instead, so
+/// a plain type there resolves nothing. The collections of those corlibs
+/// keep their entries in a generic class, so they never need it.
+const CLASS: u8 = 0x12;
+const VALUE_TYPE: u8 = 0x11;
 
 /// Whether a type of this element kind names a class at all. End, Void,
 /// Ptr, ByRef, Var, multidimensional Array, FnPtr, and MVar do not.
@@ -191,8 +201,8 @@ impl Runtime {
 
     /// Resolves the class a field's type names, for the kinds a collection's
     /// backing field presents: an array of a class the runtimes already
-    /// inflated. Kinds that name no class, and the table-resolved plain
-    /// definitions IL2CPP keeps behind an index or a handle, answer nothing.
+    /// inflated, or a plain class IL2CPP keeps in its type info definition
+    /// table. Kinds that name no class answer nothing.
     pub fn class_from_type(
         &self,
         process: &Process,
@@ -222,8 +232,14 @@ impl Runtime {
             // a generic instance's descriptor caches the class it resolved
             // to. Deeper array nesting than this is garbage.
             Self::Il2Cpp(il2cpp) => {
-                let (data, kind, cached) =
-                    (il2cpp.type_data?, il2cpp.type_kind?, il2cpp.cached_class?);
+                let (data, kind) = (il2cpp.type_data?, il2cpp.type_kind?);
+                let read_class = |at: Address| {
+                    process
+                        .read_pointer(at, pointer_size)
+                        .ok()
+                        .filter(|address| !address.is_null())
+                        .map(ClassRef::new)
+                };
 
                 let mut at = type_address;
                 for _ in 0..8 {
@@ -232,19 +248,21 @@ impl Runtime {
                         return None;
                     }
 
-                    let data = process
-                        .read_pointer(at + data, pointer_size)
-                        .ok()
-                        .filter(|address| !address.is_null())?;
-
+                    let data = process.read_pointer(at + data, pointer_size).ok()?;
                     match element {
-                        SZARRAY => at = data,
-                        GENERIC_INSTANCE => {
-                            return process
-                                .read_pointer(data + cached, pointer_size)
+                        SZARRAY if !data.is_null() => at = data,
+                        GENERIC_INSTANCE if !data.is_null() => {
+                            return read_class(data + il2cpp.cached_class?)
+                        }
+                        // The data is an index, so 0 is the first class in
+                        // the table. Only the metadata that keeps the image's
+                        // type start inline writes an index here.
+                        CLASS | VALUE_TYPE if il2cpp.handle_is_inline => {
+                            let table = process
+                                .read_pointer(il2cpp.type_info_definition_table, pointer_size)
                                 .ok()
-                                .filter(|address| !address.is_null())
-                                .map(ClassRef::new)
+                                .filter(|address| !address.is_null())?;
+                            return read_class(slot(table, pointer_size, data.value()));
                         }
                         _ => return None,
                     }

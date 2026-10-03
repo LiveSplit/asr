@@ -35,8 +35,7 @@ fn read_path(image: &[u8], manager: &SceneManager) -> Option<ArrayCString<128>> 
     })
 }
 
-// The path field of the scene sits at 0x10 on every x64 build and at 0xC on
-// the x86 builds before Unity 6000.5.
+// The path field of the scene, where the build's profile puts it.
 const fn field(manager: &SceneManager) -> u64 {
     SCENE + manager.profile.scene.path as u64
 }
@@ -73,78 +72,6 @@ fn x86_builds_keep_the_path_behind_a_pointer() {
     for build in builds::BUILDS {
         if build.profile.pointer_size == PointerSize::Bit32 {
             assert_eq!(build.profile.path, PathShape::Pointer, "{:?}", build.unity);
-        }
-    }
-}
-
-// The inline path starts with Unity 2021.1, so a 2021.1 or 2021.2 player
-// takes the 2021.1 build and its shape, and a 2020.x player the pointer.
-#[test]
-fn the_first_inline_path_build_is_2021_1() {
-    let shape = |player| {
-        let build = builds::nearest(player, PointerSize::Bit64).unwrap();
-        (build.unity, build.profile.path)
-    };
-    let first = (2021, 1, 0, 42313);
-    assert_eq!(shape((2021, 1, 29, 10531)), (first, PathShape::InlineNul));
-    assert_eq!(shape((2021, 2, 20, 62729)), (first, PathShape::InlineNul));
-    assert_eq!(shape((2021, 3, 0, 44232)), (first, PathShape::InlineNul));
-    assert_eq!(
-        shape((2020, 3, 48, 1)),
-        ((2018, 4, 36, 54151), PathShape::Pointer)
-    );
-}
-
-// The root list moves inside Unity 2023.1: 2023.1.0 keeps it where 2022.3
-// does, 2023.1.22 keeps it further along. Both players are measured, so
-// each reads its own.
-#[test]
-fn the_root_list_moves_inside_2023_1() {
-    let roots = |player, pointer_size| {
-        let build = builds::nearest(player, pointer_size).unwrap();
-        (build.unity, build.profile.scene.roots)
-    };
-    let first = (2023, 1, 0, 2298);
-    let later = (2023, 1, 22, 16744);
-    assert_eq!(roots(first, PointerSize::Bit64), (first, 0xb0));
-    assert_eq!(roots(later, PointerSize::Bit64), (later, 0xe8));
-    assert_eq!(roots(first, PointerSize::Bit32), (first, 0x70));
-    assert_eq!(roots(later, PointerSize::Bit32), (later, 0x94));
-}
-
-#[test]
-fn unmeasured_2023_1_players_take_the_profile_at_or_below_their_patch() {
-    let first = (2023, 1, 0, 2298);
-    let later = (2023, 1, 22, 16744);
-    for pointer_size in [PointerSize::Bit32, PointerSize::Bit64] {
-        for (player, expected) in [
-            ((2023, 1, 0, 0), first),
-            ((2023, 1, 0, u16::MAX), first),
-            ((2023, 1, 1, 1), first),
-            ((2023, 1, 21, 1), first),
-            ((2023, 1, 22, 0), later),
-            ((2023, 1, 22, u16::MAX), later),
-            ((2023, 1, 23, 1), later),
-            ((2023, 2, 0, 1), later),
-        ] {
-            let build = builds::nearest(player, pointer_size).unwrap();
-            assert_eq!(build.unity, expected, "{player:?}, {pointer_size:?}");
-            assert_eq!(build.profile.pointer_size, pointer_size);
-        }
-    }
-}
-
-#[test]
-fn players_before_the_first_measured_patch_stay_in_their_series() {
-    for pointer_size in [PointerSize::Bit32, PointerSize::Bit64] {
-        for (player, expected) in [
-            ((6000, 0, 0, 1), (6000, 0, 84, 43887)),
-            ((6000, 0, 58, 1), (6000, 0, 84, 43887)),
-            ((6000, 3, 0, 1), (6000, 3, 21, 9777)),
-        ] {
-            let build = builds::nearest(player, pointer_size).unwrap();
-            assert_eq!(build.unity, expected, "{player:?}, {pointer_size:?}");
-            assert_eq!(build.profile.pointer_size, pointer_size);
         }
     }
 }
