@@ -87,17 +87,24 @@ fn brute_force(bytes: &[u8], needle: &[u8], mask: &[u8]) -> Vec<usize> {
         .collect()
 }
 
-/// Lays out 1 to 3 regions of memory near 0x10000. Their starts and ends
-/// aren't page aligned. Some touch, so a read across them still fails.
+/// Lays out 1 to 3 regions of memory just before 0x20000, so many ranges
+/// cross from one 64 KB chunk into the next. Their starts and ends aren't
+/// page aligned. Some touch, so a read across them still fails.
 fn random_regions(rng: &mut Rng, needle: &[u8], mask: &[u8]) -> Vec<(u64, Vec<u8>)> {
     let mut regions = Vec::new();
-    let mut at = 0x10000 + rng.below(0x1000);
+    let mut at = 0x1E000 + rng.below(0x2000);
     for _ in 0..1 + rng.below(3) {
-        let len = 1 + rng.below(0x3000) as usize;
+        // Most regions and gaps are a few pages long. Some span chunks.
+        let (most_len, most_gap) = if rng.chance(20) {
+            (0x24000, 0x12000)
+        } else {
+            (0x3000, 0x1800)
+        };
+        let len = 1 + rng.below(most_len) as usize;
         regions.push((at, random_bytes(rng, len, needle, mask)));
         at += len as u64;
         if rng.chance(70) {
-            at += rng.below(0x1800);
+            at += rng.below(most_gap);
         }
     }
     regions
@@ -135,27 +142,24 @@ fn expected(
     start: u64,
     len: u64,
 ) -> Vec<u64> {
-    let end = start.saturating_add(len);
-    let readable = |at: u64| {
-        let page = (at & !0xFFF).max(start);
-        let page_end = ((at & !0xFFF) + 0x1000).min(end);
-        regions
-            .iter()
-            .any(|(from, bytes)| *from <= page && page_end <= from + bytes.len() as u64)
-    };
-    let byte = |at: u64| {
-        regions
-            .iter()
-            .find_map(|(from, bytes)| bytes.get(at.checked_sub(*from)? as usize).copied())
-    };
-    let n = needle.len() as u64;
-    (start..(end + 1).saturating_sub(n))
-        .filter(|&at| {
-            (at..at + n).all(readable)
-                && (0..n).all(|i| {
-                    byte(at + i).is_some_and(|b| b & mask[i as usize] == needle[i as usize])
-                })
-        })
+    let end = start + len;
+    let mut memory = Vec::new();
+    let mut page = start;
+    while page < end {
+        let page_end = ((page & !0xFFF) + 0x1000).min(end);
+        let bytes = regions.iter().find_map(|(from, bytes)| {
+            bytes.get(page.checked_sub(*from)? as usize..(page_end - from) as usize)
+        });
+        match bytes {
+            Some(bytes) => memory.extend(bytes.iter().map(|&b| Some(b))),
+            None => memory.extend((page..page_end).map(|_| None)),
+        }
+        page = page_end;
+    }
+    let n = needle.len();
+    (0..(memory.len() + 1).saturating_sub(n))
+        .filter(|&at| (0..n).all(|i| memory[at + i].is_some_and(|b| b & mask[i] == needle[i])))
+        .map(|at| start + at as u64)
         .collect()
 }
 
