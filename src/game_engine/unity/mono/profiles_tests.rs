@@ -10,42 +10,78 @@ use crate::PointerSize;
 // splitter.
 #[test]
 fn windows_constants_name_the_expected_profiles() {
-    let profiles: [((u16, u16, u16, u16), Library, PointerSize, Profile); 8] = [
+    let profiles: [((u16, u16, u16, u16), Library, PointerSize, Profile); 14] = [
         (
-            (5, 6, 7, 3267),
+            (5, 0, 0, 39095),
             Library::Mono,
             PointerSize::Bit64,
-            UNITY_5_6_7F1_WINDOWS_MONO_X86_64,
+            UNITY_5_0_0F4_WINDOWS_MONO_X86_64,
         ),
         (
-            (5, 6, 7, 3267),
+            (5, 0, 0, 39095),
             Library::Mono,
             PointerSize::Bit32,
-            UNITY_5_6_7F1_WINDOWS_MONO_X86,
+            UNITY_5_0_0F4_WINDOWS_MONO_X86,
         ),
         (
-            (2017, 3, 0, 63597),
+            (2017, 1, 0, 9747),
             Library::MonoBdwgc,
             PointerSize::Bit64,
-            UNITY_2017_3_0F3_WINDOWS_MONO_BDWGC_X86_64,
+            UNITY_2017_1_0F3_WINDOWS_MONO_BDWGC_X86_64,
         ),
         (
-            (2017, 4, 40, 5126),
-            Library::Mono,
-            PointerSize::Bit64,
-            UNITY_2017_4_40F1_WINDOWS_MONO_X86_64,
-        ),
-        (
-            (2017, 4, 40, 5126),
-            Library::Mono,
-            PointerSize::Bit32,
-            UNITY_2017_4_40F1_WINDOWS_MONO_X86,
-        ),
-        (
-            (2018, 4, 36, 54151),
+            (2017, 1, 0, 9747),
             Library::MonoBdwgc,
             PointerSize::Bit32,
-            UNITY_2018_4_36F1_WINDOWS_MONO_BDWGC_X86,
+            UNITY_2017_1_0F3_WINDOWS_MONO_BDWGC_X86,
+        ),
+        (
+            (2017, 2, 0, 58714),
+            Library::MonoBdwgc,
+            PointerSize::Bit64,
+            UNITY_2017_2_0F1_WINDOWS_MONO_BDWGC_X86_64,
+        ),
+        (
+            (2017, 2, 0, 58714),
+            Library::MonoBdwgc,
+            PointerSize::Bit32,
+            UNITY_2017_2_0F1_WINDOWS_MONO_BDWGC_X86,
+        ),
+        (
+            (2017, 4, 6, 20272),
+            Library::Mono,
+            PointerSize::Bit64,
+            UNITY_2017_4_6F1_WINDOWS_MONO_X86_64,
+        ),
+        (
+            (2017, 4, 6, 20272),
+            Library::Mono,
+            PointerSize::Bit32,
+            UNITY_2017_4_6F1_WINDOWS_MONO_X86,
+        ),
+        (
+            (2018, 1, 0, 30795),
+            Library::Mono,
+            PointerSize::Bit64,
+            UNITY_2018_1_0F1_WINDOWS_MONO_X86_64,
+        ),
+        (
+            (2018, 1, 0, 30795),
+            Library::Mono,
+            PointerSize::Bit32,
+            UNITY_2018_1_0F1_WINDOWS_MONO_X86,
+        ),
+        (
+            (2018, 1, 7, 46210),
+            Library::Mono,
+            PointerSize::Bit64,
+            UNITY_2018_1_7F1_WINDOWS_MONO_X86_64,
+        ),
+        (
+            (2018, 1, 7, 46210),
+            Library::Mono,
+            PointerSize::Bit32,
+            UNITY_2018_1_7F1_WINDOWS_MONO_X86,
         ),
         (
             (2021, 2, 0, 61932),
@@ -120,14 +156,14 @@ fn the_mac_constant_names_both_slices() {
 // and its profiles say so through the library.
 #[test]
 fn the_old_runtime_is_told_by_the_library() {
-    assert_eq!(UNITY_2017_4_40F1_WINDOWS_MONO_X86_64.library, Library::Mono);
-    assert_eq!(UNITY_2017_4_40F1_WINDOWS_MONO_X86_64.v_table.vtable, 0);
+    assert_eq!(UNITY_2017_4_6F1_WINDOWS_MONO_X86_64.library, Library::Mono);
+    assert_eq!(UNITY_2017_4_6F1_WINDOWS_MONO_X86_64.v_table.vtable, 0);
     assert_eq!(
-        UNITY_2017_3_0F3_WINDOWS_MONO_BDWGC_X86_64.library,
+        UNITY_2017_2_0F1_WINDOWS_MONO_BDWGC_X86_64.library,
         Library::MonoBdwgc
     );
     assert_eq!(
-        UNITY_2017_3_0F3_WINDOWS_MONO_BDWGC_X86_64.v_table.vtable,
+        UNITY_2017_2_0F1_WINDOWS_MONO_BDWGC_X86_64.v_table.vtable,
         0x40
     );
 }
