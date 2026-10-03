@@ -696,3 +696,66 @@ fn needs_a_lea_after_a_load_to_count_it_as_the_table() {
         Some(Address::new(BASE + 0x3000))
     );
 }
+
+#[test]
+fn x86_master_export_does_not_follow_a_call_in_the_next_function() {
+    // mov eax, [s_Assemblies]; pop ebp; ret, then a function that calls
+    // some other getter.
+    let master = [&[0xA1][..], &absolute(0x3000), &[0x5D, 0xC3]].concat();
+    let next = [&[0xE8][..], &displacement(0x1015, 0x1100), &[0xC3]].concat();
+    let other_getter = [&[0xB8][..], &absolute(0x3800), &[0xC3]].concat();
+    assert_eq!(
+        assemblies(
+            PointerSize::Bit32,
+            &[(0x1000, &master), (0x1010, &next), (0x1100, &other_getter)]
+        ),
+        Some(Address::new(BASE + 0x3000))
+    );
+}
+
+#[test]
+fn x86_type_export_does_not_match_an_indexed_load_in_the_next_function() {
+    // The export jumps to the accessor, and the function after the jump
+    // loads some other table the same way.
+    let decoy = [
+        &[0xA1][..],
+        &absolute(0x3800),
+        &[0x83, 0x3C, 0xB0, 0x00, 0xC3],
+    ]
+    .concat();
+    let accessor = [&[0xA1][..], &absolute(0x3000), &[0x83, 0x3C, 0xB0, 0x00]].concat();
+    assert_eq!(
+        table(
+            PointerSize::Bit32,
+            "il2cpp_image_get_class",
+            &[
+                (0x1000, &jmp(0x1000, 0x1200)),
+                (0x1005, &decoy),
+                (0x1200, &accessor)
+            ]
+        ),
+        Some(Address::new(BASE + 0x3000))
+    );
+}
+
+#[test]
+fn reads_code_before_the_code_it_already_read() {
+    // The export sits after the accessor and jumps back to it, further than
+    // one block of read code reaches.
+    let image = image(
+        PointerSize::Bit64,
+        &[("il2cpp_image_get_class", 0x1800)],
+        &[
+            (0x1800, &jmp(0x1800, 0x1000)),
+            (0x1000, &accessor_x64(0x1000)),
+        ],
+    );
+    let found = with_process(&[(BASE, &image)], |process| {
+        globals::type_info_definition_table(
+            process,
+            (Address::new(BASE), SIZE as u64),
+            PointerSize::Bit64,
+        )
+    });
+    assert_eq!(found, Some(Address::new(BASE + 0x3000)));
+}
