@@ -174,16 +174,18 @@ pub(super) fn decode(code: &[u8], x64: bool) -> Option<Instruction> {
                 at += 1;
                 (true, 1)
             }
+            0x80..=0x8F if !x64 && operand16 => return None,
             0x80..=0x8F => (false, 4),
             _ if has(&PLAIN_0F, second) => (false, 0),
             _ => (true, if has(&IMM8_0F, second) { 1 } else { 0 }),
         }
     } else {
-        // Refuses VEX, EVEX and far calls and jumps. On x86, C4 and C5 are
-        // LES and LDS when a memory operand follows, and VEX otherwise.
+        // Refuses VEX, EVEX and far calls and jumps. On x86, C4, C5 and 62
+        // are LES, LDS and BOUND when a memory operand follows, and VEX or
+        // EVEX otherwise.
         let vex = match opcode {
             0xC4 | 0xC5 => x64 || *code.get(at)? >= 0xC0,
-            0x62 => x64,
+            0x62 => x64 || *code.get(at)? >= 0xC0,
             _ => false,
         };
         if vex || matches!(opcode, 0x9A | 0xEA) {

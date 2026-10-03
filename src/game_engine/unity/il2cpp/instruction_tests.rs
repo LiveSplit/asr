@@ -126,3 +126,13 @@ fn refuses_vex_and_evex() {
     // LES and LDS with a memory operand are still decoded on x86.
     assert_eq!(length("C5 06", false), 2);
 }
+
+#[test]
+fn refuses_an_unsupported_16_bit_near_conditional_branch() {
+    assert!(decode(&bytes("66 0F 85 11 22 90 90"), false).is_none());
+}
+
+#[test]
+fn refuses_evex_in_32_bit_mode_too() {
+    assert!(decode(&bytes("62 F1 7C 48 10 00"), false).is_none());
+}
