@@ -271,7 +271,7 @@ fn finds_the_x86_table_through_either_indexed_read() {
 }
 
 #[test]
-fn starts_at_il2cpp_class_from_type_without_il2cpp_image_get_class() {
+fn starts_at_il2cpp_type_get_class_or_element_class_without_il2cpp_image_get_class() {
     let accessor = [
         &[0x48, 0x8B, 0x05][..],
         &displacement(0x1007, 0x3000),
@@ -281,7 +281,7 @@ fn starts_at_il2cpp_class_from_type_without_il2cpp_image_get_class() {
     assert_eq!(
         table(
             PointerSize::Bit64,
-            "il2cpp_class_from_type",
+            "il2cpp_type_get_class_or_element_class",
             &[(0x1000, &accessor)]
         ),
         Some(Address::new(BASE + 0x3000))
@@ -432,7 +432,7 @@ fn prefers_il2cpp_image_get_class_when_both_are_exported() {
     let image = image(
         PointerSize::Bit64,
         &[
-            ("il2cpp_class_from_type", 0x1100),
+            ("il2cpp_type_get_class_or_element_class", 0x1100),
             ("il2cpp_image_get_class", 0x1000),
         ],
         &[(0x1000, &accessor_x64(0x1000)), (0x1100, &other)],
@@ -445,4 +445,50 @@ fn prefers_il2cpp_image_get_class_when_both_are_exported() {
         )
     });
     assert_eq!(found, Some(Address::new(BASE + 0x3000)));
+}
+
+#[test]
+fn master_export_does_not_follow_a_call_in_the_next_function() {
+    let master = [
+        &[0x48, 0x8B, 0x05][..],
+        &displacement(0x1007, 0x3000),
+        &[0xC3],
+    ]
+    .concat();
+    let next = [&[0xE8][..], &displacement(0x1015, 0x1100), &[0xC3]].concat();
+    let other_getter = [
+        &[0x48, 0x8D, 0x05][..],
+        &displacement(0x1107, 0x3800),
+        &[0xC3],
+    ]
+    .concat();
+    assert_eq!(
+        assemblies(
+            PointerSize::Bit64,
+            &[(0x1000, &master), (0x1010, &next), (0x1100, &other_getter)]
+        ),
+        Some(Address::new(BASE + 0x3000))
+    );
+}
+
+#[test]
+fn type_export_does_not_match_an_indexed_load_in_the_next_function() {
+    let decoy = [
+        &[0x48, 0x8B, 0x05][..],
+        &displacement(0x1017, 0x3800),
+        &[0x48, 0x83, 0x3C, 0x07, 0x00, 0xC3],
+    ]
+    .concat();
+    assert_eq!(
+        table(
+            PointerSize::Bit64,
+            "il2cpp_image_get_class",
+            &[
+                (0x1000, &jmp(0x1000, 0x1200)),
+                (0x1010, &decoy),
+                (0x1200, &accessor_x64(0x1200))
+            ]
+        ),
+        Some(Address::new(BASE + 0x3000))
+    );
 }
