@@ -682,6 +682,23 @@ mod tests {
     }
 
     #[test]
+    fn reads_page_by_page_only_inside_a_chunk_that_failed() {
+        // The first chunk has a page that can't be read, so it takes 1 read
+        // for the chunk and 16 for its pages. The next 2 chunks take 1 read
+        // each, and the match across them is still found.
+        let first = [0; 0x1000];
+        let mut rest = std::vec![0; 0x2E000];
+        rest[0x1DFFE..0x1E002].copy_from_slice(&[0xAA, 0xBB, 0xCC, 0xDD]);
+        with_process(&[(0x10000, &first), (0x12000, &rest)], |process| {
+            let found: std::vec::Vec<Address> = SIGNATURE
+                .scan_iter(process, (Address::new(0x10000), 0x30000))
+                .collect();
+            assert_eq!(found, [Address::new(0x2FFFE)]);
+            assert_eq!(crate::runtime::mock::reads(), 19);
+        });
+    }
+
+    #[test]
     fn stops_at_the_end_of_the_address_space() {
         // The range runs past the last page, so the scan must not wrap
         // around to the match at the start of memory.
