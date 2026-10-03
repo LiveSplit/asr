@@ -88,8 +88,8 @@ fn brute_force(bytes: &[u8], needle: &[u8], mask: &[u8]) -> Vec<usize> {
 }
 
 /// Lays out 1 to 3 regions of memory just before 0x20000, so many ranges
-/// cross from one 64 KB chunk into the next. Their starts and ends aren't
-/// page aligned. Some touch, so a read across them still fails.
+/// cross the 64 KB chunk boundary there. Their starts and ends aren't page
+/// aligned. Some touch, so a read across them still fails.
 fn random_regions(rng: &mut Rng, needle: &[u8], mask: &[u8]) -> Vec<(u64, Vec<u8>)> {
     let mut regions = Vec::new();
     let mut at = 0x1E000 + rng.below(0x2000);
@@ -133,8 +133,8 @@ fn random_range(rng: &mut Rng, regions: &[(u64, Vec<u8>)], n: u64) -> (u64, u64)
 }
 
 /// Lists every match in the range that the scan can see. The scan reads
-/// whole pages, so a match counts only when every page it touches is in one
-/// region.
+/// whole pages, so a match counts only when every page it touches lies in
+/// a single region.
 fn expected(
     regions: &[(u64, Vec<u8>)],
     needle: &[u8],

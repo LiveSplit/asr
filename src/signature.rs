@@ -9,7 +9,7 @@ use crate::{Address, Process};
 ///
 /// The length is only used to size the signature. Every signature, whatever
 /// its length, scans through the same code, so a splitter with signatures of
-/// many lengths pays for one scanner.
+/// many lengths pays for 1 scanner.
 #[derive(Debug, Clone, Copy)]
 pub struct Signature<const N: usize> {
     /// The bytes to find, with the wildcard bits cleared.
@@ -19,12 +19,12 @@ pub struct Signature<const N: usize> {
     anchor: Anchor,
 }
 
-/// Holds the two bytes a scan checks before it compares a whole signature:
-/// the two rarest fixed bytes, going by how often each byte value shows up
+/// Holds the 2 bytes a scan checks before it compares a whole signature:
+/// the 2 rarest fixed bytes, going by how often each byte value shows up
 /// in x64 code. A byte with wildcard bits only gets picked when there are
-/// fewer than two fixed bytes. The scan looks for the anchor first and
-/// checks the check byte at each hit. With one fixed byte and the rest
-/// wildcards, the check is the anchor again.
+/// fewer than 2 fixed bytes. The scan looks for the anchor first and checks
+/// the check byte at each hit. When every other byte is a full wildcard,
+/// the check is the anchor again.
 #[derive(Debug, Clone, Copy)]
 struct Anchor {
     pos: u8,
@@ -97,8 +97,8 @@ impl<const N: usize> Signature<N> {
     ///
     /// # Panics
     ///
-    /// This function panics if the signature is invalid or if its length
-    /// exceeds 255 bytes.
+    /// This function panics if the signature is invalid or empty, or if its
+    /// length exceeds 255 bytes.
     ///
     /// # Example
     ///
@@ -326,7 +326,7 @@ impl Pattern<'_> {
     }
 
     /// Finds the first match at or after `from`. Looks for the anchor byte
-    /// 32 bytes at a time, as 4 words with one branch for all 4, since most
+    /// 32 bytes at a time, as 4 words with 1 branch for all 4, since most
     /// steps find nothing. On a step with hits, drops the hits whose check
     /// byte is wrong, 32 at a time too, and compares the signature at the
     /// rest. So an anchor that hits every few bytes, such as a nibble, stays
@@ -341,7 +341,7 @@ impl Pattern<'_> {
             anchor.check_mask as u64 * ONES,
         );
         // Flags the bytes that are `bytes` in the 32 bytes of `hay` at `at`,
-        // one bit per byte, or returns `None` where fewer bytes are left.
+        // 1 bit per byte, or returns `None` where fewer bytes are left.
         let hits = |hay: &[u8], at: usize, bytes, masks| {
             let (words, _) = hay.get(at..at + 32)?.as_chunks::<8>();
             let mut bits = 0;
@@ -432,7 +432,7 @@ const fn word_hits(word: [u8; 8], bytes: u64, masks: u64) -> u64 {
     differences.wrapping_sub(ONES) & !differences & HIGHS
 }
 
-/// Packs the high bit of each byte into one bit per byte. The multiply adds
+/// Packs the high bit of each byte into 1 bit per byte. The multiply adds
 /// up the word shifted left by 0, 7, 14 and so on up to 49 bits. That puts
 /// the high bit of byte 0 at bit 56, of byte 1 at bit 57 and so on, and
 /// nothing else reaches the top byte. Hits in bytes 0 and 2,
@@ -461,12 +461,11 @@ impl Iterator for SliceIter<'_> {
 /// all, so a read never straddles one that isn't.
 const PAGE: usize = 0x1000;
 /// How much the scan reads at a time where it can. Each read is a call into
-/// the host, which costs about as much as scanning a page, so the scan
-/// reads many pages at once and goes one page at a time only inside a
-/// chunk that failed.
+/// the host, so the scan reads many pages at once and goes 1 page at a time
+/// only inside a chunk that failed.
 const CHUNK: usize = 0x10000;
 /// Room in front of the chunk for the tail of the one before it, so a match
-/// across the two is seen. A signature is at most 255 bytes long.
+/// across the 2 chunks is seen. A signature is at most 255 bytes long.
 const TAIL: usize = 0xFF;
 
 struct ScanIter<'a> {
@@ -476,7 +475,7 @@ struct ScanIter<'a> {
     addr: u64,
     /// Where the range ends.
     end: u64,
-    /// Up to where the reads go one page at a time, after a chunk failed.
+    /// Up to where the reads go 1 page at a time, after a chunk failed.
     paged_until: u64,
     /// The bytes to scan are `buf[lo..hi]`, of which the first `cursor` are
     /// searched already. The byte at `lo` is at address `base`.
@@ -621,8 +620,8 @@ mod tests {
 
     #[test]
     fn finds_no_match_in_bytes_before_a_short_first_chunk() {
-        // The range starts one byte before a page end, so the first chunk
-        // holds AA alone. The signature would match two bytes before the
+        // The range starts 1 byte before a page end, so the first chunk
+        // holds AA alone. The signature would match 2 bytes before the
         // range if those bytes got scanned.
         let mut memory = [0x11; 0x2000];
         memory[0xFFF] = 0xAA;
