@@ -525,7 +525,7 @@ impl<'a> ScanIter<'a> {
             } else {
                 CHUNK
             } as u64;
-            let step_end = ((self.addr & !(step - 1)) + step).min(self.end);
+            let step_end = (self.addr & !(step - 1)).saturating_add(step).min(self.end);
             let len = (step_end - self.addr) as usize;
             let read = self
                 .process
@@ -679,6 +679,24 @@ mod tests {
                 Some(Address::new(0x15000))
             );
         });
+    }
+
+    #[test]
+    fn stops_at_the_end_of_the_address_space() {
+        // The range runs past the last page, so the scan must not wrap
+        // around to the match at the start of memory.
+        let last = [0; 0x1000];
+        let first = [0xAA, 0xBB, 0xCC, 0xDD];
+        with_process(
+            &[(0xFFFF_FFFF_FFFF_F000, &last), (0x10000, &first)],
+            |process| {
+                assert_eq!(
+                    SIGNATURE
+                        .scan_process_range(process, (Address::new(0xFFFF_FFFF_FFFF_F000), 0x2000)),
+                    None
+                );
+            },
+        );
     }
 
     #[test]
