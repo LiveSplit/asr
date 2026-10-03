@@ -161,11 +161,22 @@ fn walk(
                     at = after;
                     match instruction.flow {
                         Flow::Next => {}
-                        Flow::Branch(rel) => {
-                            if let Some(target) = target(rel) {
+                        Flow::Branch(rel) => match target(rel) {
+                            // A branch out of the function goes on in another
+                            // one, like a jump, and this one goes on too.
+                            Some(target)
+                                if bounds
+                                    .is_some_and(|(from, to)| target < from || target >= to) =>
+                            {
+                                if !next.contains(&target) {
+                                    let _ = next.try_push(target);
+                                }
+                            }
+                            Some(target) => {
                                 let _ = branches.try_push(target);
                             }
-                        }
+                            None => {}
+                        },
                         Flow::Call(rel) => {
                             if let Some(target) =
                                 target(rel).filter(|target| !next.contains(target))

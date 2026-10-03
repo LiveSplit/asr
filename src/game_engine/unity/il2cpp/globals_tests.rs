@@ -759,3 +759,42 @@ fn reads_code_before_the_code_it_already_read() {
     });
     assert_eq!(found, Some(Address::new(BASE + 0x3000)));
 }
+
+#[test]
+fn follows_a_conditional_tail_jump_outside_the_function_range() {
+    let branch = [&[0x0F, 0x85][..], &displacement(0x1006, 0x1200), &[0xC3]].concat();
+    let mut image = image(
+        PointerSize::Bit64,
+        &[("il2cpp_image_get_class", 0x1000)],
+        &[(0x1000, &branch), (0x1200, &accessor_x64(0x1200))],
+    );
+    put_functions(&mut image, &[(0x1000, 0x1007), (0x1200, 0x120D)]);
+    let found = with_process(&[(BASE, &image)], |process| {
+        globals::type_info_definition_table(
+            process,
+            (Address::new(BASE), SIZE as u64),
+            PointerSize::Bit64,
+        )
+    });
+    assert_eq!(found, Some(Address::new(BASE + 0x3000)));
+}
+
+#[test]
+fn does_not_follow_a_call_byte_inside_a_mov_immediate() {
+    let export = [
+        &[0x48, 0xB8, 0xE8][..],
+        &displacement(0x1007, 0x1100),
+        &[0x00, 0x00, 0x00, 0xC3],
+    ]
+    .concat();
+    let decoy = [
+        &[0x48, 0x8D, 0x05][..],
+        &displacement(0x1107, 0x3800),
+        &[0xC3],
+    ]
+    .concat();
+    assert_eq!(
+        assemblies(PointerSize::Bit64, &[(0x1000, &export), (0x1100, &decoy)]),
+        None
+    );
+}
