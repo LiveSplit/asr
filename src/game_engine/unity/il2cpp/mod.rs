@@ -11,6 +11,9 @@ use crate::{
 mod builds;
 mod globals;
 mod image;
+mod instruction;
+#[cfg(all(test, not(target_family = "wasm")))]
+mod instruction_tests;
 pub use image::Image;
 mod class;
 pub use class::Class;
