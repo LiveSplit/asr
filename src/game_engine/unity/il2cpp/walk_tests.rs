@@ -392,6 +392,63 @@ fn x64_scanner_refuses_an_x86_image() {
     });
 }
 
+// Exercise the Unity 2018.1 signatures without the usual assemblies signature.
+#[test]
+fn x64_2018_1_globals_resolve_and_reject_nonadjacent_ends() {
+    for end in [GAME_ASSEMBLY + 0x908, GAME_ASSEMBLY + 0x930] {
+        let mut image = Player::game_assembly();
+        put(&mut image, 0x300, &[0; 17]);
+        let rel = |from: u64, to: u64| ((to as i64 - (from + 4) as i64) as i32).to_le_bytes();
+        put(&mut image, 0x300, &[0x48, 0x8B, 0x05]);
+        put(
+            &mut image,
+            0x303,
+            &rel(GAME_ASSEMBLY + 0x303, GAME_ASSEMBLY + 0x900),
+        );
+        put(&mut image, 0x307, &[0x4C, 0x8B, 0x1D]);
+        put(&mut image, 0x30A, &rel(GAME_ASSEMBLY + 0x30A, end));
+        put(&mut image, 0x30E, &[0x49, 0x3B, 0xC3]);
+        with_process(&[(GAME_ASSEMBLY, &image)], |process| {
+            let result = Module::globals_x64(process, (Address::new(GAME_ASSEMBLY), 0x1000));
+            if end == GAME_ASSEMBLY + 0x908 {
+                assert_eq!(
+                    result,
+                    Some((
+                        Address::new(GAME_ASSEMBLY + 0x900),
+                        Address::new(GAME_ASSEMBLY + 0x910)
+                    ))
+                );
+            } else {
+                assert!(result.is_none());
+            }
+        });
+    }
+}
+
+#[test]
+fn x86_2018_1_globals_resolve_and_reject_nonadjacent_ends() {
+    for end in [BASE + 0x904, BASE + 0x930] {
+        let mut image = x86_image(DIVIDED, 10);
+        put(&mut image, 0x100, &[0; 16]);
+        put(&mut image, 0x100, &[0xA1]);
+        put(&mut image, 0x101, &(BASE as u32 + 0x900).to_le_bytes());
+        put(&mut image, 0x105, &[0x8B, 0x35]);
+        put(&mut image, 0x107, &(end as u32).to_le_bytes());
+        put(&mut image, 0x10B, &[0x3B, 0xC6]);
+        with_process(&[(BASE, &image)], |process| {
+            let result = Module::globals_x86(process, (Address::new(BASE), 0x1000));
+            if end == BASE + 0x904 {
+                assert_eq!(
+                    result,
+                    Some((Address::new(BASE + 0x900), Address::new(BASE + 0x910)))
+                );
+            } else {
+                assert!(result.is_none());
+            }
+        });
+    }
+}
+
 // Every measured build names an assembly through its image, at the image's
 // own name field.
 #[test]
