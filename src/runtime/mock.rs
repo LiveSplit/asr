@@ -103,6 +103,45 @@ fn module(name_ptr: *const u8, name_len: usize) -> Option<(u64, u64)> {
     })
 }
 
+/// Writes a PE header and an export table into the start of a module image.
+/// Each export is a name and the offset of its code. The export table sits
+/// at 0x200 and the names after it, so code and data go from 0x300 on.
+pub fn put_exports(image: &mut [u8], pointer_size: crate::PointerSize, exports: &[(&str, u32)]) {
+    let mut put = |at: usize, bytes: &[u8]| image[at..at + bytes.len()].copy_from_slice(bytes);
+    const TABLE: usize = 0x200;
+    put(0x00, b"MZ");
+    put(0x3C, &0x80_u32.to_le_bytes());
+    put(0x80, b"PE\0\0");
+    let (machine, directory): (u16, usize) = match pointer_size {
+        crate::PointerSize::Bit64 => (0x8664, 0x88),
+        _ => (0x14C, 0x78),
+    };
+    put(0x84, &machine.to_le_bytes());
+    put(0x80 + directory, &(TABLE as u32).to_le_bytes());
+    put(0x80 + directory + 4, &0x100_u32.to_le_bytes());
+
+    // The directory, then the function, name and ordinal arrays, then the
+    // names themselves.
+    let count = exports.len() as u32;
+    let functions = TABLE + 0x28;
+    let names = functions + exports.len() * 4;
+    let ordinals = names + exports.len() * 4;
+    let mut strings = ordinals + exports.len() * 2;
+    put(TABLE + 0x14, &count.to_le_bytes());
+    put(TABLE + 0x18, &count.to_le_bytes());
+    put(TABLE + 0x1C, &(functions as u32).to_le_bytes());
+    put(TABLE + 0x20, &(names as u32).to_le_bytes());
+    put(TABLE + 0x24, &(ordinals as u32).to_le_bytes());
+    for (index, (name, at)) in exports.iter().enumerate() {
+        put(functions + index * 4, &at.to_le_bytes());
+        put(names + index * 4, &(strings as u32).to_le_bytes());
+        put(ordinals + index * 2, &(index as u16).to_le_bytes());
+        put(strings, name.as_bytes());
+        strings += name.len() + 1;
+    }
+    assert!(strings <= 0x300, "the export names run into the code");
+}
+
 /// The host's log. Tests have no need to see it.
 #[no_mangle]
 const extern "C" fn runtime_print_message(_text_ptr: *const u8, _text_len: usize) {}
