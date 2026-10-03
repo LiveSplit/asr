@@ -378,18 +378,14 @@ impl Module {
                 // 57       0f       00       d0       e0       da       47       f9
                 // ???10111 ???????? ???????? 1??10000 11100000 ??????10 01?????? 11111001
                 // hi0      hi1      hi2       lo               i0         i1
-                const SIG_MONO_ARM_64_MACHO: Signature<8> = Signature::Complex {
-                    needle: [
+                const SIG_MONO_ARM_64_MACHO: Signature<8> = Signature::masked(
+                    [
                         0b00010111, 0, 0, 0b10010000, 0xE0, 0b00000010, 0b01000000, 0xF9,
                     ],
-                    mask: [
+                    [
                         0b00011111, 0, 0, 0b10011111, 0xFF, 0b00000011, 0b11000000, 0xFF,
                     ],
-                    anchor_pos: Some(4),
-                    anchor_byte: 0xE0,
-                    check_pos: Some(7),
-                    check_byte: 0xF9,
-                };
+                );
                 if let Some(scan_address) = SIG_MONO_X86_64_MACHO
                     .scan_process_range(process, (root_domain_function_address, 0x100))
                     .map(|a| a + 3)
