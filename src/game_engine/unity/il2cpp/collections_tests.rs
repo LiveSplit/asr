@@ -318,6 +318,44 @@ fn old_corlib_dictionaries_resolve_through_the_type_table() {
     });
 }
 
+// Checks whether the old corlib dictionary resolves to the parallel shape.
+fn resolves_parallel(process: &Process, module: &Module) -> bool {
+    module
+        .get_dictionary_offsets(process, Address::new(BASE + 0x48))
+        .is_some_and(|offsets| matches!(offsets.shape, DictionaryShape::Parallel { .. }))
+}
+
+#[test]
+fn old_corlib_dictionaries_resolve_without_generic_offsets() {
+    let mut module = module(MEASURED_2019);
+    module.profile.generic.cached_class = None;
+    with_process(&[(BASE, &image(MEASURED_2019))], |process| {
+        assert!(resolves_parallel(process, &module));
+    });
+}
+
+#[test]
+fn old_corlib_dictionaries_resolve_a_link_at_index_0() {
+    let mut image = image(MEASURED_2019);
+    ptr(&mut image, 0x2B40, 0);
+    ptr(&mut image, 0x2B80, BASE + 0x2C00);
+    with_process(&[(BASE, &image)], |process| {
+        assert!(resolves_parallel(process, &module(MEASURED_2019)));
+    });
+}
+
+#[test]
+fn plain_types_resolve_nothing_where_metadata_keeps_pointers() {
+    // The plain type's data, 5, still leads to the Link class when it is
+    // read as an index. Metadata that keeps a pointer there never means an
+    // index, so nothing resolves.
+    let mut module = module(MEASURED_2019);
+    module.profile.image.type_start = super::TypeStart::Handle(0x28);
+    with_process(&[(BASE, &image(MEASURED_2019))], |process| {
+        assert!(!resolves_parallel(process, &module));
+    });
+}
+
 #[test]
 fn dictionaries_read_their_live_pairs() {
     on_fixture(MEASURED_2019, |process, module| {
