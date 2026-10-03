@@ -63,7 +63,8 @@ impl SceneManager {
         process: &Process,
         name: &str,
     ) -> Result<Transform, Error> {
-        self.root_game_objects(process, &self.get_dont_destroy_on_load_scene())
+        let scene = self.get_dont_destroy_on_load_scene().ok_or(Error {})?;
+        self.root_game_objects(process, &scene)
             .find(|obj| {
                 obj.get_name::<CSTR>(process, self)
                     .is_ok_and(|obj_name| obj_name.matches(name))

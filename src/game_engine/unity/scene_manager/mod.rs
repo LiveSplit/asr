@@ -55,14 +55,9 @@ pub struct SceneManager {
 
 impl SceneManager {
     /// Attaches to the scene manager in the given process. On Windows, the
-    /// Unity version and pointer size of the game select a measured build.
-    /// An exact version match uses its own build. Otherwise, within the
-    /// same major.minor, the newest measured patch at or below the game's
-    /// patch is used, or the earliest measured patch if none is below.
-    /// If that major.minor has no measured builds, the newest build from
-    /// an earlier major.minor is used, or the oldest build if none is earlier.
-    /// These fallbacks approximate an unmeasured game's layout; they cannot
-    /// guarantee compatibility with a layout change between measured builds.
+    /// Unity version and pointer size of the game select a measured build:
+    /// the newest build whose patch is at or below the game's patch. A game
+    /// below every build does not attach.
     pub fn attach(process: &Process) -> Option<Self> {
         let (unity_player, format) = Self::engine_module(process)?;
 
@@ -107,9 +102,9 @@ impl SceneManager {
     }
 
     /// Finds the module that holds the engine: `UnityPlayer.dll` and its
-    /// Linux and Mac siblings, or the game's own executable on Unity 5.6,
-    /// which linked the engine in. Finding the executable needs its name,
-    /// so that part needs the `alloc` feature.
+    /// Linux and Mac siblings, or the game's own executable before Unity
+    /// 2017.2, which linked the engine in. Finding the executable needs its
+    /// name, so that part needs the `alloc` feature.
     fn engine_module(process: &Process) -> Option<((Address, u64), BinaryFormat)> {
         let player = [
             ("UnityPlayer.dll", BinaryFormat::PE),
@@ -218,11 +213,13 @@ impl SceneManager {
     /// `DontDestroyOnLoad` is a special Unity scene containing game objects
     /// that must be preserved when switching between different scenes (eg. a
     /// `scene1` starting some background music that continues when `scene2`
-    /// loads).
-    pub fn get_dont_destroy_on_load_scene(&self) -> Scene {
-        Scene {
-            address: self.address + self.profile.manager.dont_destroy_on_load_scene,
-        }
+    /// loads). Returns `None` on Unity 5.6.0 and 5.6.1, which keep those
+    /// objects in a list of instance IDs, not in a scene.
+    pub fn get_dont_destroy_on_load_scene(&self) -> Option<Scene> {
+        let offset = self.profile.manager.dont_destroy_on_load_scene?;
+        Some(Scene {
+            address: self.address + offset,
+        })
     }
 
     /// Returns the current scene index.

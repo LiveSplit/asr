@@ -101,3 +101,39 @@ fn a_ring_that_does_not_close_stops_at_the_break() {
         [Address::new(BASE + 0x800), Address::new(BASE + 0x840)]
     );
 }
+
+fn manager_of(unity: (u16, u16, u16, u16), pointer_size: PointerSize) -> SceneManager {
+    SceneManager {
+        pointer_size,
+        address: Address::new(BASE),
+        profile: &builds::nearest(unity, pointer_size).unwrap().profile,
+    }
+}
+
+// Unity 5.6.0 and 5.6.1 keep DontDestroyOnLoad objects as a list of instance
+// IDs, not in a scene. From 5.6.2 on, the manager holds a scene for them.
+#[test]
+fn only_5_6_2_and_later_have_a_dont_destroy_on_load_scene() {
+    for pointer_size in [PointerSize::Bit64, PointerSize::Bit32] {
+        assert!(manager_of((5, 6, 0, 23754), pointer_size)
+            .get_dont_destroy_on_load_scene()
+            .is_none());
+        assert!(manager_of((5, 6, 1, 0), pointer_size)
+            .get_dont_destroy_on_load_scene()
+            .is_none());
+        assert!(manager_of((5, 6, 2, 37180), pointer_size)
+            .get_dont_destroy_on_load_scene()
+            .is_some());
+    }
+}
+
+#[test]
+fn no_dont_destroy_on_load_scene_finds_no_object() {
+    let image = vec![0; 0x1000];
+    let manager = manager_of((5, 6, 0, 23754), PointerSize::Bit64);
+    with_process(&[(BASE, &image)], |process| {
+        assert!(manager
+            .get_game_object_from_dont_destroy_on_load(process, "Fixture")
+            .is_err());
+    });
+}
