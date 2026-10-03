@@ -12,7 +12,7 @@ use std::vec;
 use std::vec::Vec;
 
 const BASE: u64 = 0x60_0000;
-const MEASURED_2019: (u16, u16, u16, u16) = (2019, 4, 41, 9172);
+const MEASURED_2019: (u16, u16, u16, u16) = (2019, 1, 0, 11155);
 
 fn put(image: &mut [u8], at: u64, bytes: &[u8]) {
     let at = at as usize;

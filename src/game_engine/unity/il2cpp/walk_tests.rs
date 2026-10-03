@@ -123,9 +123,9 @@ impl Player {
     }
 }
 
-const MEASURED_2019: (u16, u16, u16, u16) = (2019, 4, 41, 9172);
-const MEASURED_2022: (u16, u16, u16, u16) = (2022, 3, 0, 4507);
-const MEASURED_6000_5: (u16, u16, u16, u16) = (6000, 5, 10, 54518);
+const MEASURED_2019: (u16, u16, u16, u16) = (2019, 1, 0, 11155);
+const MEASURED_2022: (u16, u16, u16, u16) = (2022, 2, 0, 56532);
+const MEASURED_6000_5: (u16, u16, u16, u16) = (6000, 5, 0, 46204);
 
 fn measured(unity: (u16, u16, u16, u16), pointer_size: PointerSize) -> Profile {
     super::builds::nearest(unity, pointer_size).unwrap().profile
@@ -154,24 +154,23 @@ fn attach_uses_the_explicit_profile_and_checks_its_width() {
         unity: MEASURED_6000_5,
     };
     let module = player
-        .attach_profile(super::profiles::UNITY_6000_5_10F1_X86_64)
+        .attach_profile(super::profiles::UNITY_6000_5_0F1_X86_64)
         .unwrap();
     assert_eq!(module.profile.class.static_fields, 0xa0);
     assert!(player
-        .attach_profile(super::profiles::UNITY_6000_5_10F1_X86)
+        .attach_profile(super::profiles::UNITY_6000_5_0F1_X86)
         .is_none());
 }
 
-// A player nobody measured takes the nearest build.
+// A player nobody measured takes the newest build at or below its patch.
 #[test]
-fn attach_auto_detect_takes_the_nearest_build_for_an_unmeasured_player() {
+fn attach_auto_detect_takes_the_newest_build_below_an_unmeasured_player() {
     let module = Player {
         unity: (2021, 3, 5, 1),
     }
     .attach()
     .unwrap();
-    let nearest = super::builds::nearest((2021, 3, 11, 23713), PointerSize::Bit64).unwrap();
-    assert_eq!(module.profile, nearest.profile);
+    assert_eq!(module.profile, super::profiles::UNITY_2020_2_0F1_X86_64);
 }
 
 // The x86 code that points at both globals. The assemblies loop reads the vector's
@@ -391,6 +390,63 @@ fn x64_scanner_refuses_an_x86_image() {
         )
         .is_none());
     });
+}
+
+// Exercise the Unity 2018.1 signatures without the usual assemblies signature.
+#[test]
+fn x64_2018_1_globals_resolve_and_reject_nonadjacent_ends() {
+    for end in [GAME_ASSEMBLY + 0x908, GAME_ASSEMBLY + 0x930] {
+        let mut image = Player::game_assembly();
+        put(&mut image, 0x300, &[0; 17]);
+        let rel = |from: u64, to: u64| ((to as i64 - (from + 4) as i64) as i32).to_le_bytes();
+        put(&mut image, 0x300, &[0x48, 0x8B, 0x05]);
+        put(
+            &mut image,
+            0x303,
+            &rel(GAME_ASSEMBLY + 0x303, GAME_ASSEMBLY + 0x900),
+        );
+        put(&mut image, 0x307, &[0x4C, 0x8B, 0x1D]);
+        put(&mut image, 0x30A, &rel(GAME_ASSEMBLY + 0x30A, end));
+        put(&mut image, 0x30E, &[0x49, 0x3B, 0xC3]);
+        with_process(&[(GAME_ASSEMBLY, &image)], |process| {
+            let result = Module::globals_x64(process, (Address::new(GAME_ASSEMBLY), 0x1000));
+            if end == GAME_ASSEMBLY + 0x908 {
+                assert_eq!(
+                    result,
+                    Some((
+                        Address::new(GAME_ASSEMBLY + 0x900),
+                        Address::new(GAME_ASSEMBLY + 0x910)
+                    ))
+                );
+            } else {
+                assert!(result.is_none());
+            }
+        });
+    }
+}
+
+#[test]
+fn x86_2018_1_globals_resolve_and_reject_nonadjacent_ends() {
+    for end in [BASE + 0x904, BASE + 0x930] {
+        let mut image = x86_image(DIVIDED, 10);
+        put(&mut image, 0x100, &[0; 16]);
+        put(&mut image, 0x100, &[0xA1]);
+        put(&mut image, 0x101, &(BASE as u32 + 0x900).to_le_bytes());
+        put(&mut image, 0x105, &[0x8B, 0x35]);
+        put(&mut image, 0x107, &(end as u32).to_le_bytes());
+        put(&mut image, 0x10B, &[0x3B, 0xC6]);
+        with_process(&[(BASE, &image)], |process| {
+            let result = Module::globals_x86(process, (Address::new(BASE), 0x1000));
+            if end == BASE + 0x904 {
+                assert_eq!(
+                    result,
+                    Some((Address::new(BASE + 0x900), Address::new(BASE + 0x910)))
+                );
+            } else {
+                assert!(result.is_none());
+            }
+        });
+    }
 }
 
 // Every measured build names an assembly through its image, at the image's
@@ -937,10 +993,10 @@ fn class_walk_reads_the_type_start_where_the_build_keeps_it() {
     };
 
     for pointer_size in [PointerSize::Bit64, PointerSize::Bit32] {
-        let inline = measured((2018, 4, 36, 54151), pointer_size);
+        let inline = measured((2018, 3, 0, 9156), pointer_size);
         assert!(matches!(inline.image.type_start, TypeStart::Inline(_)));
         assert_eq!(
-            walk((2018, 4, 36, 54151), pointer_size),
+            walk((2018, 3, 0, 9156), pointer_size),
             Some(Address::new(BASE + 0x300))
         );
 
