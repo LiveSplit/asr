@@ -1,0 +1,11 @@
+[package]
+name = "splitter"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+asr = { path = "../..", features = ["unity", "alloc", "float-vars", "integer-vars"] }
