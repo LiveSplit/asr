@@ -87,6 +87,7 @@ const IMM8: [u32; 8] = set(&[
     (0xC0, 0xC1),
     (0xC6, 0xC6),
     (0xCD, 0xCD),
+    (0xD4, 0xD5),
     (0xE0, 0xE7),
     (0xEB, 0xEB),
 ]);
@@ -123,6 +124,7 @@ const PLAIN_0F: [u32; 8] = set(&[
 
 /// Two-byte opcodes, after `0F`, with a ModRM byte and an 8-bit immediate.
 const IMM8_0F: [u32; 8] = set(&[
+    (0x0F, 0x0F),
     (0x70, 0x73),
     (0xA4, 0xA4),
     (0xAC, 0xAC),
@@ -132,30 +134,33 @@ const IMM8_0F: [u32; 8] = set(&[
 ]);
 
 /// Decodes the instruction at the start of `code`. Returns `None` when the
-/// bytes run out first, or for encodings IL2CPP's code doesn't use (VEX,
-/// 16-bit addressing, far calls).
+/// bytes run out first, or for encodings IL2CPP's code doesn't use: VEX,
+/// EVEX, the `67` prefix and far calls.
 pub(super) fn decode(code: &[u8], x64: bool) -> Option<Instruction> {
     let mut at = 0;
     let mut operand16 = false;
+    let mut rex = 0;
     loop {
         match *code.get(at)? {
-            0x66 => operand16 = true,
-            0x26 | 0x2E | 0x36 | 0x3E | 0x64 | 0x65 | 0xF0 | 0xF2 | 0xF3 => {}
-            // 16-bit addressing on x86. x64 code doesn't use it either.
+            0x66 => {
+                operand16 = true;
+                rex = 0;
+            }
+            0x26 | 0x2E | 0x36 | 0x3E | 0x64 | 0x65 | 0xF0 | 0xF2 | 0xF3 => rex = 0,
+            // The 67 prefix changes how the operand is addressed, which
+            // IL2CPP code never does.
             0x67 => return None,
+            // A REX byte only counts when the opcode comes right after it.
+            byte @ 0x40..=0x4F if x64 => rex = byte,
             _ => break,
         }
         at += 1;
     }
-    let mut wide = false;
-    if x64 && code.get(at)? & 0xF0 == 0x40 {
-        wide = code[at] & 0x08 != 0;
-        at += 1;
-    }
+    let wide = rex & 0x08 != 0;
 
     let opcode = *code.get(at)?;
     at += 1;
-    let full = if operand16 { 2 } else { 4 };
+    let full = if operand16 && !wide { 2 } else { 4 };
     let mut second = 0;
     let (modrm, imm) = if opcode == 0x0F {
         second = *code.get(at)?;
@@ -174,11 +179,20 @@ pub(super) fn decode(code: &[u8], x64: bool) -> Option<Instruction> {
             _ => (true, if has(&IMM8_0F, second) { 1 } else { 0 }),
         }
     } else {
-        // VEX on x64, and far calls and jumps on x86.
-        if (x64 && matches!(opcode, 0xC4 | 0xC5)) || matches!(opcode, 0x9A | 0xEA) {
+        // Refuses VEX, EVEX and far calls and jumps. On x86, C4 and C5 are
+        // LES and LDS when a memory operand follows, and VEX otherwise.
+        let vex = match opcode {
+            0xC4 | 0xC5 => x64 || *code.get(at)? >= 0xC0,
+            0x62 => x64,
+            _ => false,
+        };
+        if vex || matches!(opcode, 0x9A | 0xEA) {
             return None;
         }
         let imm = match opcode {
+            // x64 ignores the 66 prefix on near calls and jumps.
+            0xE8 | 0xE9 if x64 => 4,
+            0xE8 | 0xE9 if operand16 => return None,
             0xB8..=0xBF if wide => 8,
             0xA0..=0xA3 => {
                 if x64 {

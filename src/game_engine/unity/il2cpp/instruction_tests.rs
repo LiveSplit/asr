@@ -95,3 +95,34 @@ fn refuses_instructions_cut_off_at_the_end() {
     assert!(decode(&bytes("E8 11"), true).is_none());
     assert!(decode(&[], true).is_none());
 }
+
+#[test]
+fn measures_unusual_prefix_orders_and_operand_sizes() {
+    for (hex, len) in [
+        // A REX byte only counts right before the opcode.
+        ("48 66 90", 3),
+        ("40 40 90", 3),
+        // REX.W wins over the 66 prefix for the immediate's size.
+        ("66 48 C7 C0 01 00 00 00", 8),
+        ("66 48 81 C0 01 00 00 00", 8),
+        // 3DNow ends with an 8-bit immediate.
+        ("0F 0F C1 B4", 4),
+    ] {
+        assert_eq!(length(hex, true), len, "{hex}");
+    }
+    for (hex, len) in [("D4 0A", 2), ("D5 0A", 2)] {
+        assert_eq!(length(hex, false), len, "{hex}");
+    }
+    // x64 ignores the 66 prefix on near calls and jumps.
+    assert_eq!(flow("66 E8 11 22 33 44", true), Flow::Call(0x4433_2211));
+    assert_eq!(length("66 E9 11 22 33 44", true), 6);
+}
+
+#[test]
+fn refuses_vex_and_evex() {
+    assert!(decode(&bytes("62 F1 7C 48 10 00"), true).is_none());
+    assert!(decode(&bytes("C5 F8 77"), false).is_none());
+    assert!(decode(&bytes("C4 E2 79 18 00"), false).is_none());
+    // LES and LDS with a memory operand are still decoded on x86.
+    assert_eq!(length("C5 06", false), 2);
+}

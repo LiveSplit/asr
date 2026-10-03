@@ -249,7 +249,7 @@ struct Code<'a> {
 }
 
 impl<'a> Code<'a> {
-    fn new(process: &'a Process, end: Address) -> Self {
+    const fn new(process: &'a Process, end: Address) -> Self {
         Self {
             process,
             end,
