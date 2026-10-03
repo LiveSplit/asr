@@ -19,19 +19,48 @@ pub struct Signature<const N: usize> {
     anchor: Anchor,
 }
 
-/// The two bytes a scan checks before it compares a whole signature. The
-/// anchor is the byte with the most fixed bits, which the scan looks for
-/// first. The check is the fixed byte farthest from the anchor.
+/// Holds the two bytes a scan checks before it compares a whole signature:
+/// the two rarest fixed bytes, going by how often each byte value shows up
+/// in x64 code. A byte with wildcard bits only gets picked when there are
+/// fewer than two fixed bytes. The scan looks for the anchor first and
+/// checks the check byte at each hit. With one fixed byte and the rest
+/// wildcards, the check is the anchor again.
 #[derive(Debug, Clone, Copy)]
 struct Anchor {
     pos: u8,
     byte: u8,
     mask: u8,
-    /// The same as `pos` when the signature has no other fixed byte.
     check_pos: u8,
     check_byte: u8,
     check_mask: u8,
 }
+
+/// Ranks each byte value by how common it is in x64 code, from 0 for the
+/// rarest to 255 for the most common. Counted over the modules of a Unity 6
+/// IL2CPP player (GameAssembly.dll and UnityPlayer.dll, 47 MB). Zero, the
+/// REX prefixes and `mov` are the most common; a scan anchored on them
+/// checks a candidate every few bytes. The table is only read while a
+/// signature is built, so a `const` signature never carries it into the
+/// auto splitter.
+#[rustfmt::skip]
+const RANK: [u8; 256] = [
+    255, 251, 237, 226, 225, 227, 179, 173, 234, 159, 161, 146, 195, 215, 139, 252,
+    241, 220, 122, 124, 153, 180, 103, 105, 212,  89,  61,  77, 121,  97,  53, 168,
+    239, 163,  55,  54, 249,  84,  46,  41, 229, 156,  39, 140,  87,  74, 132,  81,
+    223,  47,  90, 209, 129,  91,  26,  24, 208, 148, 130, 204, 114, 116,  49,  88,
+    230, 245, 158, 194, 243, 233, 142, 162, 254, 236,  95, 136, 242, 214, 117, 127,
+    218,  71, 101, 144, 193, 176, 133, 187, 205, 196,  15, 125, 210, 138, 123, 181,
+    188, 171,  57, 183, 178, 216, 222, 128, 169, 199,  28,  72, 190, 113, 202, 186,
+    207,  12, 201, 189, 240, 224, 115, 102, 175, 137,  25,  64, 165, 110,  83, 118,
+    231, 200, 119, 238, 221, 228,  92, 106, 182, 247,  37, 253, 108, 246,  45,  62,
+    172,  11,  21,  18,  76,  42,   3,  27, 134,   8,   1,   2,  78,   7,   0,   6,
+    157,  20,  32,  44,  68,  29,  17,  59, 147,  30,  67,  43,  85,  33,  23,  75,
+    151,  22,   4,   5,  93,  14, 152, 155, 177, 112,  96,  36,  79,  38,  51,  58,
+    235, 219, 166, 213, 197, 100, 203, 211, 217, 184, 111, 174, 248,  86, 150, 164,
+    206, 143, 154, 135,  66,  60, 126, 131, 167, 109,  63, 104,  34,   9,  31,  48,
+    185,  99,  73,  50, 107,  10,  13,  35, 244, 170,  56, 198, 160,  52,  16,  40,
+    191,  98, 149, 232,  65,  19, 145,  94, 192, 120,  82,  70,  80,  69, 141, 250,
+];
 
 /// A helper struct to parse a hexadecimal signature string into bytes.
 struct Parser<'a> {
@@ -183,30 +212,50 @@ impl<const N: usize> Signature<N> {
 }
 
 impl Anchor {
+    /// Rates how rare a byte of the signature is: a fixed byte goes by the
+    /// table, a byte with wildcard bits is worse than any fixed one, and the
+    /// fewer bits it fixes, the worse it is.
+    const fn rarity(needle: u8, mask: u8) -> u16 {
+        if mask == 0xFF {
+            RANK[needle as usize] as u16
+        } else {
+            0x100 + (8 - mask.count_ones()) as u16
+        }
+    }
+
+    /// Picks the rarest byte as the anchor and the second rarest as the
+    /// check.
     const fn choose(needle: &[u8], mask: &[u8]) -> Self {
-        let mut pos = 0;
-        let mut i = 1;
+        let mut best = 0;
+        let mut second = 0;
+        if needle.len() > 1 {
+            second = 1;
+            if Self::rarity(needle[1], mask[1]) < Self::rarity(needle[0], mask[0]) {
+                (best, second) = (1, 0);
+            }
+        }
+        let mut i = 2;
         while i < needle.len() {
-            if mask[i].count_ones() > mask[pos].count_ones() {
-                pos = i;
+            let rarity = Self::rarity(needle[i], mask[i]);
+            if rarity < Self::rarity(needle[best], mask[best]) {
+                second = best;
+                best = i;
+            } else if rarity < Self::rarity(needle[second], mask[second]) {
+                second = i;
             }
             i += 1;
         }
-        let mut check_pos = pos;
-        let mut i = 0;
-        while i < needle.len() {
-            if mask[i] != 0 && i.abs_diff(pos) > check_pos.abs_diff(pos) {
-                check_pos = i;
-            }
-            i += 1;
+        // A check that is a pure wildcard is no check.
+        if mask[second] == 0 {
+            second = best;
         }
         Self {
-            pos: pos as u8,
-            byte: needle[pos],
-            mask: mask[pos],
-            check_pos: check_pos as u8,
-            check_byte: needle[check_pos],
-            check_mask: mask[check_pos],
+            pos: best as u8,
+            byte: needle[best],
+            mask: mask[best],
+            check_pos: second as u8,
+            check_byte: needle[second],
+            check_mask: mask[second],
         }
     }
 }
@@ -557,5 +606,22 @@ mod tests {
                 Some(Address::new(0x15000))
             );
         });
+    }
+
+    #[test]
+    fn anchors_on_the_rarest_fixed_bytes() {
+        // 48 and 8B are the most common bytes in x64 code, 3C is rare.
+        const SIG: Signature<12> = Signature::new("48 8B 05 ?? ?? ?? ?? 48 83 3C ?? 00");
+        assert_eq!(SIG.anchor.pos, 9);
+        assert_eq!(SIG.anchor.byte, 0x3C);
+        assert_eq!(SIG.anchor.check_pos, 2);
+        assert_eq!(SIG.anchor.check_byte, 0x05);
+    }
+
+    #[test]
+    fn a_wildcard_is_no_check() {
+        const SIG: Signature<4> = Signature::new("A3 ?? ?? ??");
+        assert_eq!(SIG.anchor.pos, 0);
+        assert_eq!(SIG.anchor.check_pos, 0);
     }
 }
