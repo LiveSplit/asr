@@ -1,34 +1,36 @@
 //! Support for finding patterns in a process's memory.
 
 use crate::{Address, Process};
-use core::{iter, mem, slice};
-
-type Offset = u8;
 
 /// A signature that can be used to find a pattern in a process's memory.
 /// It is recommended to store this in a `static` or `const` variable to ensure
 /// that the signature is parsed at compile time, which allows optimizations.
 /// Also, compiling with the `simd128` feature is recommended for SIMD support.
-#[allow(clippy::large_enum_variant)]
-#[derive(Debug)]
-pub enum Signature<const N: usize> {
-    /// A simple signature that does not contain any wildcards.
-    Simple([u8; N]),
-    /// A complex signature that contains wildcards.
-    Complex {
-        /// The signature itself.
-        needle: [u8; N],
-        /// The mask that indicates which bytes are wildcards.
-        mask: [u8; N],
-        /// Position of the primary exact-byte anchor (if any).
-        anchor_pos: Option<Offset>,
-        /// Byte value for the primary exact-byte anchor.
-        anchor_byte: u8,
-        /// Position of a secondary exact-byte check (if any).
-        check_pos: Option<Offset>,
-        /// Byte value for the secondary exact-byte check.
-        check_byte: u8,
-    },
+///
+/// The length is only used to size the signature. Every signature, whatever
+/// its length, scans through the same code, so a splitter with signatures of
+/// many lengths pays for one scanner.
+#[derive(Debug, Clone, Copy)]
+pub struct Signature<const N: usize> {
+    /// The bytes to find, with the wildcard bits cleared.
+    needle: [u8; N],
+    /// The bits of each byte that have to match.
+    mask: [u8; N],
+    anchor: Anchor,
+}
+
+/// The two bytes a scan checks before it compares a whole signature. The
+/// anchor is the byte with the most fixed bits, which the scan looks for
+/// first. The check is the fixed byte farthest from the anchor.
+#[derive(Debug, Clone, Copy)]
+struct Anchor {
+    pos: u8,
+    byte: u8,
+    mask: u8,
+    /// The same as `pos` when the signature has no other fixed byte.
+    check_pos: u8,
+    check_byte: u8,
+    check_mask: u8,
 }
 
 /// A helper struct to parse a hexadecimal signature string into bytes.
@@ -58,22 +60,10 @@ impl Parser<'_> {
     }
 }
 
-/// Checks if a slice of bytes contains the specified `search_byte`.
-#[inline]
-const fn contains(mut bytes: &[u8], search_byte: u8) -> bool {
-    while let [b, rem @ ..] = bytes {
-        bytes = rem;
-        if *b == search_byte {
-            return true;
-        }
-    }
-    false
-}
-
 impl<const N: usize> Signature<N> {
     /// Creates a new signature from a string. The string must be a hexadecimal
     /// string with `?` as wildcard. It is recommended to store this in a
-    /// `static` or `const` variable to ensure that the signature is parted
+    /// `static` or `const` variable to ensure that the signature is parsed
     /// at compile time, which allows optimizations.
     ///
     /// # Panics
@@ -88,117 +78,57 @@ impl<const N: usize> Signature<N> {
     /// static SIG: Signature<8> = Signature::new("3A 45 FF ?? ?? B? 00 12");
     /// ```
     pub const fn new(signature: &str) -> Self {
-        // We only support u8 offsets atm and thus signatures can't be 256 bytes
-        // or longer.
-        assert!(N > 0 && N < 256);
-
         let mut parser = Parser {
             bytes: signature.as_bytes(),
         };
+        let mut needle = [0; N];
+        let mut mask = [0; N];
+        let mut i = 0;
+        loop {
+            let (a, next) = parser.next();
+            parser = next;
+            let (b, next) = parser.next();
+            parser = next;
+            let (Some(a), Some(b)) = (a, b) else { break };
+            assert!(i < N, "The signature is longer than its type says");
+            mask[i] = ((a != 0x10) as u8 * 0xF0) | ((b != 0x10) as u8 * 0x0F);
+            needle[i] = (a << 4) | (b & 0x0F);
+            i += 1;
+        }
+        assert!(i == N, "The signature is shorter than its type says");
+        Self::masked(needle, mask)
+    }
 
-        // Check if the signature contains wildcards
-        if contains(signature.as_bytes(), b'?') {
-            let mut needle = [0; N];
-            let mut mask = [0; N];
-            let mut i = 0;
-
-            loop {
-                let (a, next) = parser.next();
-                parser = next;
-                let (b, next) = parser.next();
-                parser = next;
-                let (Some(a), Some(b)) = (a, b) else { break };
-                let sig_byte = (a << 4) | (b & 0x0F);
-                let mask_byte = ((a != 0x10) as u8 * 0xF0) | ((b != 0x10) as u8 * 0x0F);
-                needle[i] = sig_byte & mask_byte;
-                mask[i] = mask_byte;
-                i += 1;
-            }
-            assert!(i == N); // Ensure we parsed the correct number of bytes
-
-            let (anchor_pos, anchor_byte, check_pos, check_byte) =
-                find_anchor_and_check(&needle, &mask);
-
-            Self::Complex {
-                needle,
-                mask,
-                anchor_pos,
-                anchor_byte,
-                check_pos,
-                check_byte,
-            }
-        } else {
-            // If the provided string has no wildcards, treat as a Simple signature
-            let mut needle = [0; N];
-            let mut i = 0;
-
-            loop {
-                let (a, next) = parser.next();
-                parser = next;
-                let (b, next) = parser.next();
-                parser = next;
-                let (Some(a), Some(b)) = (a, b) else { break };
-                let sig_byte = (a << 4) | b;
-                needle[i] = sig_byte;
-                i += 1;
-            }
-            assert!(i == N);
-
-            Self::Simple(needle)
+    /// Creates a new signature from the bytes to find and a mask of the bits
+    /// that have to match in each byte. This allows wildcards below the
+    /// nibble that [`new`](Self::new) works with, such as for the fields of
+    /// an ARM instruction.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if the length is zero or exceeds 255 bytes.
+    pub const fn masked(mut needle: [u8; N], mask: [u8; N]) -> Self {
+        // The anchor stores positions in a byte.
+        assert!(N > 0 && N < 256);
+        let mut i = 0;
+        while i < N {
+            needle[i] &= mask[i];
+            i += 1;
+        }
+        Self {
+            needle,
+            mask,
+            anchor: Anchor::choose(&needle, &mask),
         }
     }
 
-    /// Performs a signature scan over a provided slice.
-    /// Returns an iterator over the positions where the signature matches.
-    fn scan_internal<'a>(&'a self, haystack: &'a [u8]) -> impl Iterator<Item = usize> + 'a {
-        let mut cursor = 0;
-        let end = haystack.len().saturating_sub(N.saturating_sub(1));
-
-        iter::from_fn(move || {
-            if cursor >= end {
-                return None;
-            }
-
-            let found = match self {
-                Signature::Simple(needle) => {
-                    let check_pos = if N > 1 { Some(N - 1) } else { None };
-                    let check_byte = check_pos.map_or(0, |i| needle[i]);
-                    find_signature_from(
-                        haystack,
-                        cursor,
-                        needle,
-                        None,
-                        Some(0),
-                        needle[0],
-                        check_pos,
-                        check_byte,
-                    )
-                }
-                Signature::Complex {
-                    needle,
-                    mask,
-                    anchor_pos,
-                    anchor_byte,
-                    check_pos,
-                    check_byte,
-                } => find_signature_from(
-                    haystack,
-                    cursor,
-                    needle,
-                    Some(mask),
-                    anchor_pos.map(|v| v as usize),
-                    *anchor_byte,
-                    check_pos.map(|v| v as usize),
-                    *check_byte,
-                ),
-            };
-
-            found.map(|start| {
-                cursor = start + 1;
-                start
-            })
-        })
-        .fuse()
+    #[inline]
+    fn pattern(&self) -> Pattern<'_> {
+        Pattern {
+            needle: &self.needle,
+            mask: &self.mask,
+            anchor: self.anchor,
+        }
     }
 
     /// Scans a process's memory in the given range for the first occurrence of the signature.
@@ -211,6 +141,7 @@ impl<const N: usize> Signature<N> {
     ///     - The length of the memory range to scan
     ///
     /// Returns `Some(Address)` of the first match if found, otherwise `None`.
+    #[inline]
     pub fn scan_process_range<'a>(
         &'a self,
         process: &'a Process,
@@ -229,405 +160,241 @@ impl<const N: usize> Signature<N> {
     ///     - The length of the memory range to scan
     ///
     /// Returns an iterator that yields each matching address.
+    #[inline]
     pub fn scan_iter<'a>(
         &'a self,
         process: &'a Process,
         range: (impl Into<Address>, u64),
     ) -> impl Iterator<Item = Address> + 'a {
-        const MEM_SIZE: usize = 0x1000;
-
-        let mut addr: Address = range.0.into();
-        let overall_end = addr.value() + range.1;
-
-        // The sigscan essentially works by reading one memory page (0x1000 bytes)
-        // at a time and looking for the signature in each page. We will create a buffer
-        // sligthly larger than 0x1000 bytes in order to accomodate the size of
-        // the memory page + the signature - 1. The very first bytes of the
-        // buffer will be used as the tail of the previous memory page.
-        // This allows to scan across the memory page boundaries.
-
-        // The buffer struct is a convenience struct we want to reinterpret as an array
-        // of u8 and the size of MEM_SIZE + N - 1
-        #[repr(packed)]
-        struct Buffer<const N: usize> {
-            _head: [u8; N],
-            _buffer: [u8; MEM_SIZE.saturating_sub(1)],
-        }
-
-        // Counts the bytes read in a row up to the end of the last chunk. A
-        // failed read resets it to 0.
-        let mut last_valid: usize = 0;
-        let mut last_len: usize = 0;
-
-        // Although a bit slower, we need to ensure the compiler doesn't do unexpected optimizations
-        // to the MaybeUninit struct. For this reason we are explicitly zero-initializing our buffer.
-        // Using MaybeUninit here breaks the following code.
-        // SAFETY: zero-initializing an array of u8 poses no problems in terms of memory safety
-        let mut buffer = unsafe { mem::zeroed::<Buffer<N>>() };
-
-        iter::from_fn(move || {
-            // The slice has to be created here, inside the closure, rather than
-            // once before the iterator is built. The buffer is owned by the
-            // closure, so its storage is live for as long as the iterator is,
-            // but outside the closure `&mut buffer` names a local of
-            // `scan_iter`, whose frame is already gone by the time the iterator
-            // is first polled.
-            //
-            // SAFETY: As the data is zero-initialized, we know it's safe to
-            // reinterpret this data as an array uf u8. The buffer it points at
-            // is live for the whole of this call.
-            let buffer = unsafe {
-                slice::from_raw_parts_mut(&mut buffer as *mut _ as *mut u8, size_of::<Buffer<N>>())
-            };
-
-            if addr.value() >= overall_end {
-                return None;
-            }
-
-            // We round up to the 4 KiB address boundary as that's a single
-            // page, which is safe to read either fully or not at all. We do
-            // this to reduce the number of syscalls as much as possible, as the
-            // syscall overhead is quite high.
-            let end = ((addr.value() & !((4 << 10) - 1)) + (4 << 10)).min(overall_end);
-            let len = end.saturating_sub(addr.value()) as usize;
-
-            // Carry the last bytes of the previous chunk to just before this
-            // one, so a match across the boundary is found. Only bytes that
-            // were really read count, so a short first chunk carries fewer
-            // than N - 1.
-            let head = N.saturating_sub(1);
-            let carried = last_valid.min(head);
-            if carried > 0 {
-                let from = head + last_len - carried;
-                buffer.copy_within(from..from + carried, head - carried);
-            }
-
-            let current_page_success = process
-                .read_into_slice(addr, &mut buffer[N.saturating_sub(1)..][..len])
-                .is_ok();
-
-            // We define the final slice on which to perform the memory scan into. If we failed to read the memory page,
-            // this returns an empty slice so the subsequent iterator will result into an empty iterator.
-            // If we managed to read the current memory page, instead, we check if we have successfully read the data
-            // from the previous memory page.
-            let scan_buf: &[u8] = if current_page_success {
-                &buffer[head - carried..head + len]
-            } else {
-                &[]
-            };
-
-            let cur_addr = addr;
-
-            addr = Address::new(end);
-            last_valid = if current_page_success {
-                carried + len
-            } else {
-                0
-            };
-            last_len = len;
-
-            Some(
-                self.scan_internal(scan_buf)
-                    .map(move |pos| cur_addr.add(pos as u64).add_signed(-(carried as i64))),
-            )
-        })
-        .flatten()
+        ScanIter::new(self.pattern(), process, range.0.into(), range.1)
     }
 }
 
-fn find_signature_from<const N: usize>(
-    haystack: &[u8],
-    start: usize,
-    needle: &[u8; N],
-    mask: Option<&[u8; N]>,
-    anchor_pos: Option<usize>,
-    anchor_byte: u8,
-    check_pos: Option<usize>,
-    check_byte: u8,
-) -> Option<usize> {
-    if haystack.len() < N {
-        return None;
-    }
-
-    let max_start = haystack.len() - N;
-    if start > max_start {
-        return None;
-    }
-
-    if let Some(anchor_pos) = anchor_pos {
-        let max_anchor_hit = max_start + anchor_pos;
-        let mut search_from = start + anchor_pos;
-
-        if let Some(check_pos) = check_pos {
-            while let Some(anchor_hit) = find_byte_swar(haystack, anchor_byte, search_from) {
-                if anchor_hit > max_anchor_hit {
-                    break;
-                }
-
-                let match_start = anchor_hit - anchor_pos;
-                if haystack[match_start + check_pos] != check_byte {
-                    search_from = anchor_hit + 1;
-                    continue;
-                }
-
-                if signature_matches_at(haystack, match_start, needle, mask) {
-                    return Some(match_start);
-                }
-
-                search_from = anchor_hit + 1;
+impl Anchor {
+    const fn choose(needle: &[u8], mask: &[u8]) -> Self {
+        let mut pos = 0;
+        let mut i = 1;
+        while i < needle.len() {
+            if mask[i].count_ones() > mask[pos].count_ones() {
+                pos = i;
             }
-        } else {
-            while let Some(anchor_hit) = find_byte_swar(haystack, anchor_byte, search_from) {
-                if anchor_hit > max_anchor_hit {
-                    break;
-                }
-
-                let match_start = anchor_hit - anchor_pos;
-                if signature_matches_at(haystack, match_start, needle, mask) {
-                    return Some(match_start);
-                }
-
-                search_from = anchor_hit + 1;
-            }
+            i += 1;
         }
+        let mut check_pos = pos;
+        let mut i = 0;
+        while i < needle.len() {
+            if mask[i] != 0 && i.abs_diff(pos) > check_pos.abs_diff(pos) {
+                check_pos = i;
+            }
+            i += 1;
+        }
+        Self {
+            pos: pos as u8,
+            byte: needle[pos],
+            mask: mask[pos],
+            check_pos: check_pos as u8,
+            check_byte: needle[check_pos],
+            check_mask: mask[check_pos],
+        }
+    }
+}
 
+/// A signature of any length. All the scanning works on this, so it is
+/// compiled once rather than once per length.
+#[derive(Clone, Copy)]
+struct Pattern<'a> {
+    needle: &'a [u8],
+    mask: &'a [u8],
+    anchor: Anchor,
+}
+
+impl Pattern<'_> {
+    /// Finds the first match that starts at or after `from`.
+    fn find(&self, haystack: &[u8], from: usize) -> Option<usize> {
+        let n = self.needle.len();
+        let last = haystack.len().checked_sub(n)?;
+        if from > last {
+            return None;
+        }
+        let anchor = self.anchor;
+        let pos = anchor.pos as usize;
+        // The anchor can't sit after the last start plus its position.
+        let haystack_for_anchor = &haystack[..last + pos + 1];
+        let mut search = from + pos;
+        while let Some(hit) = find_byte(haystack_for_anchor, anchor.byte, anchor.mask, search) {
+            let start = hit - pos;
+            if haystack[start + anchor.check_pos as usize] & anchor.check_mask == anchor.check_byte
+                && self.matches_at(&haystack[start..start + n])
+            {
+                return Some(start);
+            }
+            search = hit + 1;
+        }
         None
-    } else {
-        (start..=max_start)
-            .find(|&match_start| signature_matches_at(haystack, match_start, needle, mask))
-    }
-}
-
-const fn find_anchor_and_check<const N: usize>(
-    needle: &[u8; N],
-    mask: &[u8; N],
-) -> (Option<Offset>, u8, Option<Offset>, u8) {
-    let mut anchor_pos = None;
-    let mut anchor_byte = 0;
-
-    let mut i = 0;
-    while i < N {
-        if mask[i] == 0xFF {
-            anchor_pos = Some(i as Offset);
-            anchor_byte = needle[i];
-            break;
-        }
-        i += 1;
     }
 
-    let mut check_pos = None;
-    let mut check_byte = 0;
+    /// Checks whether the signature matches these bytes, which are as many
+    /// as the signature is long.
+    #[inline]
+    fn matches_at(&self, mut hay: &[u8]) -> bool {
+        let mut needle = self.needle;
+        let mut mask = self.mask;
 
-    if let Some(anchor) = anchor_pos {
-        let anchor = anchor as usize;
-        let mut farthest_distance = 0usize;
-        let mut j = 0;
-        while j < N {
-            if j != anchor && mask[j] == 0xFF {
-                let distance = if j > anchor { j - anchor } else { anchor - j };
-                if distance > farthest_distance {
-                    farthest_distance = distance;
-                    check_pos = Some(j as Offset);
-                    check_byte = needle[j];
-                }
+        #[cfg(target_feature = "simd128")]
+        while hay.len() >= 16 {
+            use core::arch::wasm32::{u8x16_ne, v128, v128_and, v128_any_true};
+            // SAFETY: Each slice holds at least 16 bytes, and v128 has no
+            // alignment requirement for unaligned reads.
+            let differs = unsafe {
+                v128_any_true(u8x16_ne(
+                    v128_and(
+                        hay.as_ptr().cast::<v128>().read_unaligned(),
+                        mask.as_ptr().cast::<v128>().read_unaligned(),
+                    ),
+                    needle.as_ptr().cast::<v128>().read_unaligned(),
+                ))
+            };
+            if differs {
+                return false;
             }
-            j += 1;
+            hay = &hay[16..];
+            needle = &needle[16..];
+            mask = &mask[16..];
         }
-    }
 
-    (anchor_pos, anchor_byte, check_pos, check_byte)
+        while let (Some((h, hr)), Some((n, nr)), Some((m, mr))) = (
+            hay.split_first_chunk::<8>(),
+            needle.split_first_chunk::<8>(),
+            mask.split_first_chunk::<8>(),
+        ) {
+            if u64::from_ne_bytes(*h) & u64::from_ne_bytes(*m) != u64::from_ne_bytes(*n) {
+                return false;
+            }
+            hay = hr;
+            needle = nr;
+            mask = mr;
+        }
+
+        hay.iter()
+            .zip(needle)
+            .zip(mask)
+            .all(|((h, n), m)| h & m == *n)
+    }
 }
 
-#[inline]
-fn signature_matches_at<const N: usize>(
-    haystack: &[u8],
-    start: usize,
-    needle: &[u8; N],
-    mask: Option<&[u8; N]>,
-) -> bool {
-    unsafe {
-        let scan = haystack.as_ptr().add(start);
-        match mask {
-            None => exact_matches::<N>(scan, needle.as_ptr()),
-            Some(mask) => masked_matches::<N>(scan, needle.as_ptr(), mask.as_ptr()),
-        }
-    }
-}
-
-#[inline]
-unsafe fn exact_matches<const N: usize>(mut scan: *const u8, mut needle: *const u8) -> bool {
-    let mut i = 0;
-
-    #[cfg(target_feature = "simd128")]
-    while i + 16 <= N {
-        use core::arch::wasm32::{u8x16_ne, v128, v128_any_true};
-
-        if v128_any_true(u8x16_ne(
-            scan.cast::<v128>().read_unaligned(),
-            needle.cast::<v128>().read_unaligned(),
-        )) {
-            return false;
-        }
-
-        scan = scan.add(16);
-        needle = needle.add(16);
-        i += 16;
-    }
-
-    while i + 8 <= N {
-        if scan.cast::<u64>().read_unaligned() != needle.cast::<u64>().read_unaligned() {
-            return false;
-        }
-
-        scan = scan.add(8);
-        needle = needle.add(8);
-        i += 8;
-    }
-
-    while i + 4 <= N {
-        if scan.cast::<u32>().read_unaligned() != needle.cast::<u32>().read_unaligned() {
-            return false;
-        }
-
-        scan = scan.add(4);
-        needle = needle.add(4);
-        i += 4;
-    }
-
-    while i + 2 <= N {
-        if scan.cast::<u16>().read_unaligned() != needle.cast::<u16>().read_unaligned() {
-            return false;
-        }
-
-        scan = scan.add(2);
-        needle = needle.add(2);
-        i += 2;
-    }
-
-    while i < N {
-        if *scan != *needle {
-            return false;
-        }
-
-        scan = scan.add(1);
-        needle = needle.add(1);
-        i += 1;
-    }
-
-    true
-}
-
-#[inline]
-unsafe fn masked_matches<const N: usize>(
-    mut scan: *const u8,
-    mut needle: *const u8,
-    mut mask: *const u8,
-) -> bool {
-    let mut i = 0;
-
-    #[cfg(target_feature = "simd128")]
-    while i + 16 <= N {
-        use core::arch::wasm32::{u8x16_ne, v128, v128_and, v128_any_true};
-
-        if v128_any_true(u8x16_ne(
-            v128_and(
-                scan.cast::<v128>().read_unaligned(),
-                mask.cast::<v128>().read_unaligned(),
-            ),
-            needle.cast::<v128>().read_unaligned(),
-        )) {
-            return false;
-        }
-
-        scan = scan.add(16);
-        needle = needle.add(16);
-        mask = mask.add(16);
-        i += 16;
-    }
-
-    while i + 8 <= N {
-        if scan.cast::<u64>().read_unaligned() & mask.cast::<u64>().read_unaligned()
-            != needle.cast::<u64>().read_unaligned()
-        {
-            return false;
-        }
-
-        scan = scan.add(8);
-        needle = needle.add(8);
-        mask = mask.add(8);
-        i += 8;
-    }
-
-    while i + 4 <= N {
-        if scan.cast::<u32>().read_unaligned() & mask.cast::<u32>().read_unaligned()
-            != needle.cast::<u32>().read_unaligned()
-        {
-            return false;
-        }
-
-        scan = scan.add(4);
-        needle = needle.add(4);
-        mask = mask.add(4);
-        i += 4;
-    }
-
-    while i + 2 <= N {
-        if scan.cast::<u16>().read_unaligned() & mask.cast::<u16>().read_unaligned()
-            != needle.cast::<u16>().read_unaligned()
-        {
-            return false;
-        }
-
-        scan = scan.add(2);
-        needle = needle.add(2);
-        mask = mask.add(2);
-        i += 2;
-    }
-
-    while i < N {
-        if *scan & *mask != *needle {
-            return false;
-        }
-
-        scan = scan.add(1);
-        needle = needle.add(1);
-        mask = mask.add(1);
-        i += 1;
-    }
-
-    true
-}
-
-#[inline]
-fn find_byte_swar(haystack: &[u8], needle: u8, mut start: usize) -> Option<usize> {
-    if start >= haystack.len() {
-        return None;
-    }
-
+/// Finds the first byte at or after `from` that has `byte` in the bits of
+/// `mask`, eight bytes at a time.
+fn find_byte(haystack: &[u8], byte: u8, mask: u8, mut from: usize) -> Option<usize> {
     const ONES: u64 = 0x0101_0101_0101_0101;
     const HIGHS: u64 = 0x8080_8080_8080_8080;
-    let repeated = (needle as u64) * ONES;
-
-    let ptr = haystack.as_ptr();
-    while start + 8 <= haystack.len() {
-        let word = unsafe { ptr.add(start).cast::<u64>().read_unaligned() };
-        let x = word ^ repeated;
-        let eq = x.wrapping_sub(ONES) & !x & HIGHS;
-        if eq != 0 {
-            let index = (eq.trailing_zeros() / 8) as usize;
-            return Some(start + index);
+    let bytes = byte as u64 * ONES;
+    let masks = mask as u64 * ONES;
+    while let Some(word) = haystack.get(from..from + 8) {
+        let word = u64::from_le_bytes(word.try_into().ok()?);
+        let differences = (word & masks) ^ bytes;
+        // Flags the high bit of each zero byte. Bytes above the lowest zero
+        // byte can be flagged wrongly, so only the lowest one is used.
+        let zeros = differences.wrapping_sub(ONES) & !differences & HIGHS;
+        if zeros != 0 {
+            return Some(from + (zeros.trailing_zeros() / 8) as usize);
         }
-        start += 8;
+        from += 8;
+    }
+    haystack
+        .get(from..)?
+        .iter()
+        .position(|b| b & mask == byte)
+        .map(|at| from + at)
+}
+
+/// A page of memory, which the scan reads at a time. A page is either
+/// readable as a whole or not at all, so the reads stop at page boundaries.
+const PAGE: usize = 0x1000;
+/// Room in front of the page for the tail of the one before it, so a match
+/// across the page boundary is seen. A signature is at most 255 bytes long.
+const TAIL: usize = 0xFF;
+
+struct ScanIter<'a> {
+    pattern: Pattern<'a>,
+    process: &'a Process,
+    /// Where the next read starts.
+    addr: u64,
+    /// Where the range ends.
+    end: u64,
+    /// The bytes still to scan are `buf[lo..hi]`, of which `buf[lo..][..cursor]`
+    /// have been searched already. The byte at `lo` is at address `base`.
+    lo: usize,
+    hi: usize,
+    cursor: usize,
+    base: u64,
+    /// How many bytes of the tail of the last page sit in front of `TAIL`.
+    carried: usize,
+    buf: [u8; TAIL + PAGE],
+}
+
+impl<'a> ScanIter<'a> {
+    fn new(pattern: Pattern<'a>, process: &'a Process, start: Address, len: u64) -> Self {
+        Self {
+            pattern,
+            process,
+            addr: start.value(),
+            end: start.value().saturating_add(len),
+            lo: 0,
+            hi: 0,
+            cursor: 0,
+            base: 0,
+            carried: 0,
+            buf: [0; TAIL + PAGE],
+        }
     }
 
-    while start < haystack.len() {
-        if haystack[start] == needle {
-            return Some(start);
+    /// Reads the next page into the buffer and returns whether there was one.
+    /// A page that can't be read leaves nothing to scan.
+    fn read_page(&mut self) -> bool {
+        if self.addr >= self.end {
+            return false;
         }
-        start += 1;
-    }
+        // Keep the tail of the bytes just scanned in front of the new page.
+        // Those bytes are already scanned, so the matches they take part in
+        // start inside them and end in the new page.
+        let keep = (self.pattern.needle.len() - 1).min(self.hi - self.lo);
+        self.buf.copy_within(self.hi - keep..self.hi, TAIL - keep);
+        self.carried = keep;
 
-    None
+        let page_end = ((self.addr & !(PAGE as u64 - 1)) + PAGE as u64).min(self.end);
+        let len = (page_end - self.addr) as usize;
+        let read = self
+            .process
+            .read_into_slice(Address::new(self.addr), &mut self.buf[TAIL..TAIL + len])
+            .is_ok();
+        if read {
+            self.lo = TAIL - self.carried;
+            self.hi = TAIL + len;
+            self.base = self.addr - self.carried as u64;
+        } else {
+            self.lo = 0;
+            self.hi = 0;
+        }
+        self.cursor = 0;
+        self.addr = page_end;
+        true
+    }
+}
+
+impl Iterator for ScanIter<'_> {
+    type Item = Address;
+
+    fn next(&mut self) -> Option<Address> {
+        loop {
+            if let Some(found) = self.pattern.find(&self.buf[self.lo..self.hi], self.cursor) {
+                self.cursor = found + 1;
+                return Some(Address::new(self.base + found as u64));
+            }
+            if !self.read_page() {
+                return None;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -663,6 +430,21 @@ mod tests {
             assert_eq!(
                 SIGNATURE.scan_process_range(process, (Address::new(0x10FF0), 0x1010)),
                 Some(Address::new(0x10FFE))
+            );
+        });
+    }
+
+    #[test]
+    fn finds_a_signature_masked_below_the_nibble() {
+        // Only the top 3 bits of the first byte and the low bit of the last
+        // byte have to match.
+        const SIG: Signature<3> = Signature::masked([0xA0, 0x12, 0x01], [0xE0, 0xFF, 0x01]);
+        let mut memory = [0; 0x1000];
+        memory[0x40..0x43].copy_from_slice(&[0xBF, 0x12, 0x03]);
+        with_process(&[(0x10000, &memory)], |process| {
+            assert_eq!(
+                SIG.scan_process_range(process, (Address::new(0x10000), 0x1000)),
+                Some(Address::new(0x10040))
             );
         });
     }
