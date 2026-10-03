@@ -565,3 +565,91 @@ fn ends_on_a_loop() {
         None
     );
 }
+
+/// Writes an exception directory, the table x64 images keep of where each
+/// function starts and ends, at 0x300 of an image.
+fn put_functions(image: &mut [u8], functions: &[(u32, u32)]) {
+    const TABLE: usize = 0x300;
+    image[0x120..0x124].copy_from_slice(&(TABLE as u32).to_le_bytes());
+    image[0x124..0x128].copy_from_slice(&(functions.len() as u32 * 12).to_le_bytes());
+    for (index, (begin, end)) in functions.iter().enumerate() {
+        let at = TABLE + index * 12;
+        image[at..at + 4].copy_from_slice(&begin.to_le_bytes());
+        image[at + 4..at + 8].copy_from_slice(&end.to_le_bytes());
+    }
+}
+
+#[test]
+fn stops_at_the_end_of_a_function_after_a_call_that_does_not_return() {
+    // The export calls the getter and ends there, since the call never
+    // returns. The next function loads some other global the same way.
+    let call = [&[0xE8][..], &displacement(0x1005, 0x1200)].concat();
+    let next = [
+        &[0x48, 0x8D, 0x05][..],
+        &displacement(0x100C, 0x3800),
+        &[0xC3],
+    ]
+    .concat();
+    let getter = [
+        &[0x48, 0x8D, 0x05][..],
+        &displacement(0x1207, 0x3000),
+        &[0xC3],
+    ]
+    .concat();
+    let mut image = image(
+        PointerSize::Bit64,
+        &[("il2cpp_domain_get_assemblies", 0x1000)],
+        &[(0x1000, &call), (0x1005, &next), (0x1200, &getter)],
+    );
+    put_functions(
+        &mut image,
+        &[(0x1000, 0x1005), (0x1005, 0x100D), (0x1200, 0x1208)],
+    );
+    let found = with_process(&[(BASE, &image)], |process| {
+        globals::assemblies(
+            process,
+            (Address::new(BASE), SIZE as u64),
+            PointerSize::Bit64,
+        )
+    });
+    assert_eq!(found, Some(Address::new(BASE + 0x3000)));
+}
+
+#[test]
+fn counts_a_jump_inside_a_function_as_a_branch() {
+    // 4 tail jumps lead to the accessor, which starts with a short jump to
+    // its own next instruction. Only a jump out of a function costs a level.
+    let mut code: Vec<(u32, Vec<u8>)> = (0..4)
+        .map(|hop| {
+            (
+                0x1000 + hop * 0x100,
+                jmp(0x1000 + hop * 0x100, 0x1100 + hop * 0x100),
+            )
+        })
+        .collect();
+    code.push((0x1400, [&[0xEB, 0x00][..], &accessor_x64(0x1402)].concat()));
+    let code: Vec<(u32, &[u8])> = code.iter().map(|(at, bytes)| (*at, &bytes[..])).collect();
+    let mut image = image(
+        PointerSize::Bit64,
+        &[("il2cpp_image_get_class", 0x1000)],
+        &code,
+    );
+    put_functions(
+        &mut image,
+        &[
+            (0x1000, 0x1005),
+            (0x1100, 0x1105),
+            (0x1200, 0x1205),
+            (0x1300, 0x1305),
+            (0x1400, 0x1410),
+        ],
+    );
+    let found = with_process(&[(BASE, &image)], |process| {
+        globals::type_info_definition_table(
+            process,
+            (Address::new(BASE), SIZE as u64),
+            PointerSize::Bit64,
+        )
+    });
+    assert_eq!(found, Some(Address::new(BASE + 0x3000)));
+}

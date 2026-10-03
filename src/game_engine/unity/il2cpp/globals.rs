@@ -117,13 +117,24 @@ fn walk(
             if done.contains(&function) || done.try_push(function).is_err() {
                 continue;
             }
+            // x64 images list where each function starts and ends, so the walk
+            // stops at the end even after a call that never returns.
+            let bounds = if x64 {
+                function_range(process, module.0, function)
+            } else {
+                None
+            };
+            let function_end = bounds.map_or(end, |(_, to)| to);
             let mut branches = ArrayVec::<Address, BRANCHES>::new();
             let mut walked = ArrayVec::<(Address, Address), BRANCHES>::new();
             branches.push(function);
             let mut steps = 0;
             while let Some(start) = branches.pop() {
                 let mut at = start;
-                while steps < STEPS && !walked.iter().any(|&(from, to)| at >= from && at < to) {
+                while steps < STEPS
+                    && at < function_end
+                    && !walked.iter().any(|&(from, to)| at >= from && at < to)
+                {
                     steps += 1;
                     let Some(bytes) = code.at(at) else { break };
                     let Some(instruction) = decode(bytes, x64) else {
@@ -157,10 +168,19 @@ fn walk(
                             }
                         }
                         Flow::Jump(rel) => {
-                            if let Some(target) =
-                                target(rel).filter(|target| !next.contains(target))
-                            {
-                                let _ = next.try_push(target);
+                            // A jump inside the function goes on with it. A
+                            // jump out of it goes on in another function.
+                            let inner = |target: &Address| {
+                                bounds.is_some_and(|(from, to)| *target >= from && *target < to)
+                            };
+                            match target(rel) {
+                                Some(target) if inner(&target) => {
+                                    let _ = branches.try_push(target);
+                                }
+                                Some(target) if !next.contains(&target) => {
+                                    let _ = next.try_push(target);
+                                }
+                                _ => {}
                             }
                             break;
                         }
@@ -173,6 +193,37 @@ fn walk(
             }
         }
         level = next;
+    }
+    None
+}
+
+/// Finds the start and end of the x64 function that holds `address`, in the
+/// exception directory of the module at `module`. Returns `None` when there
+/// is none, as in x86 images.
+fn function_range(
+    process: &Process,
+    module: Address,
+    address: Address,
+) -> Option<(Address, Address)> {
+    // The exception directory is the fourth data directory of a PE32+ header,
+    // and each of its entries holds the start, end and unwind info of one
+    // function, sorted by start.
+    let header = process.read::<u32>(module + 0x3C).ok()?;
+    let [table, size] = process.read::<[u32; 2]>(module + header + 0xA0).ok()?;
+    let offset = address.value().checked_sub(module.value())? as u32;
+    let (mut low, mut high) = (0, size / 12);
+    while low < high {
+        let middle = (low + high) / 2;
+        let [from, to, _] = process
+            .read::<[u32; 3]>(module + table + middle * 12)
+            .ok()?;
+        if offset < from {
+            high = middle;
+        } else if offset >= to {
+            low = middle + 1;
+        } else {
+            return Some((module + from, module + to));
+        }
     }
     None
 }
