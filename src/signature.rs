@@ -152,7 +152,7 @@ impl<const N: usize> Signature<N> {
     }
 
     #[inline]
-    fn pattern(&self) -> Pattern<'_> {
+    const fn pattern(&self) -> Pattern<'_> {
         Pattern {
             needle: &self.needle,
             mask: &self.mask,
@@ -272,100 +272,173 @@ struct Pattern<'a> {
 impl Pattern<'_> {
     /// Finds the first match that starts at or after `from`.
     fn find(&self, haystack: &[u8], from: usize) -> Option<usize> {
-        let n = self.needle.len();
-        let last = haystack.len().checked_sub(n)?;
+        let last = haystack.len().checked_sub(self.needle.len())?;
+        #[cfg(target_feature = "simd128")]
+        let from = match self.find_simd(haystack, from, last) {
+            Ok(found) => return Some(found),
+            Err(from) => from,
+        };
         if from > last {
             return None;
         }
+        self.find_anchor(haystack, from, last)
+    }
+
+    /// Looks at 16 starts at a time while there are that many. Returns the
+    /// first match, or as the error the start to go on from.
+    #[cfg(target_feature = "simd128")]
+    fn find_simd(&self, haystack: &[u8], mut from: usize, last: usize) -> Result<usize, usize> {
+        use core::arch::wasm32::{i8x16_splat, u8x16_bitmask, u8x16_eq, v128, v128_and};
         let anchor = self.anchor;
-        let pos = anchor.pos as usize;
-        // The anchor can't sit after the last start plus its position.
-        let haystack_for_anchor = &haystack[..last + pos + 1];
-        let mut search = from + pos;
-        while let Some(hit) = find_byte(haystack_for_anchor, anchor.byte, anchor.mask, search) {
-            let start = hit - pos;
-            if haystack[start + anchor.check_pos as usize] & anchor.check_mask == anchor.check_byte
-                && self.matches_at(&haystack[start..start + n])
-            {
-                return Some(start);
+        let (pos, check_pos) = (anchor.pos as usize, anchor.check_pos as usize);
+        // Compares the anchor bytes and the check bytes of 16 starts at once,
+        // and only looks at the starts where both are right.
+        let anchor_bytes = i8x16_splat(anchor.byte as i8);
+        let anchor_masks = i8x16_splat(anchor.mask as i8);
+        let check_bytes = i8x16_splat(anchor.check_byte as i8);
+        let check_masks = i8x16_splat(anchor.check_mask as i8);
+        while from + pos.max(check_pos) + 16 <= haystack.len() && from <= last {
+            // SAFETY: Both loads end at or before the end of the haystack.
+            let (anchors, checks) = unsafe {
+                let base = haystack.as_ptr().add(from);
+                (
+                    base.add(pos).cast::<v128>().read_unaligned(),
+                    base.add(check_pos).cast::<v128>().read_unaligned(),
+                )
+            };
+            let mut candidates = u8x16_bitmask(v128_and(
+                u8x16_eq(v128_and(anchors, anchor_masks), anchor_bytes),
+                u8x16_eq(v128_and(checks, check_masks), check_bytes),
+            ));
+            while candidates != 0 {
+                let start = from + candidates.trailing_zeros() as usize;
+                if start > last {
+                    return Err(last + 1);
+                }
+                if self.matches_at(&haystack[start..start + self.needle.len()]) {
+                    return Ok(start);
+                }
+                candidates &= candidates - 1;
             }
-            search = hit + 1;
+            from += 16;
         }
-        None
+        Err(from)
+    }
+
+    /// Finds the first match at or after `from`. Looks for the anchor byte
+    /// 32 bytes at a time, as 4 words with one branch for all 4, since most
+    /// steps find nothing. On a step with hits, drops the hits whose check
+    /// byte is wrong, 32 at a time too, and compares the signature at the
+    /// rest. So an anchor that hits every few bytes, such as a nibble, stays
+    /// in the fast loop.
+    fn find_anchor(&self, haystack: &[u8], from: usize, last: usize) -> Option<usize> {
+        const ONES: u64 = 0x0101_0101_0101_0101;
+        let anchor = self.anchor;
+        let (pos, check_pos) = (anchor.pos as usize, anchor.check_pos as usize);
+        let (bytes, masks) = (anchor.byte as u64 * ONES, anchor.mask as u64 * ONES);
+        let (check_bytes, check_masks) = (
+            anchor.check_byte as u64 * ONES,
+            anchor.check_mask as u64 * ONES,
+        );
+        // Flags the bytes that are `bytes` in the 32 bytes of `hay` at `at`,
+        // one bit per byte, or returns `None` where fewer bytes are left.
+        let hits = |hay: &[u8], at: usize, bytes, masks| {
+            let (words, _) = hay.get(at..at + 32)?.as_chunks::<8>();
+            let mut bits = 0;
+            for (i, word) in words.iter().enumerate() {
+                bits |= bits_of(word_hits(*word, bytes, masks)) << (i * 8);
+            }
+            Some(bits)
+        };
+        let matches = |start: usize| {
+            haystack[start + check_pos] & anchor.check_mask == anchor.check_byte
+                && self.matches_at(&haystack[start..start + self.needle.len()])
+        };
+        // The anchor can't sit after the last start plus its position.
+        let hay = &haystack[..last + pos + 1];
+        let mut at = from + pos;
+        while let Some(mut candidates) = hits(hay, at, bytes, masks) {
+            let base = at - pos;
+            if candidates != 0 {
+                if let Some(checks) = hits(haystack, base + check_pos, check_bytes, check_masks) {
+                    candidates &= checks;
+                }
+            }
+            while candidates != 0 {
+                let start = base + candidates.trailing_zeros() as usize;
+                if matches(start) {
+                    return Some(start);
+                }
+                candidates &= candidates - 1;
+            }
+            at += 32;
+        }
+        (at..hay.len())
+            .find(|&at| hay[at] & anchor.mask == anchor.byte && matches(at - pos))
+            .map(|at| at - pos)
     }
 
     /// Checks whether the signature matches these bytes, which are as many
-    /// as the signature is long.
+    /// as the signature is long. Only starts whose anchor and check bytes
+    /// match get here, so going a byte at a time is fine without SIMD.
     #[inline]
-    fn matches_at(&self, mut hay: &[u8]) -> bool {
-        let mut needle = self.needle;
-        let mut mask = self.mask;
-
+    fn matches_at(&self, hay: &[u8]) -> bool {
         #[cfg(target_feature = "simd128")]
-        while hay.len() >= 16 {
-            use core::arch::wasm32::{u8x16_ne, v128, v128_and, v128_any_true};
-            // SAFETY: Each slice holds at least 16 bytes, and v128 has no
-            // alignment requirement for unaligned reads.
+        let Some(checked) = self.matches_simd(hay) else {
+            return false;
+        };
+        #[cfg(not(target_feature = "simd128"))]
+        let checked = 0;
+        hay[checked..]
+            .iter()
+            .zip(&self.needle[checked..])
+            .zip(&self.mask[checked..])
+            .all(|((h, n), m)| h & m == *n)
+    }
+
+    /// Compares 16 bytes at a time while there are that many. Returns how
+    /// many bytes it compared, or `None` when one differs.
+    #[cfg(target_feature = "simd128")]
+    fn matches_simd(&self, hay: &[u8]) -> Option<usize> {
+        use core::arch::wasm32::{u8x16_ne, v128, v128_and, v128_any_true};
+        let mut checked = 0;
+        while checked + 16 <= hay.len() {
+            // SAFETY: Each slice holds at least 16 bytes from `checked` on,
+            // and v128 has no alignment requirement for unaligned reads.
             let differs = unsafe {
+                let load =
+                    |bytes: &[u8]| bytes.as_ptr().add(checked).cast::<v128>().read_unaligned();
                 v128_any_true(u8x16_ne(
-                    v128_and(
-                        hay.as_ptr().cast::<v128>().read_unaligned(),
-                        mask.as_ptr().cast::<v128>().read_unaligned(),
-                    ),
-                    needle.as_ptr().cast::<v128>().read_unaligned(),
+                    v128_and(load(hay), load(self.mask)),
+                    load(self.needle),
                 ))
             };
             if differs {
-                return false;
+                return None;
             }
-            hay = &hay[16..];
-            needle = &needle[16..];
-            mask = &mask[16..];
+            checked += 16;
         }
-
-        while let (Some((h, hr)), Some((n, nr)), Some((m, mr))) = (
-            hay.split_first_chunk::<8>(),
-            needle.split_first_chunk::<8>(),
-            mask.split_first_chunk::<8>(),
-        ) {
-            if u64::from_ne_bytes(*h) & u64::from_ne_bytes(*m) != u64::from_ne_bytes(*n) {
-                return false;
-            }
-            hay = hr;
-            needle = nr;
-            mask = mr;
-        }
-
-        hay.iter()
-            .zip(needle)
-            .zip(mask)
-            .all(|((h, n), m)| h & m == *n)
+        Some(checked)
     }
 }
 
-/// Finds the first byte at or after `from` that has `byte` in the bits of
-/// `mask`, eight bytes at a time.
-fn find_byte(haystack: &[u8], byte: u8, mask: u8, mut from: usize) -> Option<usize> {
+/// Flags the bytes of a word that are `bytes` in the bits of `masks` by
+/// setting their high bit. A byte above a flagged one can get flagged too,
+/// and the full compare after it drops those.
+const fn word_hits(word: [u8; 8], bytes: u64, masks: u64) -> u64 {
     const ONES: u64 = 0x0101_0101_0101_0101;
     const HIGHS: u64 = 0x8080_8080_8080_8080;
-    let bytes = byte as u64 * ONES;
-    let masks = mask as u64 * ONES;
-    while let Some(word) = haystack.get(from..from + 8) {
-        let word = u64::from_le_bytes(word.try_into().ok()?);
-        let differences = (word & masks) ^ bytes;
-        // Flags the high bit of each zero byte. Bytes above the lowest zero
-        // byte can be flagged wrongly, so only the lowest one is used.
-        let zeros = differences.wrapping_sub(ONES) & !differences & HIGHS;
-        if zeros != 0 {
-            return Some(from + (zeros.trailing_zeros() / 8) as usize);
-        }
-        from += 8;
-    }
-    haystack
-        .get(from..)?
-        .iter()
-        .position(|b| b & mask == byte)
-        .map(|at| from + at)
+    let differences = (u64::from_le_bytes(word) & masks) ^ bytes;
+    differences.wrapping_sub(ONES) & !differences & HIGHS
+}
+
+/// Packs the high bit of each byte into one bit per byte. The multiply adds
+/// up the word shifted left by 0, 7, 14 and so on up to 49 bits. That puts
+/// the high bit of byte 0 at bit 56, of byte 1 at bit 57 and so on, and
+/// nothing else reaches the top byte. Hits in bytes 0 and 2,
+/// `0x0000_0000_0080_0080`, give `0b101`.
+const fn bits_of(hits: u64) -> u32 {
+    (hits.wrapping_mul(0x0002_0408_1020_4081) >> 56) as u32
 }
 
 struct SliceIter<'a> {
@@ -417,7 +490,7 @@ struct ScanIter<'a> {
 }
 
 impl<'a> ScanIter<'a> {
-    fn new(pattern: Pattern<'a>, process: &'a Process, start: Address, len: u64) -> Self {
+    const fn new(pattern: Pattern<'a>, process: &'a Process, start: Address, len: u64) -> Self {
         Self {
             pattern,
             process,
