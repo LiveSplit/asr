@@ -492,3 +492,76 @@ fn type_export_does_not_match_an_indexed_load_in_the_next_function() {
         Some(Address::new(BASE + 0x3000))
     );
 }
+
+#[test]
+fn walks_each_part_of_a_function_once() {
+    // The export jumps to the accessor when a check fails. After that come 40
+    // short branches that each land on the next instruction.
+    let mut export = [&[0x0F, 0x85][..], &displacement(0x1006, 0x2000)].concat();
+    for _ in 0..40 {
+        export.extend([0x74, 0x00]);
+    }
+    export.extend([0x90; 100]);
+    export.push(0xC3);
+    assert_eq!(
+        table(
+            PointerSize::Bit64,
+            "il2cpp_image_get_class",
+            &[(0x1000, &export), (0x2000, &accessor_x64(0x2000))]
+        ),
+        Some(Address::new(BASE + 0x3000))
+    );
+}
+
+#[test]
+fn queues_a_function_called_many_times_once() {
+    // The export calls the same helper 600 times and then calls the accessor.
+    let mut export = Vec::new();
+    for i in 0..600 {
+        export.extend([&[0xE8][..], &displacement(0x1000 + i * 5 + 5, 0x3C00)].concat());
+    }
+    export.extend([&[0xE8][..], &displacement(0x1000 + 600 * 5 + 5, 0x2400)].concat());
+    export.push(0xC3);
+    assert_eq!(
+        table(
+            PointerSize::Bit64,
+            "il2cpp_image_get_class",
+            &[
+                (0x1000, &export),
+                (0x2400, &accessor_x64(0x2400)),
+                (0x3C00, &[0xC3])
+            ]
+        ),
+        Some(Address::new(BASE + 0x3000))
+    );
+}
+
+#[test]
+fn finds_the_table_behind_a_branch() {
+    // The export skips over a return with a short branch, and the accessor's
+    // load comes right after the return.
+    let code = [&[0x74, 0x01, 0xC3][..], &accessor_x64(0x1003)].concat();
+    assert_eq!(
+        table(
+            PointerSize::Bit64,
+            "il2cpp_image_get_class",
+            &[(0x1000, &code)]
+        ),
+        Some(Address::new(BASE + 0x3000))
+    );
+}
+
+#[test]
+fn ends_on_a_loop() {
+    // The function branches back to its start forever. It holds no table, but
+    // the walk still ends.
+    let code = [0x90, 0x75, 0xFD, 0xC3];
+    assert_eq!(
+        table(
+            PointerSize::Bit64,
+            "il2cpp_image_get_class",
+            &[(0x1000, &code)]
+        ),
+        None
+    );
+}

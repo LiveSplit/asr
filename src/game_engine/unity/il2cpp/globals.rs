@@ -118,14 +118,12 @@ fn walk(
                 continue;
             }
             let mut branches = ArrayVec::<Address, BRANCHES>::new();
-            let mut started = ArrayVec::<Address, BRANCHES>::new();
+            let mut walked = ArrayVec::<(Address, Address), BRANCHES>::new();
             branches.push(function);
             let mut steps = 0;
-            while let Some(mut at) = branches.pop() {
-                if started.contains(&at) || started.try_push(at).is_err() {
-                    continue;
-                }
-                while steps < STEPS {
+            while let Some(start) = branches.pop() {
+                let mut at = start;
+                while steps < STEPS && !walked.iter().any(|&(from, to)| at >= from && at < to) {
                     steps += 1;
                     let Some(bytes) = code.at(at) else { break };
                     let Some(instruction) = decode(bytes, x64) else {
@@ -143,6 +141,7 @@ fn walk(
                     }
                     let after = at + instruction.len as u64;
                     let target = |rel: i32| Some(after + rel).filter(|&target| inside(target));
+                    at = after;
                     match instruction.flow {
                         Flow::Next => {}
                         Flow::Branch(rel) => {
@@ -151,19 +150,25 @@ fn walk(
                             }
                         }
                         Flow::Call(rel) => {
-                            if let Some(target) = target(rel) {
+                            if let Some(target) =
+                                target(rel).filter(|target| !next.contains(target))
+                            {
                                 let _ = next.try_push(target);
                             }
                         }
                         Flow::Jump(rel) => {
-                            if let Some(target) = target(rel) {
+                            if let Some(target) =
+                                target(rel).filter(|target| !next.contains(target))
+                            {
                                 let _ = next.try_push(target);
                             }
                             break;
                         }
                         Flow::Stop => break,
                     }
-                    at = after;
+                }
+                if at > start {
+                    let _ = walked.try_push((start, at));
                 }
             }
         }
