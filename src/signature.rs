@@ -131,6 +131,18 @@ impl<const N: usize> Signature<N> {
         }
     }
 
+    /// Returns an iterator over the positions in the slice where the
+    /// signature matches. Use this on memory that is already read, such as
+    /// the bytes of a function.
+    #[inline]
+    pub fn scan_slice<'a>(&'a self, haystack: &'a [u8]) -> impl Iterator<Item = usize> + 'a {
+        SliceIter {
+            pattern: self.pattern(),
+            haystack,
+            cursor: 0,
+        }
+    }
+
     /// Scans a process's memory in the given range for the first occurrence of the signature.
     ///
     /// # Arguments
@@ -307,6 +319,22 @@ fn find_byte(haystack: &[u8], byte: u8, mask: u8, mut from: usize) -> Option<usi
         .map(|at| from + at)
 }
 
+struct SliceIter<'a> {
+    pattern: Pattern<'a>,
+    haystack: &'a [u8],
+    cursor: usize,
+}
+
+impl Iterator for SliceIter<'_> {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<usize> {
+        let found = self.pattern.find(self.haystack, self.cursor)?;
+        self.cursor = found + 1;
+        Some(found)
+    }
+}
+
 /// A page of memory, which the scan reads at a time. A page is either
 /// readable as a whole or not at all, so the reads stop at page boundaries.
 const PAGE: usize = 0x1000;
@@ -464,5 +492,21 @@ mod tests {
                 None
             );
         });
+    }
+
+    #[test]
+    fn scans_a_slice() {
+        const SIG: Signature<3> = Signature::new("A? ?? 0B");
+        let haystack = [0xA1, 0x00, 0x0B, 0xA2, 0xFF, 0x1B, 0xAF, 0x12, 0x0B];
+        let found: std::vec::Vec<usize> = SIG.scan_slice(&haystack).collect();
+        assert_eq!(found, [0, 6]);
+    }
+
+    #[test]
+    fn scans_a_slice_without_a_fixed_byte() {
+        const SIG: Signature<2> = Signature::new("?1 2?");
+        let haystack = [0x01, 0x20, 0x00, 0x11, 0x2F, 0x21, 0x21];
+        let found: std::vec::Vec<usize> = SIG.scan_slice(&haystack).collect();
+        assert_eq!(found, [0, 3, 5]);
     }
 }
