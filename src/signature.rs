@@ -335,11 +335,16 @@ impl Iterator for SliceIter<'_> {
     }
 }
 
-/// A page of memory, which the scan reads at a time. A page is either
-/// readable as a whole or not at all, so the reads stop at page boundaries.
+/// The size of a page of memory. A page is readable as a whole or not at
+/// all, so a read never straddles one that isn't.
 const PAGE: usize = 0x1000;
-/// Room in front of the page for the tail of the one before it, so a match
-/// across the page boundary is seen. A signature is at most 255 bytes long.
+/// How much the scan reads at a time where it can. Each read is a call into
+/// the host, which costs about as much as scanning a page, so the scan
+/// reads many pages at once and goes one page at a time only inside a
+/// chunk that failed.
+const CHUNK: usize = 0x10000;
+/// Room in front of the chunk for the tail of the one before it, so a match
+/// across the two is seen. A signature is at most 255 bytes long.
 const TAIL: usize = 0xFF;
 
 struct ScanIter<'a> {
@@ -349,15 +354,17 @@ struct ScanIter<'a> {
     addr: u64,
     /// Where the range ends.
     end: u64,
-    /// The bytes still to scan are `buf[lo..hi]`, of which `buf[lo..][..cursor]`
-    /// have been searched already. The byte at `lo` is at address `base`.
+    /// Up to where the reads go one page at a time, after a chunk failed.
+    paged_until: u64,
+    /// The bytes to scan are `buf[lo..hi]`, of which the first `cursor` are
+    /// searched already. The byte at `lo` is at address `base`.
     lo: usize,
     hi: usize,
     cursor: usize,
     base: u64,
-    /// How many bytes of the tail of the last page sit in front of `TAIL`.
+    /// How many bytes of the tail of the last read sit in front of `TAIL`.
     carried: usize,
-    buf: [u8; TAIL + PAGE],
+    buf: [u8; TAIL + CHUNK],
 }
 
 impl<'a> ScanIter<'a> {
@@ -367,44 +374,57 @@ impl<'a> ScanIter<'a> {
             process,
             addr: start.value(),
             end: start.value().saturating_add(len),
+            paged_until: 0,
             lo: 0,
             hi: 0,
             cursor: 0,
             base: 0,
             carried: 0,
-            buf: [0; TAIL + PAGE],
+            buf: [0; TAIL + CHUNK],
         }
     }
 
-    /// Reads the next page into the buffer and returns whether there was one.
-    /// A page that can't be read leaves nothing to scan.
-    fn read_page(&mut self) -> bool {
+    /// Reads the next chunk, or page inside a failed chunk, into the buffer
+    /// and returns whether there was one. Memory that can't be read leaves
+    /// nothing to scan.
+    fn read_next(&mut self) -> bool {
         if self.addr >= self.end {
             return false;
         }
-        // Keep the tail of the bytes just scanned in front of the new page.
-        // Those bytes are already scanned, so the matches they take part in
-        // start inside them and end in the new page.
+        // Keep the tail of the bytes just scanned in front of the new ones,
+        // for the matches that start in the old bytes and end in the new.
         let keep = (self.pattern.needle.len() - 1).min(self.hi - self.lo);
         self.buf.copy_within(self.hi - keep..self.hi, TAIL - keep);
         self.carried = keep;
 
-        let page_end = ((self.addr & !(PAGE as u64 - 1)) + PAGE as u64).min(self.end);
-        let len = (page_end - self.addr) as usize;
-        let read = self
-            .process
-            .read_into_slice(Address::new(self.addr), &mut self.buf[TAIL..TAIL + len])
-            .is_ok();
+        let (read, read_end) = loop {
+            let step = if self.addr < self.paged_until {
+                PAGE
+            } else {
+                CHUNK
+            } as u64;
+            let step_end = ((self.addr & !(step - 1)) + step).min(self.end);
+            let len = (step_end - self.addr) as usize;
+            let read = self
+                .process
+                .read_into_slice(Address::new(self.addr), &mut self.buf[TAIL..TAIL + len])
+                .is_ok();
+            if read || step == PAGE as u64 {
+                break (read, step_end);
+            }
+            // Some page of the chunk can't be read. Find out which can.
+            self.paged_until = step_end;
+        };
         if read {
             self.lo = TAIL - self.carried;
-            self.hi = TAIL + len;
+            self.hi = TAIL + (read_end - self.addr) as usize;
             self.base = self.addr - self.carried as u64;
         } else {
             self.lo = 0;
             self.hi = 0;
         }
         self.cursor = 0;
-        self.addr = page_end;
+        self.addr = read_end;
         true
     }
 }
@@ -418,7 +438,7 @@ impl Iterator for ScanIter<'_> {
                 self.cursor = found + 1;
                 return Some(Address::new(self.base + found as u64));
             }
-            if !self.read_page() {
+            if !self.read_next() {
                 return None;
             }
         }
@@ -508,5 +528,34 @@ mod tests {
         let haystack = [0x01, 0x20, 0x00, 0x11, 0x2F, 0x21, 0x21];
         let found: std::vec::Vec<usize> = SIG.scan_slice(&haystack).collect();
         assert_eq!(found, [0, 3, 5]);
+    }
+
+    #[test]
+    fn reads_many_pages_at_once() {
+        let memory = std::vec![0; 0x10000];
+        with_process(&[(0x10000, &memory)], |process| {
+            assert_eq!(
+                SIGNATURE
+                    .scan_iter(process, (Address::new(0x10000), 0x10000))
+                    .count(),
+                0
+            );
+            assert_eq!(crate::runtime::mock::reads(), 1);
+        });
+    }
+
+    #[test]
+    fn finds_a_match_after_a_page_that_cannot_be_read() {
+        // The second page of the range can't be read, so the scan goes on
+        // page by page and still finds the match further on.
+        let first = [0; 0x1000];
+        let mut rest = std::vec![0; 0xE000];
+        rest[0x3000..0x3004].copy_from_slice(&[0xAA, 0xBB, 0xCC, 0xDD]);
+        with_process(&[(0x10000, &first), (0x12000, &rest)], |process| {
+            assert_eq!(
+                SIGNATURE.scan_process_range(process, (Address::new(0x10000), 0x10000)),
+                Some(Address::new(0x15000))
+            );
+        });
     }
 }
