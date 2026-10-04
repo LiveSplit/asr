@@ -153,11 +153,7 @@ impl<const N: usize> Signature<N> {
 
     #[inline]
     const fn pattern(&self) -> Pattern<'_> {
-        Pattern {
-            needle: &self.needle,
-            mask: &self.mask,
-            anchor: self.anchor,
-        }
+        Pattern::new(&self.needle, &self.mask, self.anchor)
     }
 
     /// Returns an iterator over the positions in the slice where the
@@ -262,6 +258,7 @@ impl Anchor {
 
 /// A signature of any length. All the scanning works on this, so it is
 /// compiled once rather than once per length.
+/// The needle and mask always have equal lengths, checked by `new`.
 #[derive(Clone, Copy)]
 struct Pattern<'a> {
     needle: &'a [u8],
@@ -269,7 +266,20 @@ struct Pattern<'a> {
     anchor: Anchor,
 }
 
-impl Pattern<'_> {
+impl<'a> Pattern<'a> {
+    #[inline]
+    const fn new(needle: &'a [u8], mask: &'a [u8], anchor: Anchor) -> Self {
+        assert!(
+            needle.len() == mask.len(),
+            "needle and mask lengths must match"
+        );
+        Self {
+            needle,
+            mask,
+            anchor,
+        }
+    }
+
     /// Finds the first match that starts at or after `from`.
     fn find(&self, haystack: &[u8], from: usize) -> Option<usize> {
         let last = haystack.len().checked_sub(self.needle.len())?;
@@ -315,7 +325,9 @@ impl Pattern<'_> {
                 if start > last {
                     return Err(last + 1);
                 }
-                if self.matches_at(&haystack[start..start + self.needle.len()]) {
+                let candidate = &haystack[start..start + self.needle.len()];
+                // SAFETY: The checked slice contains exactly needle.len() bytes.
+                if unsafe { self.matches_at(candidate) } {
                     return Ok(start);
                 }
                 candidates &= candidates - 1;
@@ -351,8 +363,11 @@ impl Pattern<'_> {
             Some(bits)
         };
         let matches = |start: usize| {
-            haystack[start + check_pos] & anchor.check_mask == anchor.check_byte
-                && self.matches_at(&haystack[start..start + self.needle.len()])
+            haystack[start + check_pos] & anchor.check_mask == anchor.check_byte && {
+                let candidate = &haystack[start..start + self.needle.len()];
+                // SAFETY: The checked slice contains exactly needle.len() bytes.
+                unsafe { self.matches_at(candidate) }
+            }
         };
         // The anchor can't sit after the last start plus its position.
         let hay = &haystack[..last + pos + 1];
@@ -381,10 +396,26 @@ impl Pattern<'_> {
     /// Checks whether the signature matches these bytes, which are as many
     /// as the signature is long. Only starts whose anchor and check bytes
     /// match get here. Compare whole words before the remaining bytes.
-    #[inline]
-    fn matches_at(&self, hay: &[u8]) -> bool {
+    ///
+    /// # Safety
+    ///
+    /// `hay` must have the same length as `self.needle`.
+    // An inline hint can duplicate the verifier in both candidate paths.
+    unsafe fn matches_at(&self, hay: &[u8]) -> bool {
+        debug_assert!(hay.len() == self.needle.len() && hay.len() == self.mask.len());
+        // SAFETY: The caller guarantees hay.len() == needle.len(), and
+        // Pattern::new checks that the needle and mask have equal lengths.
+        // Exposing this invariant to the optimizer removes redundant bounds
+        // checks and zip length comparisons without checking each candidate.
+        unsafe {
+            core::hint::assert_unchecked(
+                hay.len() == self.needle.len() && hay.len() == self.mask.len(),
+            );
+        }
+        // SAFETY: The caller's length guarantee and Pattern's invariant give
+        // all three slices the same length.
         #[cfg(target_feature = "simd128")]
-        let Some(checked) = self.matches_simd(hay) else {
+        let Some(checked) = (unsafe { self.matches_simd(hay) }) else {
             return false;
         };
         #[cfg(target_feature = "simd128")]
@@ -411,13 +442,18 @@ impl Pattern<'_> {
 
     /// Compares 16 bytes at a time while there are that many. Returns how
     /// many bytes it compared, or `None` when one differs.
+    ///
+    /// # Safety
+    ///
+    /// `hay` must have the same length as `self.needle`.
     #[cfg(target_feature = "simd128")]
-    fn matches_simd(&self, hay: &[u8]) -> Option<usize> {
+    unsafe fn matches_simd(&self, hay: &[u8]) -> Option<usize> {
         use core::arch::wasm32::{u8x16_ne, v128, v128_and, v128_any_true};
         let mut checked = 0;
         while checked + 16 <= hay.len() {
-            // SAFETY: Each slice holds at least 16 bytes from `checked` on,
-            // and v128 has no alignment requirement for unaligned reads.
+            // SAFETY: The caller's length guarantee and Pattern's invariant
+            // give all three slices the same length. The loop checks that
+            // 16 bytes remain; read_unaligned does not require v128 alignment.
             let differs = unsafe {
                 let load =
                     |bytes: &[u8]| bytes.as_ptr().add(checked).cast::<v128>().read_unaligned();
@@ -587,6 +623,18 @@ mod tests {
     const SIGNATURE: Signature<4> = Signature::new("AA BB CC DD");
 
     #[test]
+    #[should_panic(expected = "needle and mask lengths must match")]
+    fn rejects_a_mask_shorter_than_the_needle() {
+        Pattern::new(&[0xAA; 2], &[0xFF], Anchor::choose(&[0xAA], &[0xFF]));
+    }
+
+    #[test]
+    #[should_panic(expected = "needle and mask lengths must match")]
+    fn rejects_a_mask_longer_than_the_needle() {
+        Pattern::new(&[0xAA], &[0xFF; 2], Anchor::choose(&[0xAA], &[0xFF]));
+    }
+
+    #[test]
     fn full_comparisons_check_every_cared_bit_at_word_and_tail_boundaries() {
         // Test the verifier directly so the anchor cannot reject a mismatch
         // before the word / tail comparison runs. The haystack is unaligned.
@@ -604,27 +652,29 @@ mod tests {
                     needle[i] = (i as u8).wrapping_mul(57) & mask[i];
                     bytes[i + 1] = needle[i] | (0x5A & !mask[i]);
                 }
-                let pattern = Pattern {
-                    needle: &needle[..len],
-                    mask: &mask[..len],
-                    anchor: Anchor::choose(&needle[..len], &mask[..len]),
+                let pattern = Pattern::new(
+                    &needle[..len],
+                    &mask[..len],
+                    Anchor::choose(&needle[..len], &mask[..len]),
+                );
+                let matches = |bytes: &[u8]| {
+                    let candidate = &bytes[1..=len];
+                    // SAFETY: Both the candidate and the needle have len bytes.
+                    unsafe { pattern.matches_at(candidate) }
                 };
-                assert!(pattern.matches_at(&bytes[1..=len]));
+                assert!(matches(&bytes));
                 for i in 0..len {
                     for bit in 0..8 {
                         let cared = mask[i] & (1 << bit);
                         if cared != 0 {
                             bytes[i + 1] ^= cared;
-                            assert!(
-                                !pattern.matches_at(&bytes[1..=len]),
-                                "len={len}, byte={i}, bit={bit}"
-                            );
+                            assert!(!matches(&bytes), "len={len}, byte={i}, bit={bit}");
                             bytes[i + 1] ^= cared;
                         }
                     }
                     let ignored = !mask[i];
                     bytes[i + 1] ^= ignored;
-                    assert!(pattern.matches_at(&bytes[1..=len]), "len={len}, byte={i}");
+                    assert!(matches(&bytes), "len={len}, byte={i}");
                     bytes[i + 1] ^= ignored;
                 }
             }
