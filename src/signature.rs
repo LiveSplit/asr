@@ -380,19 +380,32 @@ impl Pattern<'_> {
 
     /// Checks whether the signature matches these bytes, which are as many
     /// as the signature is long. Only starts whose anchor and check bytes
-    /// match get here, so going a byte at a time is fine without SIMD.
+    /// match get here. Compare whole words before the remaining bytes.
     #[inline]
     fn matches_at(&self, hay: &[u8]) -> bool {
         #[cfg(target_feature = "simd128")]
         let Some(checked) = self.matches_simd(hay) else {
             return false;
         };
+        #[cfg(target_feature = "simd128")]
+        if checked == hay.len() {
+            return true;
+        }
         #[cfg(not(target_feature = "simd128"))]
         let checked = 0;
-        hay[checked..]
-            .iter()
-            .zip(&self.needle[checked..])
-            .zip(&self.mask[checked..])
+        // Chunking the slices gives word-sized comparisons without unaligned
+        // pointer reads or a separate scanner for each signature length.
+        let (hay, tail) = hay[checked..].as_chunks::<8>();
+        let (needle, needle_tail) = self.needle[checked..].as_chunks::<8>();
+        let (mask, mask_tail) = self.mask[checked..].as_chunks::<8>();
+        if !hay.iter().zip(needle).zip(mask).all(|((h, n), m)| {
+            u64::from_ne_bytes(*h) & u64::from_ne_bytes(*m) == u64::from_ne_bytes(*n)
+        }) {
+            return false;
+        }
+        tail.iter()
+            .zip(needle_tail)
+            .zip(mask_tail)
             .all(|((h, n), m)| h & m == *n)
     }
 
@@ -568,10 +581,55 @@ impl Iterator for ScanIter<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::Signature;
+    use super::{Anchor, Pattern, Signature};
     use crate::{runtime::mock::with_process, Address};
 
     const SIGNATURE: Signature<4> = Signature::new("AA BB CC DD");
+
+    #[test]
+    fn full_comparisons_check_every_cared_bit_at_word_and_tail_boundaries() {
+        // Test the verifier directly so the anchor cannot reject a mismatch
+        // before the word / tail comparison runs. The haystack is unaligned.
+        for len in 1..=255 {
+            for kind in 0..3 {
+                let mut needle = [0; 255];
+                let mut mask = [0; 255];
+                let mut bytes = [0; 256];
+                for i in 0..len {
+                    mask[i] = match kind {
+                        0 => 0,
+                        1 => 0xFF,
+                        _ => (i as u8).wrapping_mul(37).wrapping_add(0xA5),
+                    };
+                    needle[i] = (i as u8).wrapping_mul(57) & mask[i];
+                    bytes[i + 1] = needle[i] | (0x5A & !mask[i]);
+                }
+                let pattern = Pattern {
+                    needle: &needle[..len],
+                    mask: &mask[..len],
+                    anchor: Anchor::choose(&needle[..len], &mask[..len]),
+                };
+                assert!(pattern.matches_at(&bytes[1..=len]));
+                for i in 0..len {
+                    for bit in 0..8 {
+                        let cared = mask[i] & (1 << bit);
+                        if cared != 0 {
+                            bytes[i + 1] ^= cared;
+                            assert!(
+                                !pattern.matches_at(&bytes[1..=len]),
+                                "len={len}, byte={i}, bit={bit}"
+                            );
+                            bytes[i + 1] ^= cared;
+                        }
+                    }
+                    let ignored = !mask[i];
+                    bytes[i + 1] ^= ignored;
+                    assert!(pattern.matches_at(&bytes[1..=len]), "len={len}, byte={i}");
+                    bytes[i + 1] ^= ignored;
+                }
+            }
+        }
+    }
 
     /// Two pages of zeros starting at 0x10000, with the signature at `at`.
     fn pages_with_signature_at(at: u64) -> [u8; 0x2000] {
