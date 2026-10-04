@@ -18,6 +18,7 @@ use crate::Process;
 std::thread_local! {
     static MEMORY: RefCell<Vec<(u64, Vec<u8>)>> = const { RefCell::new(Vec::new()) };
     static MODULES: RefCell<Vec<(String, u64, u64)>> = const { RefCell::new(Vec::new()) };
+    static READS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
 /// Runs a test against a process whose memory holds the given regions, each an
@@ -46,6 +47,7 @@ pub fn with_modules<R>(
             .map(|&(name, address, size)| (name.to_string(), address, size))
             .collect();
     });
+    READS.with(|reads| reads.set(0));
     let process = Process::attach("mock").expect("the mock always attaches");
     test(&process)
 }
@@ -164,6 +166,11 @@ extern "C" fn process_get_module_size(
     NonZeroU64::new(module(name_ptr, name_len)?.1)
 }
 
+/// Returns how many reads the current process got so far.
+pub fn reads() -> usize {
+    READS.with(|reads| reads.get())
+}
+
 /// Polls a future a single time. The mock host answers everything
 /// synchronously, so a future either resolves on its first poll or sits on a
 /// condition the fixture never satisfies.
@@ -229,6 +236,7 @@ extern "C" fn process_get_memory_range_size(_process: u64, idx: u64) -> Option<N
 
 #[no_mangle]
 extern "C" fn process_read(_process: u64, address: u64, buf_ptr: *mut u8, buf_len: usize) -> bool {
+    READS.with(|reads| reads.set(reads.get() + 1));
     MEMORY.with(|memory| {
         memory.borrow().iter().any(|(start, bytes)| {
             let Some(offset) = address.checked_sub(*start) else {

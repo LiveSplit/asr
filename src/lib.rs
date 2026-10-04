@@ -141,6 +141,8 @@ pub mod file_format;
 pub mod game_engine;
 #[cfg(feature = "signature")]
 pub mod signature;
+#[cfg(all(test, feature = "signature", not(target_family = "wasm")))]
+mod signature_tests;
 pub mod string;
 pub mod sync;
 pub mod time_util;
