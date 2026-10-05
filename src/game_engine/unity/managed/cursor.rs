@@ -1,6 +1,6 @@
 use super::runtime::{Il2CppRuntime, MonoRuntime};
 use super::{slot, ClassRef};
-use crate::{Address, Address32, Address64, PointerSize, Process};
+use crate::{cycle::Cycle, Address, Address32, Address64, PointerSize, Process};
 
 /// Walks the runtime's loaded assemblies.
 pub struct Assemblies<'a> {
@@ -125,6 +125,8 @@ enum ClassesState {
         size: u64,
         bucket: u64,
         chain: Option<Address>,
+        /// Where the current bucket's chain has been.
+        cycle: Cycle,
         next_class_cache: u16,
     },
     /// The image's slice of the type info definition table.
@@ -163,6 +165,7 @@ impl<'a> Classes<'a> {
                 size,
                 bucket: 0,
                 chain: None,
+                cycle: Cycle::new(Address::NULL),
                 next_class_cache: mono.next_class_cache,
             },
         }
@@ -234,6 +237,7 @@ impl Iterator for Classes<'_> {
                 size,
                 bucket,
                 chain,
+                cycle,
                 next_class_cache,
             } => loop {
                 if let Some(class) = *chain {
@@ -241,7 +245,7 @@ impl Iterator for Classes<'_> {
                         .process
                         .read_pointer(class + *next_class_cache, self.pointer_size)
                         .ok()
-                        .filter(|address| !address.is_null());
+                        .filter(|&address| !address.is_null() && !cycle.revisits(address));
 
                     return Some(ClassRef::new(class));
                 }
@@ -255,6 +259,7 @@ impl Iterator for Classes<'_> {
                     .read_pointer(slot(*table, self.pointer_size, *bucket), self.pointer_size)
                     .ok()
                     .filter(|address| !address.is_null());
+                *cycle = Cycle::new(chain.unwrap_or_default());
                 *bucket += 1;
             },
             ClassesState::Il2Cpp {

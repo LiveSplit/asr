@@ -340,6 +340,20 @@ fn classes_resolve_by_name_and_namespace() {
     });
 }
 
+// Wrong offsets can make a class chain lead back to a class it already
+// passed. Here Boss's next class is Boss itself, and the walk ends soon after
+// it starts repeating.
+#[test]
+fn class_chains_that_lead_back_end() {
+    let mut memory = image();
+    ptr(&mut memory, 0x1000 + 0x108, BASE + 0x1000);
+    with_process(&[(BASE, &memory)], |process| {
+        let module = module(measured());
+        let image = module.get_default_image(process).unwrap();
+        assert!(image.classes(process, &module).take(10_000).count() < 10);
+    });
+}
+
 #[test]
 fn field_offsets_resolve_declared_inherited_and_backing() {
     on_fixture(measured(), |process, module| {
