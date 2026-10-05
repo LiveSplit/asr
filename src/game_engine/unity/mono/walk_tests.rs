@@ -11,10 +11,9 @@ use super::{profiles, Library, Module, Profile, UnityPointer};
 use crate::runtime::mock::{poll_once, with_process};
 use crate::{Address, PointerSize, Process};
 
-use core::task::Poll;
+use core::{task::Poll, time::Duration};
 
-use std::vec;
-use std::vec::Vec;
+use std::{sync::mpsc, thread, vec, vec::Vec};
 
 const BASE: u64 = 0x10_0000;
 
@@ -383,6 +382,32 @@ fn assembly_lists_that_lead_back_end() {
         let assemblies = walk.runtime.assemblies(process, walk.pointer_size);
         assert!(assemblies.take(10_000).count() < 10);
     });
+}
+
+// Wrong offsets can make a parent chain lead back to a class it already
+// passed. Here Enemy's parent is Enemy itself, and so is the list lookalike's.
+// Every climb still ends, which a second thread checks so a climb that never
+// ends fails the test instead of hanging it.
+#[test]
+fn parent_chains_that_lead_back_end() {
+    let mut memory = image();
+    ptr(&mut memory, 0xE00 + 0x30, BASE + 0xE00);
+    ptr(&mut memory, 0x4300 + 0x30, BASE + 0x4300);
+    let (done, finished) = mpsc::channel();
+    thread::spawn(move || {
+        with_process(&[(BASE, &memory)], |process| {
+            let module = module(measured());
+            let image = module.get_default_image(process).unwrap();
+            let boss = image.get_class(process, &module, "Game.Boss").unwrap();
+            assert!(boss.get_field_offset(process, &module, "nothing").is_none());
+            let lookalike = Address::new(BASE + 0x4F08);
+            assert!(module.get_list_offsets(process, lookalike).is_none());
+            assert!(module.get_dictionary_offsets(process, lookalike).is_none());
+            assert!(module.get_hash_set_offsets(process, lookalike).is_none());
+        });
+        done.send(()).unwrap();
+    });
+    assert!(finished.recv_timeout(Duration::from_secs(10)).is_ok());
 }
 
 #[test]
