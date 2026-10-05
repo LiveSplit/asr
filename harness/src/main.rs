@@ -318,9 +318,12 @@ impl Timer for Report {
     }
 }
 
-/// Builds the auto splitter for wasm and reads the module back.
+/// Builds the auto splitter for wasm and reads the module back. The build
+/// goes to `target` next to the harness even when `CARGO_TARGET_DIR` points
+/// elsewhere, so the module read back is always the one just built.
 fn splitter() -> Vec<u8> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let target = root.join("target");
     let status = Command::new(env!("CARGO"))
         .args([
             "build",
@@ -330,13 +333,15 @@ fn splitter() -> Vec<u8> {
             "--target",
             "wasm32-unknown-unknown",
         ])
+        .arg("--target-dir")
+        .arg(&target)
         .current_dir(root)
         .status()
         .expect("running cargo");
     if !status.success() {
         fail("the auto splitter did not build");
     }
-    fs::read(root.join("target/wasm32-unknown-unknown/release/splitter.wasm"))
+    fs::read(target.join("wasm32-unknown-unknown/release/splitter.wasm"))
         .expect("reading the auto splitter")
 }
 
