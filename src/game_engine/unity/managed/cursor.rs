@@ -2,6 +2,10 @@ use super::runtime::{Il2CppRuntime, MonoRuntime};
 use super::{slot, ClassRef};
 use crate::{cycle::Cycle, Address, Address32, Address64, PointerSize, Process};
 
+/// The most assemblies an IL2CPP game can load. No game loads anywhere near
+/// 65,536.
+const ASSEMBLIES: u64 = 1 << 16;
+
 /// Walks the runtime's loaded assemblies.
 pub struct Assemblies<'a> {
     process: &'a Process,
@@ -62,7 +66,11 @@ impl<'a> Assemblies<'a> {
             pointer_size,
             state: AssembliesState::Il2Cpp {
                 base: first,
-                count: limit.value().saturating_sub(first.value()) / pointer_size as u64,
+                // A count past ASSEMBLIES comes from wrong offsets and reads
+                // as no assemblies.
+                count: Some(limit.value().saturating_sub(first.value()) / pointer_size as u64)
+                    .filter(|&count| count <= ASSEMBLIES)
+                    .unwrap_or_default(),
                 index: 0,
             },
         }
@@ -118,6 +126,10 @@ impl Iterator for Assemblies<'_> {
 /// The most buckets an image's class table can have. Mono sizes the table by
 /// the number of classes, and no image holds anywhere near 1,000,000.
 const BUCKETS: u32 = 1 << 20;
+
+/// The most types an IL2CPP image can hold. No image holds anywhere near
+/// 1,000,000.
+const TYPES: u32 = 1 << 20;
 
 /// Walks the classes an image holds.
 pub struct Classes<'a> {
@@ -191,8 +203,12 @@ impl<'a> Classes<'a> {
         il2cpp: &Il2CppRuntime,
         image: super::ImageRef,
     ) -> Self {
+        // A count past TYPES comes from wrong offsets and reads as an image
+        // with no classes.
         let count = process
             .read::<u32>(image.address + il2cpp.type_count)
+            .ok()
+            .filter(|&count| count <= TYPES)
             .unwrap_or_default() as u64;
 
         let metadata = match (count, il2cpp.handle_is_inline) {
