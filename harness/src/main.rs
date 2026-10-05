@@ -6,7 +6,10 @@ use std::{
     fmt, fs,
     path::{Path, PathBuf},
     process::{self, Command, Stdio},
-    sync::{Arc, Mutex},
+    sync::{
+        mpsc::{self, RecvTimeoutError},
+        Arc, Mutex,
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -376,14 +379,24 @@ fn run(player: &Path, splitter: &CompiledAutoSplitter, log: &Path) -> Reported {
     let auto_splitter = splitter
         .instantiate(Report(reported.clone()), None::<settings::Map>, None)
         .unwrap_or_else(|error| fail(&format!("instantiating the auto splitter: {error}")));
+    // An update that never returns would never see the patience run out, so
+    // a second thread interrupts it once the time is up.
+    let (finished, waiting) = mpsc::channel::<()>();
+    let interrupt = auto_splitter.interrupt_handle();
+    let timeout = thread::spawn(move || {
+        if waiting.recv_timeout(PATIENCE) == Err(RecvTimeoutError::Timeout) {
+            interrupt.interrupt();
+        }
+    });
     let started = Instant::now();
     while started.elapsed() < PATIENCE {
         if let Err(error) = auto_splitter.lock().update() {
-            reported
-                .lock()
-                .unwrap()
-                .messages
-                .push(format!("the auto splitter trapped: {error}"));
+            let message = if started.elapsed() >= PATIENCE {
+                format!("the auto splitter was still running after {PATIENCE:?}")
+            } else {
+                format!("the auto splitter trapped: {error}")
+            };
+            reported.lock().unwrap().messages.push(message);
             break;
         }
         if reported.lock().unwrap().variables.contains_key("done") {
@@ -391,6 +404,8 @@ fn run(player: &Path, splitter: &CompiledAutoSplitter, log: &Path) -> Reported {
         }
         thread::sleep(auto_splitter.tick_rate());
     }
+    drop(finished);
+    let _ = timeout.join();
     drop(auto_splitter);
     let _ = child.kill();
     let _ = child.wait();
