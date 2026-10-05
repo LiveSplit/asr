@@ -354,6 +354,23 @@ fn class_chains_that_lead_back_end() {
     });
 }
 
+// Wrong offsets can read a bucket count of millions, which the walk would
+// take forever to go through. A count that high reads as an empty table.
+#[test]
+fn class_tables_with_a_bucket_count_no_image_has_read_empty() {
+    let mut memory = image();
+    put(
+        &mut memory,
+        0x640 + 0x4C0 + 0x18,
+        &10_000_000_i32.to_le_bytes(),
+    );
+    with_process(&[(BASE, &memory)], |process| {
+        let module = module(measured());
+        let image = module.get_default_image(process).unwrap();
+        assert_eq!(image.classes(process, &module).count(), 0);
+    });
+}
+
 #[test]
 fn field_offsets_resolve_declared_inherited_and_backing() {
     on_fixture(measured(), |process, module| {

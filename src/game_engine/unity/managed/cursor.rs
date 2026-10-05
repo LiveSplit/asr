@@ -108,6 +108,10 @@ impl Iterator for Assemblies<'_> {
     }
 }
 
+/// The most buckets an image's class table can have. Mono sizes the table by
+/// the number of classes, and no image holds anywhere near a million.
+const BUCKETS: u32 = 1 << 20;
+
 /// Walks the classes an image holds.
 pub struct Classes<'a> {
     process: &'a Process,
@@ -120,8 +124,6 @@ enum ClassesState {
     /// classes themselves.
     Mono {
         table: Address,
-        // The size the runtime stores is signed, and the walk has always taken
-        // it as a count wholesale, garbage included.
         size: u64,
         bucket: u64,
         chain: Option<Address>,
@@ -146,8 +148,13 @@ impl<'a> Classes<'a> {
     ) -> Self {
         let cache = image.address + mono.class_cache;
 
+        // The size the runtime stores is signed. A negative size, or one past
+        // BUCKETS, comes from wrong offsets and reads as an empty table.
         let size = process
             .read::<i32>(cache + mono.hash_table_size)
+            .ok()
+            .and_then(|size| u32::try_from(size).ok())
+            .filter(|&size| size <= BUCKETS)
             .unwrap_or_default() as u64;
 
         let table = match size {
