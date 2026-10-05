@@ -11,7 +11,11 @@ pub struct Assemblies<'a> {
 
 enum AssembliesState {
     /// The glib list: each node carries the assembly and the next node.
-    Mono { node: Option<Address> },
+    Mono {
+        node: Option<Address>,
+        /// Where the list has been.
+        cycle: Cycle,
+    },
     /// The vector: a slice of assembly pointers.
     Il2Cpp {
         base: Address,
@@ -26,14 +30,17 @@ impl<'a> Assemblies<'a> {
         pointer_size: PointerSize,
         mono: &MonoRuntime,
     ) -> Self {
+        let node = process
+            .read_pointer(mono.assemblies, pointer_size)
+            .ok()
+            .filter(|address| !address.is_null());
+
         Self {
             process,
             pointer_size,
             state: AssembliesState::Mono {
-                node: process
-                    .read_pointer(mono.assemblies, pointer_size)
-                    .ok()
-                    .filter(|address| !address.is_null()),
+                node,
+                cycle: Cycle::new(node.unwrap_or_default()),
             },
         }
     }
@@ -67,7 +74,7 @@ impl Iterator for Assemblies<'_> {
 
     fn next(&mut self) -> Option<Address> {
         match &mut self.state {
-            AssembliesState::Mono { node } => {
+            AssembliesState::Mono { node, cycle } => {
                 let at = (*node)?;
 
                 let [data, next]: [Address; 2] = match self.pointer_size {
@@ -83,7 +90,7 @@ impl Iterator for Assemblies<'_> {
                         .map(|address| address.into()),
                 };
 
-                *node = Some(next);
+                *node = Some(next).filter(|&next| !cycle.revisits(next));
 
                 Some(data)
             }

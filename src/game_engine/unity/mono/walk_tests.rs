@@ -371,6 +371,20 @@ fn class_tables_with_a_bucket_count_no_image_has_read_empty() {
     });
 }
 
+// Wrong offsets can make the assembly list lead back to a node it already
+// passed. Here the second node's next node is the first, and the walk ends
+// soon after it starts repeating.
+#[test]
+fn assembly_lists_that_lead_back_end() {
+    let mut memory = image();
+    ptr(&mut memory, 0x28, BASE + 0x10);
+    with_process(&[(BASE, &memory)], |process| {
+        let walk = module(measured()).walk();
+        let assemblies = walk.runtime.assemblies(process, walk.pointer_size);
+        assert!(assemblies.take(10_000).count() < 10);
+    });
+}
+
 #[test]
 fn field_offsets_resolve_declared_inherited_and_backing() {
     on_fixture(measured(), |process, module| {
