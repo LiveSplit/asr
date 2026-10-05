@@ -410,6 +410,23 @@ fn parent_chains_that_lead_back_end() {
     assert!(finished.recv_timeout(Duration::from_secs(10)).is_ok());
 }
 
+// Wrong offsets can read a field count like 10,000,000, which a lookup would
+// take forever to go through. A count past 65,535 reads as no fields at all,
+// so even a field the class has stays unresolved.
+#[test]
+fn field_counts_no_class_has_read_as_no_fields() {
+    let mut memory = image();
+    put(&mut memory, 0xC00 + 0x100, &10_000_000_i32.to_le_bytes());
+    with_process(&[(BASE, &memory)], |process| {
+        let module = module(measured());
+        let image = module.get_default_image(process).unwrap();
+        let game_manager = image.get_class(process, &module, "GameManager").unwrap();
+        assert!(game_manager
+            .get_field_offset(process, &module, "points")
+            .is_none());
+    });
+}
+
 #[test]
 fn field_offsets_resolve_declared_inherited_and_backing() {
     on_fixture(measured(), |process, module| {
