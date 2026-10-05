@@ -353,7 +353,7 @@ fn class_chains_that_lead_back_end() {
     });
 }
 
-// Wrong offsets can read a bucket count of millions, which the walk would
+// Wrong offsets can read a bucket count in the millions, which the walk would
 // take forever to go through. A count that high reads as an empty table.
 #[test]
 fn class_tables_with_a_bucket_count_no_image_has_read_empty() {

@@ -3,9 +3,10 @@
 use crate::Address;
 
 /// Catches a chain of pointers that leads back to an address it already
-/// passed, which wrong offsets can cause. It keeps 1 address and replaces it
-/// at every power of 2 steps (Brent's algorithm), so it notices a cycle within
-/// about twice the cycle's length.
+/// passed, which wrong offsets can cause. It keeps 1 address and swaps in the
+/// current one each time the step count reaches the next power of 2 (Brent's
+/// algorithm). It notices a cycle within about 2 to 3 times the number of
+/// different addresses on the chain.
 pub(crate) struct Cycle {
     saved: Address,
     power: u32,

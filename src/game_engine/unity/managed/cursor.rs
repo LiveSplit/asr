@@ -116,7 +116,7 @@ impl Iterator for Assemblies<'_> {
 }
 
 /// The most buckets an image's class table can have. Mono sizes the table by
-/// the number of classes, and no image holds anywhere near a million.
+/// the number of classes, and no image holds anywhere near 1,000,000.
 const BUCKETS: u32 = 1 << 20;
 
 /// Walks the classes an image holds.
