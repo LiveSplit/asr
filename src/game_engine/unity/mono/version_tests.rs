@@ -127,7 +127,7 @@ fn the_version_string_in_the_player_names_major_minor_and_patch() {
         let mut image = vec![0; 0x2000];
         image[0x100..0x100 + text.len()].copy_from_slice(text);
         with_process(&[(BASE, &image)], |process: &Process| {
-            Module::version_string(process, (Address::new(BASE), 0x1000))
+            super::super::version_string(process, (Address::new(BASE), 0x1000))
         })
     };
     assert_eq!(version(b"\x002021.3.11f1\0"), Some((2021, 3, 11, 0)));
@@ -149,7 +149,7 @@ fn the_newest_version_string_in_the_player_is_its_version() {
     let text = b"\x002018.3.0a1\0\x002021.2.0f1\0\x005.0.0a1\0";
     image[0x100..0x100 + text.len()].copy_from_slice(text);
     let version = with_process(&[(BASE, &image)], |process: &Process| {
-        Module::version_string(process, (Address::new(BASE), 0x1000))
+        super::super::version_string(process, (Address::new(BASE), 0x1000))
     });
     assert_eq!(version, Some((2021, 2, 0, 0)));
 }

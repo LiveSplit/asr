@@ -160,6 +160,25 @@ fn the_windows_runtime_module_takes_its_size_of_image() {
     );
 }
 
+// A Linux player has no file version, so the version comes from the
+// version string in `UnityPlayer.so`.
+#[test]
+fn the_unity_version_comes_from_the_player_string_on_linux() {
+    let mut image = vec![0; 0x2000];
+    let text = b"\x002022.3.5f1\0";
+    image[0x100..0x100 + text.len()].copy_from_slice(text);
+    with_modules(
+        &[(UNITY_PLAYER, &image)],
+        &[("UnityPlayer.so", UNITY_PLAYER, 0x2000)],
+        |process| {
+            assert_eq!(
+                Module::unity_version(process, BinaryFormat::ELF),
+                Some((2022, 3, 5, 0))
+            );
+        },
+    );
+}
+
 // A game on a measured player attaches with the offsets measured on that
 // player.
 #[test]

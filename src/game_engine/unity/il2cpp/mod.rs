@@ -54,7 +54,7 @@ impl Module {
     pub fn attach_auto_detect(process: &Process) -> Option<Self> {
         let (il2cpp_module, format) = Self::find_runtime_module(process)?;
         let pointer_size = Self::pointer_size(process, il2cpp_module, format)?;
-        let unity = Self::unity_version(process)?;
+        let unity = Self::unity_version(process, format)?;
         let build = builds::nearest(unity, pointer_size)?;
 
         let module = Self::attach_with(process, il2cpp_module, format, build.profile)?;
@@ -108,9 +108,14 @@ impl Module {
         }
     }
 
-    /// Reads the Unity version stamped on the player, all four parts of
-    /// `UnityPlayer.dll`'s file version.
-    fn unity_version(process: &Process) -> Option<(u16, u16, u16, u16)> {
+    /// Reads the Unity version of the game. On Windows it is all four parts
+    /// of `UnityPlayer.dll`'s file version. On Linux it is the version string
+    /// in `UnityPlayer.so`.
+    fn unity_version(process: &Process, format: BinaryFormat) -> Option<(u16, u16, u16, u16)> {
+        if format != BinaryFormat::PE {
+            let unity_player = process.get_module_range("UnityPlayer.so").ok()?;
+            return super::version_string(process, unity_player);
+        }
         let unity_player = process.get_module_address("UnityPlayer.dll").ok()?;
         let file_version = pe::FileVersion::read(process, unity_player)?;
         Some((
