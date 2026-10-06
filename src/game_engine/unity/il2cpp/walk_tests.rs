@@ -160,6 +160,30 @@ fn the_windows_runtime_module_takes_its_size_of_image() {
     );
 }
 
+// The globals sit in `.bss`, which the mapped range of `GameAssembly.so`
+// leaves out, so the range runs to the end of the last load segment.
+#[test]
+fn the_linux_runtime_module_reaches_the_end_of_its_load_segments() {
+    let mut image = vec![0; 0x1000];
+    put(&mut image, 0x00, b"\x7fELF\x02\x01\x01");
+    put(&mut image, 0x20, &0x40_u64.to_le_bytes());
+    put(&mut image, 0x36, &0x38_u16.to_le_bytes());
+    put(&mut image, 0x38, &1_u16.to_le_bytes());
+    put(&mut image, 0x40, &1_u32.to_le_bytes());
+    put(&mut image, 0x60, &0x1000_u64.to_le_bytes());
+    put(&mut image, 0x68, &0x3000_u64.to_le_bytes());
+    with_modules(
+        &[(GAME_ASSEMBLY, &image)],
+        &[("GameAssembly.so", GAME_ASSEMBLY, 0x1000)],
+        |process| {
+            assert_eq!(
+                Module::find_runtime_module(process),
+                Some(((Address::new(GAME_ASSEMBLY), 0x3000), BinaryFormat::ELF))
+            );
+        },
+    );
+}
+
 // A Linux player has no file version, so the version comes from the
 // version string in `UnityPlayer.so`.
 #[test]

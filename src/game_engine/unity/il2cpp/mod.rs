@@ -93,8 +93,12 @@ impl Module {
             let size = pe::read_size_of_image(process, address)? as u64;
             return Some(((address, size), BinaryFormat::PE));
         }
-        let range = process.get_module_range("GameAssembly.so").ok()?;
-        Some((range, BinaryFormat::ELF))
+        // The mapped range of `GameAssembly.so` ends with the file, but the
+        // globals sit in `.bss` past it, so the range runs to the end of the
+        // last load segment instead.
+        let (address, size) = process.get_module_range("GameAssembly.so").ok()?;
+        let size = elf::read_size_of_image(process, address).unwrap_or(size);
+        Some(((address, size), BinaryFormat::ELF))
     }
 
     fn pointer_size(
