@@ -42,6 +42,10 @@ pub use scene::Scene;
 
 use super::{BinaryFormat, CSTR};
 
+/// The most scenes a game can have loaded at once. No game comes anywhere
+/// near 4,096.
+const SCENES: u32 = 1 << 12;
+
 /// The scene manager allows you to easily identify the current scene loaded in
 /// the attached Unity game.
 ///
@@ -260,7 +264,13 @@ impl SceneManager {
         let scenes = process
             .read_pointer(self.loaded_scenes(), self.pointer_size)
             .unwrap_or_default();
-        let count = self.get_scene_count(process).unwrap_or_default() as usize;
+        // A count past SCENES comes from wrong offsets and reads as no
+        // scenes.
+        let count = self
+            .get_scene_count(process)
+            .ok()
+            .filter(|&count| count <= SCENES)
+            .unwrap_or_default() as usize;
 
         (0..count).filter_map(move |index| {
             process

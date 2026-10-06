@@ -112,6 +112,22 @@ fn a_ring_that_leads_back_past_the_head_ends() {
     assert!(count < 10);
 }
 
+// Wrong offsets can read a scene count in the millions, which the scene list
+// would take forever to go through. A count that high reads as no scenes.
+#[test]
+fn scene_counts_no_game_has_read_as_no_scenes() {
+    let manager = manager();
+    let mut image = vec![0x11; 0x1000];
+    let scenes = manager.profile.manager.scenes as u64;
+    ptr(&mut image, scenes, BASE);
+    put(&mut image, scenes + 16, &10_000_000_u32.to_le_bytes());
+
+    let count = with_process(&[(BASE, &image)], |process: &Process| {
+        manager.scenes(process).count()
+    });
+    assert_eq!(count, 0);
+}
+
 #[test]
 fn a_ring_that_does_not_close_stops_at_the_break() {
     let mut image = vec![0; 0x1000];
