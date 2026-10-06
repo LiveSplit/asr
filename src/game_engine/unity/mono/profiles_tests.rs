@@ -110,7 +110,7 @@ fn windows_constants_name_the_expected_profiles() {
 
 #[test]
 fn linux_constants_name_the_expected_profiles() {
-    let profiles: [((u16, u16, u16, u16), Library, Profile); 4] = [
+    let profiles: [((u16, u16, u16, u16), Library, Profile); 6] = [
         (
             (5, 6, 0, 23754),
             Library::Mono,
@@ -125,6 +125,16 @@ fn linux_constants_name_the_expected_profiles() {
             (2017, 4, 6, 20272),
             Library::Mono,
             UNITY_2017_4_6F1_LINUX_MONO_X86_64,
+        ),
+        (
+            (2018, 1, 0, 30795),
+            Library::Mono,
+            UNITY_2018_1_0F1_LINUX_MONO_X86_64,
+        ),
+        (
+            (2018, 2, 0, 30296),
+            Library::Mono,
+            UNITY_2018_2_0F2_LINUX_MONO_X86_64,
         ),
         (
             (2021, 2, 0, 61932),

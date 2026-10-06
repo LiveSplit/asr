@@ -224,6 +224,108 @@ pub(super) const BUILDS: &[Build] = &[
             v_table: MonoVTableOffsets { vtable: 0x48 },
         },
     },
+    // 2018.1.0f1, libmono.so
+    Build {
+        build_id: &id::<20>("8297a83ffb74d772baf82ebd05fa663e0bf9feda"),
+        unity: (2018, 1, 0, 30795),
+        profile: Profile {
+            pointer_size: PointerSize::Bit64,
+            library: Library::Mono,
+            assembly: AssemblyOffsets {
+                aname: Some(0x10),
+                image: 0x58,
+            },
+            image: ImageOffsets {
+                assembly_name: None,
+                class_cache: 0x3D0,
+            },
+            hash_table: HashTableOffsets {
+                size: 0x18,
+                table: 0x20,
+            },
+            class: ClassOffsets {
+                class_kind: None,
+                instance_size: Some(0x1C),
+                parent: 0x28,
+                nested_in: Some(0x30),
+                name: 0x40,
+                namespace: 0x48,
+                vtable_size: 0x18,
+                fields: 0xA0,
+                runtime_info: 0xF0,
+                field_count: 0x8C,
+                next_class_cache: 0xF8,
+            },
+            generic: GenericOffsets {
+                generic_class: Some(0xD0),
+                container_class: Some(0x0),
+            },
+            type_words: TypeOffsets {
+                data: Some(0x0),
+                kind: Some(0xA),
+            },
+            field: FieldInfoOffsets {
+                type_: Some(0x0),
+                name: 0x8,
+                offset: 0x18,
+                stride: 0x20,
+            },
+            // Nothing reads this: these builds keep their statics in the slot
+            // `vtable_size` points at.
+            v_table: MonoVTableOffsets { vtable: 0x48 },
+        },
+    },
+    // 2018.2.0f2, libmono.so
+    Build {
+        build_id: &id::<20>("f14b1787abe509c65d8b9b1bf32de20818303c6e"),
+        unity: (2018, 2, 0, 30296),
+        profile: Profile {
+            pointer_size: PointerSize::Bit64,
+            library: Library::Mono,
+            assembly: AssemblyOffsets {
+                aname: Some(0x10),
+                image: 0x58,
+            },
+            image: ImageOffsets {
+                assembly_name: None,
+                class_cache: 0x3D0,
+            },
+            hash_table: HashTableOffsets {
+                size: 0x18,
+                table: 0x20,
+            },
+            class: ClassOffsets {
+                class_kind: None,
+                instance_size: Some(0x1C),
+                parent: 0x28,
+                nested_in: Some(0x30),
+                name: 0x48,
+                namespace: 0x50,
+                vtable_size: 0x18,
+                fields: 0xA8,
+                runtime_info: 0xF8,
+                field_count: 0x94,
+                next_class_cache: 0x100,
+            },
+            generic: GenericOffsets {
+                generic_class: Some(0xD8),
+                container_class: Some(0x0),
+            },
+            type_words: TypeOffsets {
+                data: Some(0x0),
+                kind: Some(0xA),
+            },
+            field: FieldInfoOffsets {
+                type_: Some(0x0),
+                name: 0x8,
+                offset: 0x18,
+                stride: 0x20,
+            },
+            // Nothing reads this: these builds keep their statics in the slot
+            // `vtable_size` points at.
+            v_table: MonoVTableOffsets { vtable: 0x48 },
+        },
+    },
     // 2021.2.0f1, UnityPlayer.so
     Build {
         build_id: &id::<8>("18a01e8f0aa6d238"),
