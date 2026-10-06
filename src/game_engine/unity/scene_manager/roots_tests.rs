@@ -89,6 +89,29 @@ fn an_empty_ring_has_no_roots() {
     assert_eq!(roots(&image), []);
 }
 
+// Wrong offsets can make the ring lead back to a node it already passed
+// without going through the head. Here the second node's next node is the
+// first, and the walk ends soon after it starts repeating.
+#[test]
+fn a_ring_that_leads_back_past_the_head_ends() {
+    let mut image = vec![0; 0x1000];
+    let head = SCENE + manager().profile.scene.roots as u64;
+    ring(&mut image, head, &[(0x400, 0x800), (0x440, 0x840)]);
+    ptr(&mut image, 0x440 + 8, BASE + 0x400);
+
+    let manager = manager();
+    let count = with_process(&[(BASE, &image)], |process: &Process| {
+        let scene = Scene {
+            address: Address::new(BASE + SCENE),
+        };
+        manager
+            .root_game_objects(process, &scene)
+            .take(10_000)
+            .count()
+    });
+    assert!(count < 10);
+}
+
 #[test]
 fn a_ring_that_does_not_close_stops_at_the_break() {
     let mut image = vec![0; 0x1000];
