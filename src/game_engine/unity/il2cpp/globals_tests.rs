@@ -694,6 +694,163 @@ fn stops_at_the_end_of_an_elf_export_after_a_call_that_does_not_return() {
     assert_eq!(found, Some(Address::new(BASE + 0x3000)));
 }
 
+fn elf_assemblies(code: &[(u32, &[u8])]) -> Option<Address> {
+    let image = elf_image(&[("il2cpp_domain_get_assemblies", 0x1000, 0x40)], code);
+    with_process(&[(BASE, &image)], |process| {
+        globals::assemblies(
+            process,
+            (Address::new(BASE), SIZE as u64),
+            BinaryFormat::ELF,
+            PointerSize::Bit64,
+        )
+    })
+}
+
+fn elf_table(code: &[(u32, &[u8])]) -> Option<Address> {
+    let image = elf_image(&[("il2cpp_image_get_class", 0x1000, 0x40)], code);
+    with_process(&[(BASE, &image)], |process| {
+        globals::type_info_definition_table(
+            process,
+            (Address::new(BASE), SIZE as u64),
+            BinaryFormat::ELF,
+            PointerSize::Bit64,
+        )
+    })
+}
+
+#[test]
+fn finds_s_assemblies_through_a_getter_that_aligns_its_stack() {
+    // call getter; ret. The getter ends in lea rax, [s_Assemblies]; pop rcx;
+    // ret, the way a Linux release build compiles it to keep the stack aligned.
+    let call = [&[0xE8][..], &displacement(0x1005, 0x1100), &[0xC3]].concat();
+    let getter = [
+        &[0x48, 0x8D, 0x05][..],
+        &displacement(0x1107, 0x3000),
+        &[0x59, 0xC3],
+    ]
+    .concat();
+    assert_eq!(
+        elf_assemblies(&[(0x1000, &call), (0x1100, &getter)]),
+        Some(Address::new(BASE + 0x3000))
+    );
+}
+
+#[test]
+fn finds_s_assemblies_in_the_linux_master_export() {
+    // mov rcx, [s_Assemblies + 8]; mov rax, [s_Assemblies]; sub rcx, rax;
+    // sar rcx, 3; mov [rsi], rcx; ret
+    let code = [
+        &[0x48, 0x8B, 0x0D][..],
+        &displacement(0x1007, 0x3008),
+        &[0x48, 0x8B, 0x05],
+        &displacement(0x100E, 0x3000),
+        &[
+            0x48, 0x29, 0xC1, 0x48, 0xC1, 0xF9, 0x03, 0x48, 0x89, 0x0E, 0xC3,
+        ],
+    ]
+    .concat();
+    assert_eq!(
+        elf_assemblies(&[(0x1000, &code)]),
+        Some(Address::new(BASE + 0x3000))
+    );
+}
+
+#[test]
+fn finds_the_table_through_a_linux_indexed_load() {
+    // mov rcx, [table]; cdqe; mov rax, [rcx + rax * 8]; ret
+    let code = [
+        &[0x48, 0x8B, 0x0D][..],
+        &displacement(0x1007, 0x3000),
+        &[0x48, 0x98, 0x48, 0x8B, 0x04, 0xC1, 0xC3],
+    ]
+    .concat();
+    assert_eq!(
+        elf_table(&[(0x1000, &code)]),
+        Some(Address::new(BASE + 0x3000))
+    );
+
+    // mov r12, [table]; movsxd r13, edi; mov r14, [r12 + r13 * 8]; ret
+    let code = [
+        &[0x4C, 0x8B, 0x25][..],
+        &displacement(0x1007, 0x3000),
+        &[0x4C, 0x63, 0xEF, 0x4F, 0x8B, 0x34, 0xEC, 0xC3],
+    ]
+    .concat();
+    assert_eq!(
+        elf_table(&[(0x1000, &code)]),
+        Some(Address::new(BASE + 0x3000))
+    );
+}
+
+#[test]
+fn skips_a_load_that_another_register_indexes() {
+    // mov rcx, [other]; cdqe; mov rax, [rdx + rax * 8]; ret. The indexed read
+    // goes through rdx, not the register the global was loaded into.
+    let code = [
+        &[0x48, 0x8B, 0x0D][..],
+        &displacement(0x1007, 0x3000),
+        &[0x48, 0x98, 0x48, 0x8B, 0x04, 0xC2, 0xC3],
+    ]
+    .concat();
+    assert_eq!(elf_table(&[(0x1000, &code)]), None);
+}
+
+#[test]
+fn skips_a_load_read_through_a_bare_displacement() {
+    // mov rbp, [other]; mov rax, [rcx * 8 + 0x10]; ret. A SIB base of rbp
+    // with mod 00 means a displacement and no base, so rbp is never read.
+    let code = [
+        &[0x48, 0x8B, 0x2D][..],
+        &displacement(0x1007, 0x3000),
+        &[0x48, 0x8B, 0x04, 0xCD, 0x10, 0, 0, 0, 0xC3],
+    ]
+    .concat();
+    assert_eq!(elf_table(&[(0x1000, &code)]), None);
+}
+
+#[test]
+fn skips_the_linux_code_shapes_in_a_windows_image() {
+    // The getter ends in lea rax, [s_Assemblies]; pop rcx; ret.
+    let call = [&[0xE8][..], &displacement(0x1005, 0x1100), &[0xC3]].concat();
+    let getter = [
+        &[0x48, 0x8D, 0x05][..],
+        &displacement(0x1107, 0x3000),
+        &[0x59, 0xC3],
+    ]
+    .concat();
+    assert_eq!(
+        assemblies(PointerSize::Bit64, &[(0x1000, &call), (0x1100, &getter)]),
+        None
+    );
+
+    // mov rcx, [s_Assemblies + 8]; mov rax, [s_Assemblies]; sub rcx, rax; ret
+    let code = [
+        &[0x48, 0x8B, 0x0D][..],
+        &displacement(0x1007, 0x3008),
+        &[0x48, 0x8B, 0x05],
+        &displacement(0x100E, 0x3000),
+        &[0x48, 0x29, 0xC1, 0xC3],
+    ]
+    .concat();
+    assert_eq!(assemblies(PointerSize::Bit64, &[(0x1000, &code)]), None);
+
+    // mov rcx, [table]; cdqe; mov rax, [rcx + rax * 8]; ret
+    let code = [
+        &[0x48, 0x8B, 0x0D][..],
+        &displacement(0x1007, 0x3000),
+        &[0x48, 0x98, 0x48, 0x8B, 0x04, 0xC1, 0xC3],
+    ]
+    .concat();
+    assert_eq!(
+        table(
+            PointerSize::Bit64,
+            "il2cpp_image_get_class",
+            &[(0x1000, &code)]
+        ),
+        None
+    );
+}
+
 #[test]
 fn counts_a_jump_inside_a_function_as_a_branch() {
     // 4 tail jumps lead to the accessor, which starts with a short jump to
