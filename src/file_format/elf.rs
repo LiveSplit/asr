@@ -1012,6 +1012,53 @@ pub fn pointer_size(process: &Process, module_address: Address) -> Option<Pointe
     info.bitness.pointer_size()
 }
 
+/// Reads how many bytes the ELF module at the given address spans in memory,
+/// from its lowest load segment to the end of its last load segment. This counts the
+/// zero-filled memory at the end of a segment, such as `.bss`, which the
+/// module's mapped range leaves out. Only little-endian ELFs are supported.
+pub fn read_size_of_image(process: &Process, module_address: impl Into<Address>) -> Option<u64> {
+    let module_address: Address = module_address.into();
+    let header = process.read::<Header>(module_address).ok()?;
+    let info = Info::parse(bytemuck::bytes_of(&header))?;
+    if info.endian != Endian::Little {
+        return None;
+    }
+
+    let (e_phoff, e_phentsize, e_phnum) = if info.bitness.is_64() {
+        let header = process.read::<Elf64>(module_address).ok()?;
+        (header.e_phoff, header.e_phentsize as u64, header.e_phnum)
+    } else {
+        let header = process.read::<Elf32>(module_address).ok()?;
+        (
+            header.e_phoff as u64,
+            header.e_phentsize as u64,
+            header.e_phnum,
+        )
+    };
+
+    let loads = || {
+        (0..e_phnum).filter_map(move |index| {
+            let at = module_address + e_phoff + e_phentsize * index as u64;
+            let (p_type, p_vaddr, p_memsz) = if info.bitness.is_64() {
+                let header = process.read::<ProgramHeader64>(at).ok()?;
+                (header.p_type, header.p_vaddr, header.p_memsz)
+            } else {
+                let header = process.read::<ProgramHeader32>(at).ok()?;
+                (header.p_type, header.p_vaddr as u64, header.p_memsz as u64)
+            };
+            (SegmentType(p_type) == SegmentType::PT_LOAD).then_some((p_vaddr, p_memsz))
+        })
+    };
+
+    // An executable's addresses are absolute, so the size counts from the
+    // lowest load segment, which holds the header.
+    let start = loads().map(|(p_vaddr, _)| p_vaddr).min()?;
+    let end = loads()
+        .filter_map(|(p_vaddr, p_memsz)| p_vaddr.checked_add(p_memsz))
+        .max()?;
+    Some(end - start)
+}
+
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 #[repr(C)]
 struct ProgramHeader32 {
@@ -1324,7 +1371,7 @@ pub fn build_id(process: &Process, range: (Address, u64)) -> Option<BuildId> {
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
-    use super::{build_id, BuildId};
+    use super::{build_id, read_size_of_image, BuildId};
     use crate::runtime::mock::with_process;
 
     use std::{format, vec, vec::Vec};
@@ -1379,6 +1426,18 @@ mod tests {
         put(&mut image, 0x22C, b"GNU\0");
         put(&mut image, 0x230, &BUILD_ID);
         image
+    }
+
+    #[test]
+    fn counts_the_zero_filled_end_of_the_last_load_segment() {
+        // The load segment holds 0x400 bytes of the file and runs on to
+        // 0x3000 in memory, the way a segment ending in `.bss` does.
+        let mut image = image(true);
+        put(&mut image, 0x60, &0x400_u64.to_le_bytes());
+        put(&mut image, 0x68, &0x3000_u64.to_le_bytes());
+        with_process(&[(BASE, &image)], |process| {
+            assert_eq!(read_size_of_image(process, BASE), Some(0x3000));
+        });
     }
 
     #[test]
