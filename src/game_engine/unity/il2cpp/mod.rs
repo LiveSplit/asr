@@ -57,7 +57,7 @@ impl Module {
         let unity = Self::unity_version(process)?;
         let build = builds::nearest(unity, pointer_size)?;
 
-        let module = Self::attach_with(process, il2cpp_module, build.profile)?;
+        let module = Self::attach_with(process, il2cpp_module, format, build.profile)?;
         print_limited::<128>(&format_args!(
             "il2cpp: unity {}.{}.{}.{} takes the build measured on {}.{}.{}.{}",
             unity.0,
@@ -83,7 +83,7 @@ impl Module {
         let pointer_size = Self::pointer_size(process, il2cpp_module, format)?;
         (pointer_size == profile.pointer_size).then_some(())?;
 
-        Self::attach_with(process, il2cpp_module, profile)
+        Self::attach_with(process, il2cpp_module, format, profile)
     }
 
     /// Finds the module the runtime is compiled into, which is
@@ -124,11 +124,13 @@ impl Module {
     fn attach_with(
         process: &Process,
         il2cpp_module: (Address, u64),
+        format: BinaryFormat,
         profile: Profile,
     ) -> Option<Self> {
         let pointer_size = profile.pointer_size;
-        let assemblies = globals::assemblies(process, il2cpp_module, pointer_size)?;
-        let table = globals::type_info_definition_table(process, il2cpp_module, pointer_size)?;
+        let assemblies = globals::assemblies(process, il2cpp_module, format, pointer_size)?;
+        let table =
+            globals::type_info_definition_table(process, il2cpp_module, format, pointer_size)?;
         let (assemblies, type_info_definition_table) =
             Self::inside(il2cpp_module, assemblies, table)?;
 

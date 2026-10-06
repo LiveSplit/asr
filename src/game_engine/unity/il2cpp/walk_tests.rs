@@ -245,6 +245,7 @@ fn attach_with(process: &Process, pointer_size: PointerSize) -> Option<Module> {
     Module::attach_with(
         process,
         (Address::new(BASE), 0x1000),
+        BinaryFormat::PE,
         measured(MEASURED_6000_5, pointer_size),
     )
 }
