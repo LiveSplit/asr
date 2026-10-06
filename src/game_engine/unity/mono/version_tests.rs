@@ -81,13 +81,18 @@ fn linux_builds_take_the_nearest_too() {
     };
     assert_eq!(
         linux((2020, 1, 0, 0), Library::MonoBdwgc),
-        (2017, 3, 0, 63597)
+        (2017, 2, 0, 58714)
+    );
+    assert_eq!(
+        linux((2021, 2, 0, 0), Library::MonoBdwgc),
+        (2021, 2, 0, 61932)
     );
     assert_eq!(
         linux((6000, 0, 0, 0), Library::MonoBdwgc),
-        (2021, 2, 20, 62729)
+        (2021, 2, 0, 61932)
     );
-    assert_eq!(linux((2017, 2, 0, 0), Library::Mono), (5, 6, 7, 3267));
+    assert_eq!(linux((2017, 2, 0, 0), Library::Mono), (5, 6, 0, 23754));
+    assert_eq!(linux((2017, 4, 6, 0), Library::Mono), (2017, 4, 6, 20272));
 }
 
 #[cfg(feature = "alloc")]
