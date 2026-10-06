@@ -72,8 +72,8 @@ profiles! {
     UNITY_2017_4_6F1_LINUX_MONO_X86_64 = 3;
     /// Unity 2018.1.0f1, `libmono.so`, x86-64.
     UNITY_2018_1_0F1_LINUX_MONO_X86_64 = 4;
-    /// Unity 2018.2.0f2, `libmono.so`, x86-64.
-    UNITY_2018_2_0F2_LINUX_MONO_X86_64 = 5;
+    /// Unity 2018.1.7f1, `libmono.so`, x86-64.
+    UNITY_2018_1_7F1_LINUX_MONO_X86_64 = 5;
     /// Unity 2021.2.0f1, `libmonobdwgc-2.0.so`, x86-64.
     UNITY_2021_2_0F1_LINUX_MONO_BDWGC_X86_64 = 6;
 }

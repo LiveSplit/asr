@@ -98,9 +98,9 @@ fn linux_builds_take_the_nearest_too() {
     assert_eq!(linux((2017, 2, 0, 0), Library::Mono), (5, 6, 0, 23754));
     assert_eq!(linux((2017, 4, 6, 0), Library::Mono), (2017, 4, 6, 20272));
     // libmono.so goes back to the 5.6.0 layout in 2018.1.0, then forward
-    // again in 2018.2.0.
+    // again in 2018.1.7.
     assert_eq!(linux((2018, 1, 0, 0), Library::Mono), (2018, 1, 0, 30795));
-    assert_eq!(linux((2018, 2, 0, 0), Library::Mono), (2018, 2, 0, 30296));
+    assert_eq!(linux((2018, 1, 7, 0), Library::Mono), (2018, 1, 7, 46210));
 }
 
 #[cfg(feature = "alloc")]

@@ -324,10 +324,10 @@ pub(super) const BUILDS: &[Build] = &[
             v_table: MonoVTableOffsets { vtable: 0x48 },
         },
     },
-    // 2018.2.0f2, libmono.so
+    // 2018.1.7f1, libmono.so
     Build {
-        build_id: &id::<20>("f14b1787abe509c65d8b9b1bf32de20818303c6e"),
-        unity: (2018, 2, 0, 30296),
+        build_id: &id::<20>("488c9cc9d9ed712a104549ba008c4dfc8504886e"),
+        unity: (2018, 1, 7, 46210),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
             library: Library::Mono,

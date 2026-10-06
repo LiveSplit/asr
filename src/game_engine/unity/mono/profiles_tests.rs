@@ -137,9 +137,9 @@ fn linux_constants_name_the_expected_profiles() {
             UNITY_2018_1_0F1_LINUX_MONO_X86_64,
         ),
         (
-            (2018, 2, 0, 30296),
+            (2018, 1, 7, 46210),
             Library::Mono,
-            UNITY_2018_2_0F2_LINUX_MONO_X86_64,
+            UNITY_2018_1_7F1_LINUX_MONO_X86_64,
         ),
         (
             (2021, 2, 0, 61932),
