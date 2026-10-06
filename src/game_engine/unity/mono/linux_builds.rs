@@ -124,6 +124,55 @@ pub(super) const BUILDS: &[Build] = &[
             v_table: MonoVTableOffsets { vtable: 0x48 },
         },
     },
+    // 2017.1.0f1, libmonobdwgc-2.0.so
+    Build {
+        build_id: &id::<20>("488594493d54ab4951119e260d8d039d0fb94b53"),
+        unity: (2017, 1, 0, 32737),
+        profile: Profile {
+            pointer_size: PointerSize::Bit64,
+            library: Library::MonoBdwgc,
+            assembly: AssemblyOffsets {
+                aname: Some(0x10),
+                image: 0x60,
+            },
+            image: ImageOffsets {
+                assembly_name: None,
+                class_cache: 0x4A8,
+            },
+            hash_table: HashTableOffsets {
+                size: 0x18,
+                table: 0x20,
+            },
+            class: ClassOffsets {
+                class_kind: None,
+                instance_size: Some(0x1C),
+                parent: 0x28,
+                nested_in: Some(0x30),
+                name: 0x40,
+                namespace: 0x48,
+                vtable_size: 0x54,
+                fields: 0xA8,
+                runtime_info: 0xF0,
+                field_count: 0x8C,
+                next_class_cache: 0xF8,
+            },
+            generic: GenericOffsets {
+                generic_class: Some(0xD8),
+                container_class: Some(0x0),
+            },
+            type_words: TypeOffsets {
+                data: Some(0x0),
+                kind: Some(0xA),
+            },
+            field: FieldInfoOffsets {
+                type_: Some(0x0),
+                name: 0x8,
+                offset: 0x18,
+                stride: 0x20,
+            },
+            v_table: MonoVTableOffsets { vtable: 0x40 },
+        },
+    },
     // 2017.2.0f1, libmonobdwgc-2.0.so
     Build {
         build_id: &id::<20>("a276fd2ef4fd4fe54270bf3a1d8cc294f32c8684"),

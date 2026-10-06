@@ -80,6 +80,10 @@ fn linux_builds_take_the_nearest_too() {
             .unity
     };
     assert_eq!(
+        linux((2017, 1, 0, 0), Library::MonoBdwgc),
+        (2017, 1, 0, 32737)
+    );
+    assert_eq!(
         linux((2020, 1, 0, 0), Library::MonoBdwgc),
         (2017, 2, 0, 58714)
     );

@@ -110,11 +110,16 @@ fn windows_constants_name_the_expected_profiles() {
 
 #[test]
 fn linux_constants_name_the_expected_profiles() {
-    let profiles: [((u16, u16, u16, u16), Library, Profile); 6] = [
+    let profiles: [((u16, u16, u16, u16), Library, Profile); 7] = [
         (
             (5, 6, 0, 23754),
             Library::Mono,
             UNITY_5_6_0F1_LINUX_MONO_X86_64,
+        ),
+        (
+            (2017, 1, 0, 32737),
+            Library::MonoBdwgc,
+            UNITY_2017_1_0F1_LINUX_MONO_BDWGC_X86_64,
         ),
         (
             (2017, 2, 0, 58714),
