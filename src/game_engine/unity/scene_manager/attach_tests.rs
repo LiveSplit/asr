@@ -264,7 +264,7 @@ fn the_old_x86_anchor_leaves_the_scene_list_offset_open() {
 fn pe_header(image: &mut [u8]) {
     put(image, 0, b"MZ");
     put(image, 0x3C, &0x80_u32.to_le_bytes());
-    put(image, 0x80, b"PE  ");
+    put(image, 0x80, b"PE\0\0");
     put(image, 0x84, &0x8664_u16.to_le_bytes());
     put(image, 0x94, &0xF0_u16.to_le_bytes());
     put(image, 0x98, &0x20B_u16.to_le_bytes());
