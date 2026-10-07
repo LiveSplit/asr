@@ -1,6 +1,10 @@
 use super::runtime::{Il2CppRuntime, MonoRuntime};
 use super::{slot, ClassRef};
-use crate::{Address, Address32, Address64, PointerSize, Process};
+use crate::{cycle::Cycle, Address, Address32, Address64, PointerSize, Process};
+
+/// The most assemblies an IL2CPP game can load. No game loads anywhere near
+/// 65,536.
+const ASSEMBLIES: u64 = 1 << 16;
 
 /// Walks the runtime's loaded assemblies.
 pub struct Assemblies<'a> {
@@ -11,7 +15,11 @@ pub struct Assemblies<'a> {
 
 enum AssembliesState {
     /// The glib list: each node carries the assembly and the next node.
-    Mono { node: Option<Address> },
+    Mono {
+        node: Option<Address>,
+        /// Where the list has been.
+        cycle: Cycle,
+    },
     /// The vector: a slice of assembly pointers.
     Il2Cpp {
         base: Address,
@@ -26,14 +34,17 @@ impl<'a> Assemblies<'a> {
         pointer_size: PointerSize,
         mono: &MonoRuntime,
     ) -> Self {
+        let node = process
+            .read_pointer(mono.assemblies, pointer_size)
+            .ok()
+            .filter(|address| !address.is_null());
+
         Self {
             process,
             pointer_size,
             state: AssembliesState::Mono {
-                node: process
-                    .read_pointer(mono.assemblies, pointer_size)
-                    .ok()
-                    .filter(|address| !address.is_null()),
+                node,
+                cycle: Cycle::new(node.unwrap_or_default()),
             },
         }
     }
@@ -55,7 +66,11 @@ impl<'a> Assemblies<'a> {
             pointer_size,
             state: AssembliesState::Il2Cpp {
                 base: first,
-                count: limit.value().saturating_sub(first.value()) / pointer_size as u64,
+                // A count past ASSEMBLIES comes from wrong offsets and reads
+                // as no assemblies.
+                count: Some(limit.value().saturating_sub(first.value()) / pointer_size as u64)
+                    .filter(|&count| count <= ASSEMBLIES)
+                    .unwrap_or_default(),
                 index: 0,
             },
         }
@@ -67,7 +82,7 @@ impl Iterator for Assemblies<'_> {
 
     fn next(&mut self) -> Option<Address> {
         match &mut self.state {
-            AssembliesState::Mono { node } => {
+            AssembliesState::Mono { node, cycle } => {
                 let at = (*node)?;
 
                 let [data, next]: [Address; 2] = match self.pointer_size {
@@ -83,7 +98,7 @@ impl Iterator for Assemblies<'_> {
                         .map(|address| address.into()),
                 };
 
-                *node = Some(next);
+                *node = Some(next).filter(|&next| !cycle.revisits(next));
 
                 Some(data)
             }
@@ -108,6 +123,14 @@ impl Iterator for Assemblies<'_> {
     }
 }
 
+/// The most buckets an image's class table can have. Mono sizes the table by
+/// the number of classes, and no image holds anywhere near 1,000,000.
+const BUCKETS: u32 = 1 << 20;
+
+/// The most types an IL2CPP image can hold. No image holds anywhere near
+/// 1,000,000.
+const TYPES: u32 = 1 << 20;
+
 /// Walks the classes an image holds.
 pub struct Classes<'a> {
     process: &'a Process,
@@ -120,11 +143,11 @@ enum ClassesState {
     /// classes themselves.
     Mono {
         table: Address,
-        // The size the runtime stores is signed, and the walk has always taken
-        // it as a count wholesale, garbage included.
         size: u64,
         bucket: u64,
         chain: Option<Address>,
+        /// Where the current bucket's chain has been.
+        cycle: Cycle,
         next_class_cache: u16,
     },
     /// The image's slice of the type info definition table.
@@ -144,8 +167,13 @@ impl<'a> Classes<'a> {
     ) -> Self {
         let cache = image.address + mono.class_cache;
 
+        // The size the runtime stores is signed. A negative size, or one past
+        // BUCKETS, comes from wrong offsets and reads as an empty table.
         let size = process
             .read::<i32>(cache + mono.hash_table_size)
+            .ok()
+            .and_then(|size| u32::try_from(size).ok())
+            .filter(|&size| size <= BUCKETS)
             .unwrap_or_default() as u64;
 
         let table = match size {
@@ -163,6 +191,7 @@ impl<'a> Classes<'a> {
                 size,
                 bucket: 0,
                 chain: None,
+                cycle: Cycle::new(Address::NULL),
                 next_class_cache: mono.next_class_cache,
             },
         }
@@ -174,8 +203,12 @@ impl<'a> Classes<'a> {
         il2cpp: &Il2CppRuntime,
         image: super::ImageRef,
     ) -> Self {
+        // A count past TYPES comes from wrong offsets and reads as an image
+        // with no classes.
         let count = process
             .read::<u32>(image.address + il2cpp.type_count)
+            .ok()
+            .filter(|&count| count <= TYPES)
             .unwrap_or_default() as u64;
 
         let metadata = match (count, il2cpp.handle_is_inline) {
@@ -234,6 +267,7 @@ impl Iterator for Classes<'_> {
                 size,
                 bucket,
                 chain,
+                cycle,
                 next_class_cache,
             } => loop {
                 if let Some(class) = *chain {
@@ -241,7 +275,7 @@ impl Iterator for Classes<'_> {
                         .process
                         .read_pointer(class + *next_class_cache, self.pointer_size)
                         .ok()
-                        .filter(|address| !address.is_null());
+                        .filter(|&address| !address.is_null() && !cycle.revisits(address));
 
                     return Some(ClassRef::new(class));
                 }
@@ -255,6 +289,7 @@ impl Iterator for Classes<'_> {
                     .read_pointer(slot(*table, self.pointer_size, *bucket), self.pointer_size)
                     .ok()
                     .filter(|address| !address.is_null());
+                *cycle = Cycle::new(chain.unwrap_or_default());
                 *bucket += 1;
             },
             ClassesState::Il2Cpp {

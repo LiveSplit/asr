@@ -11,10 +11,9 @@ use super::{profiles, Library, Module, Profile, UnityPointer};
 use crate::runtime::mock::{poll_once, with_process};
 use crate::{Address, PointerSize, Process};
 
-use core::task::Poll;
+use core::{task::Poll, time::Duration};
 
-use std::vec;
-use std::vec::Vec;
+use std::{sync::mpsc, thread, vec, vec::Vec};
 
 const BASE: u64 = 0x10_0000;
 
@@ -337,6 +336,94 @@ fn classes_resolve_by_name_and_namespace() {
         assert!(image.get_class(process, module, "Wrong.Boss").is_none());
         assert!(image.get_class(process, module, "Nothing").is_none());
         assert_eq!(image.classes(process, module).count(), 6);
+    });
+}
+
+// Wrong offsets can make a class chain lead back to a class it already
+// passed. Here Boss's next class is Boss itself, and the walk ends soon after
+// it starts repeating.
+#[test]
+fn class_chains_that_lead_back_end() {
+    let mut memory = image();
+    ptr(&mut memory, 0x1000 + 0x108, BASE + 0x1000);
+    with_process(&[(BASE, &memory)], |process| {
+        let module = module(measured());
+        let image = module.get_default_image(process).unwrap();
+        assert!(image.classes(process, &module).take(10_000).count() < 10);
+    });
+}
+
+// Wrong offsets can read a bucket count in the millions, which the walk would
+// take forever to go through. A count that high reads as an empty table.
+#[test]
+fn class_tables_with_a_bucket_count_no_image_has_read_empty() {
+    let mut memory = image();
+    put(
+        &mut memory,
+        0x640 + 0x4C0 + 0x18,
+        &10_000_000_i32.to_le_bytes(),
+    );
+    with_process(&[(BASE, &memory)], |process| {
+        let module = module(measured());
+        let image = module.get_default_image(process).unwrap();
+        assert_eq!(image.classes(process, &module).count(), 0);
+    });
+}
+
+// Wrong offsets can make the assembly list lead back to a node it already
+// passed. Here the second node's next node is the first, and the walk ends
+// soon after it starts repeating.
+#[test]
+fn assembly_lists_that_lead_back_end() {
+    let mut memory = image();
+    ptr(&mut memory, 0x28, BASE + 0x10);
+    with_process(&[(BASE, &memory)], |process| {
+        let walk = module(measured()).walk();
+        let assemblies = walk.runtime.assemblies(process, walk.pointer_size);
+        assert!(assemblies.take(10_000).count() < 10);
+    });
+}
+
+// Wrong offsets can make a parent chain lead back to a class it already
+// passed. Here Enemy's parent is Enemy itself, and so is the list lookalike's.
+// Every climb still ends, which a second thread checks so a climb that never
+// ends fails the test instead of hanging it.
+#[test]
+fn parent_chains_that_lead_back_end() {
+    let mut memory = image();
+    ptr(&mut memory, 0xE00 + 0x30, BASE + 0xE00);
+    ptr(&mut memory, 0x4300 + 0x30, BASE + 0x4300);
+    let (done, finished) = mpsc::channel();
+    thread::spawn(move || {
+        with_process(&[(BASE, &memory)], |process| {
+            let module = module(measured());
+            let image = module.get_default_image(process).unwrap();
+            let boss = image.get_class(process, &module, "Game.Boss").unwrap();
+            assert!(boss.get_field_offset(process, &module, "nothing").is_none());
+            let lookalike = Address::new(BASE + 0x4F08);
+            assert!(module.get_list_offsets(process, lookalike).is_none());
+            assert!(module.get_dictionary_offsets(process, lookalike).is_none());
+            assert!(module.get_hash_set_offsets(process, lookalike).is_none());
+        });
+        done.send(()).unwrap();
+    });
+    assert!(finished.recv_timeout(Duration::from_secs(10)).is_ok());
+}
+
+// Wrong offsets can read a field count like 10,000,000, which a lookup would
+// take forever to go through. A count past 65,535 reads as no fields at all,
+// so even a field the class has stays unresolved.
+#[test]
+fn field_counts_no_class_has_read_as_no_fields() {
+    let mut memory = image();
+    put(&mut memory, 0xC00 + 0x100, &10_000_000_i32.to_le_bytes());
+    with_process(&[(BASE, &memory)], |process| {
+        let module = module(measured());
+        let image = module.get_default_image(process).unwrap();
+        let game_manager = image.get_class(process, &module, "GameManager").unwrap();
+        assert!(game_manager
+            .get_field_offset(process, &module, "points")
+            .is_none());
     });
 }
 

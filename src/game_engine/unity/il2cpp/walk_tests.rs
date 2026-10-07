@@ -563,6 +563,33 @@ fn images_resolve_by_name_on_both_type_start_shapes() {
     }
 }
 
+// Wrong offsets can read an assembly count like 10,000,000, which a lookup
+// would take forever to go through. A count that high reads as no assemblies,
+// so even the first one stays unresolved.
+#[test]
+fn assembly_counts_no_game_has_read_as_no_assemblies() {
+    let mut memory = image(MEASURED_2019);
+    ptr(&mut memory, 0x8, BASE + 0x40 + 8 * 10_000_000);
+    with_process(&[(BASE, &memory)], |process| {
+        assert!(module(MEASURED_2019)
+            .get_image(process, "mscorlib")
+            .is_none());
+    });
+}
+
+// Wrong offsets can read a type count like 10,000,000 too. A count that high
+// reads as an image with no classes.
+#[test]
+fn type_counts_no_image_has_read_as_no_classes() {
+    let mut memory = image(MEASURED_2019);
+    put(&mut memory, 0x300 + 0x1C, &10_000_000_u32.to_le_bytes());
+    with_process(&[(BASE, &memory)], |process| {
+        let module = module(MEASURED_2019);
+        let image = module.get_default_image(process).unwrap();
+        assert_eq!(image.classes(process, &module).count(), 0);
+    });
+}
+
 #[test]
 fn classes_resolve_by_name_and_namespace() {
     for unity in [MEASURED_2019, MEASURED_2022] {

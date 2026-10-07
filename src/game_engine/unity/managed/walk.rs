@@ -4,7 +4,7 @@ use super::{
     ClassRef, ClimbStop, DictionaryOffsets, EntryLayout, FieldRef, HashSetOffsets, ImageRef,
     ListOffsets, Runtime, SlotLayout, WalkOffsets,
 };
-use crate::{string::ArrayCString, Address, PointerSize, Process};
+use crate::{cycle::Cycle, string::ArrayCString, Address, PointerSize, Process};
 
 /// The walk itself: everything both runtimes lay out the same way, written
 /// once against the operations [`Runtime`] supplies. An adapter builds one per
@@ -198,6 +198,7 @@ impl Walk {
         field_name: &str,
     ) -> Option<(ClassRef, u32)> {
         let mut this_class = Some(class);
+        let mut cycle = Cycle::new(class.address);
 
         loop {
             let class = this_class?;
@@ -212,7 +213,9 @@ impl Walk {
                 return None;
             }
 
-            this_class = self.parent(process, class);
+            this_class = self
+                .parent(process, class)
+                .filter(|parent| !cycle.revisits(parent.address));
 
             let field_count = self.runtime.field_count(process, self.pointer_size, class);
 
@@ -271,6 +274,7 @@ impl Walk {
     /// accepting an unrelated class that happens to use the same field names.
     pub fn list_offsets(&self, process: &Process, object: Address) -> Option<ListOffsets> {
         let mut class = self.object_class(process, object)?;
+        let mut cycle = Cycle::new(class.address);
 
         loop {
             if self.class_name::<CSTR>(process, class)?.matches("List`1")
@@ -281,7 +285,9 @@ impl Walk {
                 break;
             }
 
-            class = self.parent(process, class)?;
+            class = self
+                .parent(process, class)
+                .filter(|parent| !cycle.revisits(parent.address))?;
         }
 
         let field_count = self.runtime.field_count(process, self.pointer_size, class);
@@ -432,6 +438,7 @@ impl Walk {
     // field names does not.
     fn corlib_class(&self, process: &Process, object: Address, name: &str) -> Option<ClassRef> {
         let mut class = self.object_class(process, object)?;
+        let mut cycle = Cycle::new(class.address);
 
         loop {
             if self.class_name::<CSTR>(process, class)?.matches(name)
@@ -442,7 +449,9 @@ impl Walk {
                 return Some(class);
             }
 
-            class = self.parent(process, class)?;
+            class = self
+                .parent(process, class)
+                .filter(|parent| !cycle.revisits(parent.address))?;
         }
     }
 

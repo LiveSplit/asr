@@ -146,12 +146,14 @@ impl Runtime {
         class: ClassRef,
     ) -> u64 {
         match self {
+            // IL2CPP keeps the count in 16 bits, so no class Unity builds has
+            // more fields than that. A higher count comes from wrong offsets.
             Self::Mono(mono) => process
                 .read::<i32>(
                     mono.counted_class(process, pointer_size, class).address + mono.field_count,
                 )
                 .ok()
-                .filter(|&count| count > 0)
+                .filter(|&count| count > 0 && count <= u16::MAX as i32)
                 .unwrap_or_default() as u64,
             // A generic definition stores u16::MAX here; no real class
             // declares that many fields.

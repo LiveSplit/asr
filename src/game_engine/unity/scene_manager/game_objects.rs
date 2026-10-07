@@ -1,7 +1,7 @@
 use core::iter::{self, FusedIterator};
 
 use super::{transform::Transform, Scene, SceneManager, CSTR};
-use crate::{Address, Address32, Address64, Error, PointerSize, Process};
+use crate::{cycle::Cycle, Address, Address32, Address64, Error, PointerSize, Process};
 
 impl SceneManager {
     /// Iterates over all root [`Transform`]s declared for the
@@ -22,6 +22,7 @@ impl SceneManager {
             .read_pointer(head + self.size_of_ptr(), self.pointer_size)
             .ok()
             .filter(|node| !node.is_null() && *node != head);
+        let mut cycle = Cycle::new(current.unwrap_or_default());
 
         iter::from_fn(move || {
             let node = current?;
@@ -38,7 +39,8 @@ impl SceneManager {
                     .map(|a| a.into()),
             };
 
-            current = Some(next).filter(|next| !next.is_null() && *next != head);
+            current =
+                Some(next).filter(|&next| !next.is_null() && next != head && !cycle.revisits(next));
 
             Some(Transform { address: transform })
         })

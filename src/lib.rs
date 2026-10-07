@@ -130,6 +130,8 @@ extern crate alloc;
 #[cfg(all(test, not(target_family = "wasm")))]
 extern crate std;
 
+#[cfg(feature = "unity")]
+mod cycle;
 mod primitives;
 mod runtime;
 
