@@ -116,9 +116,9 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 2018.2.0f2, metadata version 24, x64.
+    // Unity 2018.2.0f1, metadata version 24, x64.
     Build {
-        unity: (2018, 2, 0, 30296),
+        unity: (2018, 2, 0, 44229),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
             assembly: AssemblyOffsets {
@@ -155,9 +155,9 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 2018.2.0f2, metadata version 24, x86.
+    // Unity 2018.2.0f1, metadata version 24, x86.
     Build {
-        unity: (2018, 2, 0, 30296),
+        unity: (2018, 2, 0, 44229),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
             assembly: AssemblyOffsets {
@@ -272,9 +272,9 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 2019.1.0f2, metadata version 24, x64.
+    // Unity 2019.1.0f1, metadata version 24, x64.
     Build {
-        unity: (2019, 1, 0, 11155),
+        unity: (2019, 1, 0, 21026),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
             assembly: AssemblyOffsets {
@@ -311,9 +311,9 @@ pub(super) const BUILDS: &[Build] = &[
             },
         },
     },
-    // Unity 2019.1.0f2, metadata version 24, x86.
+    // Unity 2019.1.0f1, metadata version 24, x86.
     Build {
-        unity: (2019, 1, 0, 11155),
+        unity: (2019, 1, 0, 21026),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
             assembly: AssemblyOffsets {
