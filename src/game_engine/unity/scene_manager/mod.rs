@@ -106,9 +106,10 @@ impl SceneManager {
     }
 
     /// Finds the module that holds the engine: `UnityPlayer.dll` and its
-    /// Linux and Mac siblings, or the game's own executable before Unity
-    /// 2017.2, which linked the engine in. Finding the executable needs its
-    /// name, so that part needs the `alloc` feature.
+    /// Linux and Mac siblings, or the game's own executable, which linked the
+    /// engine in before Unity 2017.2 on Windows and on older Linux players.
+    /// Finding the executable needs its name, so that part needs the `alloc`
+    /// feature.
     fn engine_module(process: &Process) -> Option<((Address, u64), BinaryFormat)> {
         let player = [
             ("UnityPlayer.dll", BinaryFormat::PE),
@@ -130,8 +131,11 @@ impl SceneManager {
         #[cfg(feature = "alloc")]
         let player = player.or_else(|| {
             let executable = process.get_main_module_range().ok()?;
-            pe::MachineType::read(process, executable.0)?;
-            Some((executable, BinaryFormat::PE))
+            if pe::MachineType::read(process, executable.0).is_some() {
+                return Some((executable, BinaryFormat::PE));
+            }
+            elf::pointer_size(process, executable.0)?;
+            Some((executable, BinaryFormat::ELF))
         });
 
         player

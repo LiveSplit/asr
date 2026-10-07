@@ -306,3 +306,21 @@ fn the_engine_module_is_the_executable_when_there_is_no_player() {
         },
     );
 }
+
+// An older Linux player links the engine into its executable, which is an
+// ELF.
+#[cfg(feature = "alloc")]
+#[test]
+fn the_engine_module_is_the_linux_executable_when_there_is_no_player() {
+    let mut executable = vec![0; 0x200];
+    put(&mut executable, 0, b"\x7fELF\x02\x01\x01");
+    with_modules(
+        &[(BASE, &executable)],
+        &[("fixture", BASE, MODULE)],
+        |process| {
+            let (range, format) = SceneManager::engine_module(process).unwrap();
+            assert_eq!(range, (Address::new(BASE), MODULE));
+            assert_eq!(format, super::BinaryFormat::ELF);
+        },
+    );
+}
