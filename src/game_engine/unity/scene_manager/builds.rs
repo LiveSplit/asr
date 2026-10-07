@@ -25,13 +25,23 @@ pub(super) fn nearest(
     unity: (u16, u16, u16, u16),
     pointer_size: PointerSize,
 ) -> Option<&'static Build> {
+    nearest_in(BUILDS, unity, pointer_size)
+}
+
+/// Finds the build for a player in the given table by the rule of
+/// [`nearest`].
+pub(super) fn nearest_in(
+    builds: &'static [Build],
+    unity: (u16, u16, u16, u16),
+    pointer_size: PointerSize,
+) -> Option<&'static Build> {
     // The comparison drops the build number, the fourth part, because a later
     // build of one patch can carry a lower number than an earlier build.
     let patch = |version: (u16, u16, u16, u16)| (version.0, version.1, version.2);
 
     // The table reads from the oldest player to the newest, so the last match
     // is the newest build at or below the player's patch.
-    BUILDS
+    builds
         .iter()
         .filter(|build| build.profile.pointer_size == pointer_size)
         .rfind(|build| patch(build.unity) <= patch(unity))
@@ -993,11 +1003,11 @@ pub(super) const BUILDS: &[Build] = &[
     },
 ];
 
-/// The layout used for a Linux or Mac x64 player. Those players are not
-/// measured yet, so this keeps the signature and the offsets the walk used
-/// before the table existed. The offsets are the x64 layout of Unity 2018.4
-/// through 2022.3.
-pub(super) const ELF_AND_MACHO_X64: Profile = Profile {
+/// The layout used for a Mac x64 player. Those players are not measured
+/// yet, so this keeps the signature and the offsets the walk used before the
+/// table existed. The offsets are the x64 layout of Unity 2018.4 through
+/// 2022.3.
+pub(super) const MACHO_X64: Profile = Profile {
     pointer_size: PointerSize::Bit64,
     anchor: Anchor {
         signature: Signature::new(
