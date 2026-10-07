@@ -261,7 +261,8 @@ impl Module {
     /// version has no equal in the string, so it is 0. A NUL heads the
     /// string, and only a run of the shape `major.minor.patch` followed by
     /// the letter of the release counts, so a date or a build number in the
-    /// same module is passed over.
+    /// same module is passed over. A player can hold older version strings
+    /// too, so this returns the newest one.
     fn version_string(process: &Process, module: (Address, u64)) -> Option<(u16, u16, u16, u16)> {
         const FOUR_DIGITS: Signature<6> = Signature::new("00 3? 3? 3? 3? 2E");
         const ONE_DIGIT: Signature<4> = Signature::new("00 3? 2E 3?");
@@ -269,10 +270,11 @@ impl Module {
         FOUR_DIGITS
             .scan_iter(process, module)
             .chain(ONE_DIGIT.scan_iter(process, module))
-            .find_map(|at| {
+            .filter_map(|at| {
                 let text = process.read::<[u8; 16]>(at + 1).ok()?;
                 Self::parse_version(&text)
             })
+            .max()
     }
 
     /// Parses `major.minor.patch` followed by a release letter out of the

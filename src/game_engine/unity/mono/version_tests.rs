@@ -119,6 +119,19 @@ fn the_version_string_in_the_player_names_major_minor_and_patch() {
     );
 }
 
+// A Linux player holds older version strings too, like `2018.3.0a1` and
+// `5.0.0a1`, sometimes ahead of its own. The newest one is the player's.
+#[test]
+fn the_newest_version_string_in_the_player_is_its_version() {
+    let mut image = vec![0; 0x2000];
+    let text = b"\x002018.3.0a1\0\x002021.2.0f1\0\x005.0.0a1\0";
+    image[0x100..0x100 + text.len()].copy_from_slice(text);
+    let version = with_process(&[(BASE, &image)], |process: &Process| {
+        Module::version_string(process, (Address::new(BASE), 0x1000))
+    });
+    assert_eq!(version, Some((2021, 2, 0, 0)));
+}
+
 // On Windows the file version of `UnityPlayer.dll` is the Unity version.
 #[test]
 fn the_player_file_version_is_the_unity_version() {
