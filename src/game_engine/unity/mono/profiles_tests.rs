@@ -24,16 +24,16 @@ fn windows_constants_name_the_expected_profiles() {
             UNITY_5_0_0F4_WINDOWS_MONO_X86,
         ),
         (
-            (2017, 1, 0, 9747),
+            (2017, 1, 0, 32737),
             Library::MonoBdwgc,
             PointerSize::Bit64,
-            UNITY_2017_1_0F3_WINDOWS_MONO_BDWGC_X86_64,
+            UNITY_2017_1_0F1_WINDOWS_MONO_BDWGC_X86_64,
         ),
         (
-            (2017, 1, 0, 9747),
+            (2017, 1, 0, 32737),
             Library::MonoBdwgc,
             PointerSize::Bit32,
-            UNITY_2017_1_0F3_WINDOWS_MONO_BDWGC_X86,
+            UNITY_2017_1_0F1_WINDOWS_MONO_BDWGC_X86,
         ),
         (
             (2017, 2, 0, 58714),

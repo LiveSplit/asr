@@ -28,12 +28,12 @@ profiles! {
     UNITY_5_0_0F4_WINDOWS_MONO_X86_64 = 0;
     /// Unity 5.0.0f4, `mono.dll`, x86, file version `5.0.0.39095`.
     UNITY_5_0_0F4_WINDOWS_MONO_X86 = 1;
-    /// Unity 2017.1.0f3, `mono-2.0-bdwgc.dll`, x86-64, file version
-    /// `2017.1.0.9747`.
-    UNITY_2017_1_0F3_WINDOWS_MONO_BDWGC_X86_64 = 2;
-    /// Unity 2017.1.0f3, `mono-2.0-bdwgc.dll`, x86, file version
-    /// `2017.1.0.9747`.
-    UNITY_2017_1_0F3_WINDOWS_MONO_BDWGC_X86 = 3;
+    /// Unity 2017.1.0f1, `mono-2.0-bdwgc.dll`, x86-64, file version
+    /// `2017.1.0.32737`.
+    UNITY_2017_1_0F1_WINDOWS_MONO_BDWGC_X86_64 = 2;
+    /// Unity 2017.1.0f1, `mono-2.0-bdwgc.dll`, x86, file version
+    /// `2017.1.0.32737`.
+    UNITY_2017_1_0F1_WINDOWS_MONO_BDWGC_X86 = 3;
     /// Unity 2017.2.0f1, `mono-2.0-bdwgc.dll`, x86-64, file version
     /// `2017.2.0.58714`.
     UNITY_2017_2_0F1_WINDOWS_MONO_BDWGC_X86_64 = 4;
