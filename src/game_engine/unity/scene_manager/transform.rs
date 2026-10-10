@@ -98,9 +98,12 @@ impl Transform {
         };
         Ok((1..number_of_components).filter_map(move |m| {
             let at = components[m] + reference;
-            match scene_manager.profile.reference {
-                ReferenceShape::CachedObject => read(at),
-                ReferenceShape::RootSlot => read(read(at)?),
+            if scene_manager.profile.reference == ReferenceShape::CachedObject {
+                read(at)
+            } else if scene_manager.profile.reference == ReferenceShape::RootSlot {
+                read(read(at)?)
+            } else {
+                None
             }
         }))
     }

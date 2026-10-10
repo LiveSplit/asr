@@ -98,6 +98,7 @@ const CSTR: usize = 128;
 enum BinaryFormat {
     PE,
     ELF,
+    #[cfg(feature = "alloc")]
     MachO,
 }
 

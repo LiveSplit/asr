@@ -1,3 +1,4 @@
+#[cfg(any(feature = "alloc", test))]
 use crate::{signature::Signature, PointerSize};
 
 /// How the scene manager global is found: the body of a function that loads
@@ -5,6 +6,7 @@ use crate::{signature::Signature, PointerSize};
 /// displacement starts inside a match. A body shorter than the signature is
 /// padded with wildcards.
 #[derive(Debug)]
+#[cfg(any(feature = "alloc", test))]
 pub(super) struct Anchor {
     pub(super) signature: Signature<24>,
     pub(super) displacement: u8,
@@ -82,7 +84,9 @@ pub(super) struct ObjectOffsets {
 /// What the walk needs to know about one player.
 #[derive(Debug)]
 pub(super) struct Profile {
+    #[cfg(any(feature = "alloc", test))]
     pub(super) pointer_size: PointerSize,
+    #[cfg(any(feature = "alloc", test))]
     pub(super) anchor: Anchor,
     pub(super) path: PathShape,
     pub(super) reference: ReferenceShape,

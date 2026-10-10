@@ -1,4 +1,9 @@
 //! Support for identifying the current scene in Unity games.
+//!
+//! Automatic attachment requires the `alloc` feature so that a game without
+//! a separate player module can be identified through its executable. A
+//! `no_std` auto splitter must provide a global allocator. Reading scenes,
+//! transforms, and components does not require allocation.
 
 // References:
 // https://gist.githubusercontent.com/just-ero/92457b51baf85bd1e5b8c87de8c9835e/raw/8aa3e6b8da01fd03ff2ff0c03cbd018e522ef988/UnityScene.hpp
@@ -6,15 +11,19 @@
 // The offsets come from the measured builds in `builds.rs`. The logic for
 // Transforms and GameObjects is taken from https://github.com/Micrologist/UnityInstanceDumper
 
+#[cfg(feature = "alloc")]
 use crate::{
     file_format::{elf, macho, pe},
     future::retry,
     print_limited,
-    string::ArrayCString,
-    Address, Error, PointerSize, Process,
 };
+use crate::{string::ArrayCString, Address, Error, PointerSize, Process};
 
+// The tables are also used by allocation-free tests of the scene readers.
+#[cfg(any(feature = "alloc", test))]
 mod builds;
+#[cfg(any(feature = "alloc", test))]
+mod linux_builds;
 
 mod game_objects;
 
@@ -40,7 +49,9 @@ use offsets::Profile;
 mod scene;
 pub use scene::Scene;
 
-use super::{BinaryFormat, CSTR};
+#[cfg(feature = "alloc")]
+use super::BinaryFormat;
+use super::CSTR;
 
 /// The most scenes a game can have loaded at once. No game comes anywhere
 /// near 4,096.
@@ -58,10 +69,18 @@ pub struct SceneManager {
 }
 
 impl SceneManager {
-    /// Attaches to the scene manager in the given process. On Windows, the
-    /// Unity version and pointer size of the game select a measured build:
-    /// the newest build whose patch is at or below the game's patch. A game
-    /// below every build does not attach.
+    /// Attaches to the scene manager in the given process. On Windows, and
+    /// on x64 Linux, the Unity version and pointer size of the game select a
+    /// measured build: the newest build whose patch is at or below the
+    /// game's patch. A game below every build does not attach.
+    ///
+    /// This requires the `alloc` feature. A game without a separate player
+    /// module keeps the engine in its executable, and finding that executable
+    /// allocates its path. A `no_std` auto splitter must provide a global
+    /// allocator. Basic scene, transform, and component reads do not require
+    /// allocation.
+    #[cfg(feature = "alloc")]
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "alloc")))]
     pub fn attach(process: &Process) -> Option<Self> {
         let (unity_player, format) = Self::engine_module(process)?;
 
@@ -71,25 +90,20 @@ impl SceneManager {
                     pe::MachineType::read(process, unity_player.0)?.pointer_size()?;
                 let unity = Self::unity_version(process, unity_player.0)?;
                 let build = builds::nearest(unity, pointer_size)?;
-                print_limited::<128>(&format_args!(
-                    "scene manager: unity {}.{}.{}.{} takes the build measured on {}.{}.{}.{}",
-                    unity.0,
-                    unity.1,
-                    unity.2,
-                    unity.3,
-                    build.unity.0,
-                    build.unity.1,
-                    build.unity.2,
-                    build.unity.3,
-                ));
+                Self::print_build(unity, build);
                 &build.profile
             }
-            BinaryFormat::ELF => match elf::pointer_size(process, unity_player.0)? {
-                PointerSize::Bit64 => &builds::ELF_AND_MACHO_X64,
-                _ => return None,
-            },
+            BinaryFormat::ELF => {
+                if elf::pointer_size(process, unity_player.0)? != PointerSize::Bit64 {
+                    return None;
+                }
+                let unity = super::version_string(process, unity_player)?;
+                let build = linux_builds::nearest(unity)?;
+                Self::print_build(unity, build);
+                &build.profile
+            }
             BinaryFormat::MachO => match macho::pointer_size(process, unity_player)? {
-                PointerSize::Bit64 => &builds::ELF_AND_MACHO_X64,
+                PointerSize::Bit64 => &builds::MACHO_X64,
                 _ => return None,
             },
         };
@@ -97,18 +111,41 @@ impl SceneManager {
         Self::attach_with(process, unity_player, profile)
     }
 
+    /// Logs which measured build the game takes.
+    #[cfg(feature = "alloc")]
+    fn print_build(unity: (u16, u16, u16, u16), build: &builds::Build) {
+        print_limited::<128>(&format_args!(
+            "scene manager: unity {}.{}.{}.{} takes the build measured on {}.{}.{}.{}",
+            unity.0,
+            unity.1,
+            unity.2,
+            unity.3,
+            build.unity.0,
+            build.unity.1,
+            build.unity.2,
+            build.unity.3,
+        ));
+    }
+
     /// Attaches to the scene manager in the given process.
     ///
     /// This is the `await`able version of the [`attach`](Self::attach)
-    /// function, yielding back to the runtime between each try.
+    /// function, yielding back to the runtime between each try. It requires
+    /// the `alloc` feature so that the executable's path can be allocated when
+    /// no player module is present. A `no_std` auto splitter must provide a
+    /// global allocator.
+    #[cfg(feature = "alloc")]
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "alloc")))]
     pub async fn wait_attach(process: &Process) -> SceneManager {
         retry(|| Self::attach(process)).await
     }
 
     /// Finds the module that holds the engine: `UnityPlayer.dll` and its
-    /// Linux and Mac siblings, or the game's own executable before Unity
-    /// 2017.2, which linked the engine in. Finding the executable needs its
-    /// name, so that part needs the `alloc` feature.
+    /// Linux and Mac siblings, or the game's own executable, which linked the
+    /// engine in before Unity 2017.2 on Windows and on older Linux players.
+    /// Finding the executable needs its name, so that part needs the `alloc`
+    /// feature.
+    #[cfg(feature = "alloc")]
     fn engine_module(process: &Process) -> Option<((Address, u64), BinaryFormat)> {
         let player = [
             ("UnityPlayer.dll", BinaryFormat::PE),
@@ -127,18 +164,19 @@ impl SceneManager {
             _ => Some((process.get_module_range(name).ok()?, format)),
         });
 
-        #[cfg(feature = "alloc")]
-        let player = player.or_else(|| {
+        player.or_else(|| {
             let executable = process.get_main_module_range().ok()?;
-            pe::MachineType::read(process, executable.0)?;
-            Some((executable, BinaryFormat::PE))
-        });
-
-        player
+            if pe::MachineType::read(process, executable.0).is_some() {
+                return Some((executable, BinaryFormat::PE));
+            }
+            elf::pointer_size(process, executable.0)?;
+            Some((executable, BinaryFormat::ELF))
+        })
     }
 
     /// Reads the four parts of the file version of the engine module, which
     /// name the Unity version of the game.
+    #[cfg(feature = "alloc")]
     fn unity_version(process: &Process, unity_player: Address) -> Option<(u16, u16, u16, u16)> {
         let file_version = pe::FileVersion::read(process, unity_player)?;
         Some((
@@ -152,6 +190,7 @@ impl SceneManager {
     /// Finds the scene manager in the engine module through the anchor of
     /// the profile. Every match of the anchor must name the same global,
     /// and the global must hold the manager.
+    #[cfg(any(feature = "alloc", test))]
     fn attach_with(
         process: &Process,
         unity_player: (Address, u64),
@@ -235,7 +274,7 @@ impl SceneManager {
             .and_then(|scene| scene.index(process, self))
     }
 
-    /// Returns the full path to the current scene. Use [`get_scene_name`]
+    /// Returns the full path to the current scene. Use [`get_name`]
     /// afterwards to get the scene name.
     pub fn get_current_scene_path<const N: usize>(
         &self,

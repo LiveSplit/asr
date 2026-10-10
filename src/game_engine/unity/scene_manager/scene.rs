@@ -1,4 +1,6 @@
-use super::{offsets::PathShape, SceneManager, CSTR};
+#[cfg(feature = "alloc")]
+use super::CSTR;
+use super::{offsets::PathShape, SceneManager};
 use crate::{string::ArrayCString, Address, Error, PointerSize, Process};
 
 /// A scene loaded in the attached game.
@@ -86,9 +88,12 @@ impl Scene {
     /// Returns the length of the path kept inline in the field, or [`None`]
     /// when the field holds no inline path.
     fn inline_len(field: &[u8; 32], shape: PathShape) -> Option<usize> {
-        let len = match shape {
-            PathShape::InlineSpare => 31_usize.checked_sub(field[31] as usize)?,
-            _ => field.iter().position(|&b| b == 0)?,
+        let len = if shape == PathShape::InlineNul {
+            field.iter().position(|&b| b == 0)?
+        } else if shape == PathShape::InlineSpare {
+            31_usize.checked_sub(field[31] as usize)?
+        } else {
+            return None;
         };
         let terminated = len == 31 || field[len] == 0;
         (len <= 31 && terminated && !field[..len].contains(&0)).then_some(len)
