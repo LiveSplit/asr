@@ -809,6 +809,41 @@ fn skips_a_load_read_through_a_bare_displacement() {
 }
 
 #[test]
+fn skips_an_indexed_load_past_a_return() {
+    // mov rax, [other]; ret; mov rax, [rax + rcx * 8]; ret. The indexed read
+    // comes after the return, so the function never reads other at an index.
+    let code = [
+        &[0x48, 0x8B, 0x05][..],
+        &displacement(0x1007, 0x3000),
+        &[0xC3, 0x48, 0x8B, 0x04, 0xC8, 0xC3],
+    ]
+    .concat();
+    assert_eq!(elf_table(&[(0x1000, &code)]), None);
+}
+
+#[test]
+fn skips_an_indexed_load_past_the_export_end() {
+    // The export is only mov rcx, [other]. The cdqe; mov rax, [rcx + rax * 8]
+    // right after it belongs to whatever code comes next.
+    let code = [
+        &[0x48, 0x8B, 0x0D][..],
+        &displacement(0x1007, 0x3000),
+        &[0x48, 0x98, 0x48, 0x8B, 0x04, 0xC1, 0xC3],
+    ]
+    .concat();
+    let image = elf_image(&[("il2cpp_image_get_class", 0x1000, 7)], &[(0x1000, &code)]);
+    let found = with_process(&[(BASE, &image)], |process| {
+        globals::type_info_definition_table(
+            process,
+            (Address::new(BASE), SIZE as u64),
+            BinaryFormat::ELF,
+            PointerSize::Bit64,
+        )
+    });
+    assert_eq!(found, None);
+}
+
+#[test]
 fn skips_the_linux_code_shapes_in_a_windows_image() {
     // The getter ends in lea rax, [s_Assemblies]; pop rcx; ret.
     let call = [&[0xE8][..], &displacement(0x1005, 0x1100), &[0xC3]].concat();

@@ -107,7 +107,8 @@ pub(super) fn type_info_definition_table(
 
 /// Checks whether `code` starts with a load of a global into a register that
 /// one of the next 2 instructions reads at an index times 8, the way clang
-/// compiles the type accessor on Linux.
+/// compiles the type accessor on Linux. A return, jump, call or branch ends
+/// the search, since the code after it may never run.
 fn indexed_load(code: &[u8]) -> bool {
     let (Some(&rex), Some(&0x8B), Some(&modrm)) = (code.first(), code.get(1), code.get(2)) else {
         return false;
@@ -121,6 +122,9 @@ fn indexed_load(code: &[u8]) -> bool {
         let Some(next) = code.get(at..).and_then(|rest| decode(rest, true)) else {
             return false;
         };
+        if next.flow != Flow::Next {
+            return false;
+        }
         if reads_scaled(&code[at..at + next.len], register) {
             return true;
         }
@@ -214,6 +218,10 @@ fn walk(
                 {
                     steps += 1;
                     let Some(bytes) = code.at(at) else { break };
+                    // The bytes past the function's end belong to other code,
+                    // so neither the decoder nor `look` gets to see them.
+                    let left = (function_end.value() - at.value()) as usize;
+                    let bytes = &bytes[..bytes.len().min(left)];
                     let Some(instruction) = decode(bytes, x64) else {
                         break;
                     };
