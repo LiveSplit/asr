@@ -73,10 +73,10 @@ const fn id<const N: usize>(written: &str) -> [u8; N] {
 }
 
 pub(super) const BUILDS: &[Build] = &[
-    // 5.6.7f1, libmono.so
+    // 5.6.0f1, libmono.so
     Build {
-        build_id: &id::<20>("c1a53ea7109a2da58220ab30f4cab7c8ce8f3813"),
-        unity: (5, 6, 7, 3267),
+        build_id: &id::<20>("83bc621e6ccf123cafbc71c0894207071968f29e"),
+        unity: (5, 6, 0, 23754),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
             library: Library::Mono,
@@ -124,10 +124,59 @@ pub(super) const BUILDS: &[Build] = &[
             v_table: MonoVTableOffsets { vtable: 0x48 },
         },
     },
-    // 2017.3.0f3, libmonobdwgc-2.0.so
+    // 2017.1.0f1, libmonobdwgc-2.0.so
     Build {
-        build_id: &id::<20>("3cf4e78c4ef6b520fb777738602ac56c15f8ff0f"),
-        unity: (2017, 3, 0, 63597),
+        build_id: &id::<20>("488594493d54ab4951119e260d8d039d0fb94b53"),
+        unity: (2017, 1, 0, 32737),
+        profile: Profile {
+            pointer_size: PointerSize::Bit64,
+            library: Library::MonoBdwgc,
+            assembly: AssemblyOffsets {
+                aname: Some(0x10),
+                image: 0x60,
+            },
+            image: ImageOffsets {
+                assembly_name: None,
+                class_cache: 0x4A8,
+            },
+            hash_table: HashTableOffsets {
+                size: 0x18,
+                table: 0x20,
+            },
+            class: ClassOffsets {
+                class_kind: None,
+                instance_size: Some(0x1C),
+                parent: 0x28,
+                nested_in: Some(0x30),
+                name: 0x40,
+                namespace: 0x48,
+                vtable_size: 0x54,
+                fields: 0xA8,
+                runtime_info: 0xF0,
+                field_count: 0x8C,
+                next_class_cache: 0xF8,
+            },
+            generic: GenericOffsets {
+                generic_class: Some(0xD8),
+                container_class: Some(0x0),
+            },
+            type_words: TypeOffsets {
+                data: Some(0x0),
+                kind: Some(0xA),
+            },
+            field: FieldInfoOffsets {
+                type_: Some(0x0),
+                name: 0x8,
+                offset: 0x18,
+                stride: 0x20,
+            },
+            v_table: MonoVTableOffsets { vtable: 0x40 },
+        },
+    },
+    // 2017.2.0f1, libmonobdwgc-2.0.so
+    Build {
+        build_id: &id::<20>("a276fd2ef4fd4fe54270bf3a1d8cc294f32c8684"),
+        unity: (2017, 2, 0, 58714),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
             library: Library::MonoBdwgc,
@@ -173,10 +222,10 @@ pub(super) const BUILDS: &[Build] = &[
             v_table: MonoVTableOffsets { vtable: 0x40 },
         },
     },
-    // 2017.4.40f1, libmono.so
+    // 2017.4.6f1, libmono.so
     Build {
-        build_id: &id::<20>("93b5b95d7a6112b3f7d53b40e79a663cbcd62b14"),
-        unity: (2017, 4, 40, 5126),
+        build_id: &id::<20>("806bb9c8b6bbb0b9aa964d423694bdd5d29aee4c"),
+        unity: (2017, 4, 6, 20272),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
             library: Library::Mono,
@@ -224,10 +273,112 @@ pub(super) const BUILDS: &[Build] = &[
             v_table: MonoVTableOffsets { vtable: 0x48 },
         },
     },
-    // 2021.2.20f1, UnityPlayer.so
+    // 2018.1.0f1, libmono.so
     Build {
-        build_id: &id::<8>("8efc4cbe377f5467"),
-        unity: (2021, 2, 20, 62729),
+        build_id: &id::<20>("8297a83ffb74d772baf82ebd05fa663e0bf9feda"),
+        unity: (2018, 1, 0, 30795),
+        profile: Profile {
+            pointer_size: PointerSize::Bit64,
+            library: Library::Mono,
+            assembly: AssemblyOffsets {
+                aname: Some(0x10),
+                image: 0x58,
+            },
+            image: ImageOffsets {
+                assembly_name: None,
+                class_cache: 0x3D0,
+            },
+            hash_table: HashTableOffsets {
+                size: 0x18,
+                table: 0x20,
+            },
+            class: ClassOffsets {
+                class_kind: None,
+                instance_size: Some(0x1C),
+                parent: 0x28,
+                nested_in: Some(0x30),
+                name: 0x40,
+                namespace: 0x48,
+                vtable_size: 0x18,
+                fields: 0xA0,
+                runtime_info: 0xF0,
+                field_count: 0x8C,
+                next_class_cache: 0xF8,
+            },
+            generic: GenericOffsets {
+                generic_class: Some(0xD0),
+                container_class: Some(0x0),
+            },
+            type_words: TypeOffsets {
+                data: Some(0x0),
+                kind: Some(0xA),
+            },
+            field: FieldInfoOffsets {
+                type_: Some(0x0),
+                name: 0x8,
+                offset: 0x18,
+                stride: 0x20,
+            },
+            // Nothing reads this: these builds keep their statics in the slot
+            // `vtable_size` points at.
+            v_table: MonoVTableOffsets { vtable: 0x48 },
+        },
+    },
+    // 2018.1.7f1, libmono.so
+    Build {
+        build_id: &id::<20>("488c9cc9d9ed712a104549ba008c4dfc8504886e"),
+        unity: (2018, 1, 7, 46210),
+        profile: Profile {
+            pointer_size: PointerSize::Bit64,
+            library: Library::Mono,
+            assembly: AssemblyOffsets {
+                aname: Some(0x10),
+                image: 0x58,
+            },
+            image: ImageOffsets {
+                assembly_name: None,
+                class_cache: 0x3D0,
+            },
+            hash_table: HashTableOffsets {
+                size: 0x18,
+                table: 0x20,
+            },
+            class: ClassOffsets {
+                class_kind: None,
+                instance_size: Some(0x1C),
+                parent: 0x28,
+                nested_in: Some(0x30),
+                name: 0x48,
+                namespace: 0x50,
+                vtable_size: 0x18,
+                fields: 0xA8,
+                runtime_info: 0xF8,
+                field_count: 0x94,
+                next_class_cache: 0x100,
+            },
+            generic: GenericOffsets {
+                generic_class: Some(0xD8),
+                container_class: Some(0x0),
+            },
+            type_words: TypeOffsets {
+                data: Some(0x0),
+                kind: Some(0xA),
+            },
+            field: FieldInfoOffsets {
+                type_: Some(0x0),
+                name: 0x8,
+                offset: 0x18,
+                stride: 0x20,
+            },
+            // Nothing reads this: these builds keep their statics in the slot
+            // `vtable_size` points at.
+            v_table: MonoVTableOffsets { vtable: 0x48 },
+        },
+    },
+    // 2021.2.0f1, UnityPlayer.so
+    Build {
+        build_id: &id::<8>("18a01e8f0aa6d238"),
+        unity: (2021, 2, 0, 61932),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
             library: Library::MonoBdwgc,
@@ -280,15 +431,15 @@ mod tests {
     use super::{find, id, BUILDS};
     use crate::PointerSize;
 
-    // The build ID of 2017.3's Mono library, as it is stored.
+    // The build ID of 2017.2's Mono library, as it is stored.
     const STORED: [u8; 20] = [
-        0x3C, 0xF4, 0xE7, 0x8C, 0x4E, 0xF6, 0xB5, 0x20, 0xFB, 0x77, 0x77, 0x38, 0x60, 0x2A, 0xC5,
-        0x6C, 0x15, 0xF8, 0xFF, 0x0F,
+        0xA2, 0x76, 0xFD, 0x2E, 0xF4, 0xFD, 0x4F, 0xE5, 0x42, 0x70, 0xBF, 0x3A, 0x1D, 0x8C, 0xC2,
+        0x94, 0xF3, 0x2C, 0x86, 0x84,
     ];
 
     #[test]
     fn parses_written_build_ids_into_stored_bytes() {
-        assert_eq!(id::<20>("3cf4e78c4ef6b520fb777738602ac56c15f8ff0f"), STORED);
+        assert_eq!(id::<20>("a276fd2ef4fd4fe54270bf3a1d8cc294f32c8684"), STORED);
     }
 
     #[test]

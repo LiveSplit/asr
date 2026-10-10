@@ -62,14 +62,20 @@ profiles! {
 
 profiles! {
     linux_builds::BUILDS;
-    /// Unity 5.6.7f1, `libmono.so`, x86-64.
-    UNITY_5_6_7F1_LINUX_MONO_X86_64 = 0;
-    /// Unity 2017.3.0f3, `libmonobdwgc-2.0.so`, x86-64.
-    UNITY_2017_3_0F3_LINUX_MONO_BDWGC_X86_64 = 1;
-    /// Unity 2017.4.40f1, `libmono.so`, x86-64.
-    UNITY_2017_4_40F1_LINUX_MONO_X86_64 = 2;
-    /// Unity 2021.2.20f1, `libmonobdwgc-2.0.so`, x86-64.
-    UNITY_2021_2_20F1_LINUX_MONO_BDWGC_X86_64 = 3;
+    /// Unity 5.6.0f1, `libmono.so`, x86-64.
+    UNITY_5_6_0F1_LINUX_MONO_X86_64 = 0;
+    /// Unity 2017.1.0f1, `libmonobdwgc-2.0.so`, x86-64.
+    UNITY_2017_1_0F1_LINUX_MONO_BDWGC_X86_64 = 1;
+    /// Unity 2017.2.0f1, `libmonobdwgc-2.0.so`, x86-64.
+    UNITY_2017_2_0F1_LINUX_MONO_BDWGC_X86_64 = 2;
+    /// Unity 2017.4.6f1, `libmono.so`, x86-64.
+    UNITY_2017_4_6F1_LINUX_MONO_X86_64 = 3;
+    /// Unity 2018.1.0f1, `libmono.so`, x86-64.
+    UNITY_2018_1_0F1_LINUX_MONO_X86_64 = 4;
+    /// Unity 2018.1.7f1, `libmono.so`, x86-64.
+    UNITY_2018_1_7F1_LINUX_MONO_X86_64 = 5;
+    /// Unity 2021.2.0f1, `libmonobdwgc-2.0.so`, x86-64.
+    UNITY_2021_2_0F1_LINUX_MONO_BDWGC_X86_64 = 6;
 }
 
 profiles! {

@@ -4,12 +4,19 @@
 
 #[cfg(feature = "alloc")]
 use super::mac_builds;
-use super::{builds, linux_builds, Library, Module};
+#[cfg(feature = "alloc")]
+use super::Module;
+use super::{builds, linux_builds, Library};
+#[cfg(feature = "alloc")]
 use crate::runtime::mock::{unity_player_image, with_modules, with_process};
-use crate::{Address, PointerSize, Process};
+use crate::PointerSize;
+#[cfg(feature = "alloc")]
+use crate::{Address, Process};
+#[cfg(feature = "alloc")]
 use std::vec;
 use std::vec::Vec;
 
+#[cfg(feature = "alloc")]
 const BASE: u64 = 0x1900_0000;
 
 // Checks the rule against every entry of the Windows table, so adding or
@@ -80,14 +87,27 @@ fn linux_builds_take_the_nearest_too() {
             .unity
     };
     assert_eq!(
+        linux((2017, 1, 0, 0), Library::MonoBdwgc),
+        (2017, 1, 0, 32737)
+    );
+    assert_eq!(
         linux((2020, 1, 0, 0), Library::MonoBdwgc),
-        (2017, 3, 0, 63597)
+        (2017, 2, 0, 58714)
+    );
+    assert_eq!(
+        linux((2021, 2, 0, 0), Library::MonoBdwgc),
+        (2021, 2, 0, 61932)
     );
     assert_eq!(
         linux((6000, 0, 0, 0), Library::MonoBdwgc),
-        (2021, 2, 20, 62729)
+        (2021, 2, 0, 61932)
     );
-    assert_eq!(linux((2017, 2, 0, 0), Library::Mono), (5, 6, 7, 3267));
+    assert_eq!(linux((2017, 2, 0, 0), Library::Mono), (5, 6, 0, 23754));
+    assert_eq!(linux((2017, 4, 6, 0), Library::Mono), (2017, 4, 6, 20272));
+    // libmono.so goes back to the 5.6.0 layout in 2018.1.0, then forward
+    // again in 2018.1.7.
+    assert_eq!(linux((2018, 1, 0, 0), Library::Mono), (2018, 1, 0, 30795));
+    assert_eq!(linux((2018, 1, 7, 0), Library::Mono), (2018, 1, 7, 46210));
 }
 
 #[cfg(feature = "alloc")]
@@ -100,6 +120,7 @@ fn mac_builds_take_the_nearest_too() {
 // Linux and Mac players carry no file version. The Unity version sits in
 // the player as a string like `2021.3.11f1`, and only a string of that
 // shape counts, so a date or a build number nearby is skipped.
+#[cfg(feature = "alloc")]
 #[test]
 fn the_version_string_in_the_player_names_major_minor_and_patch() {
     let version = |text: &[u8]| {
@@ -121,6 +142,7 @@ fn the_version_string_in_the_player_names_major_minor_and_patch() {
 
 // A Linux player holds older version strings too, like `2018.3.0a1` and
 // `5.0.0a1`, sometimes ahead of its own. The newest one is the player's.
+#[cfg(feature = "alloc")]
 #[test]
 fn the_newest_version_string_in_the_player_is_its_version() {
     let mut image = vec![0; 0x2000];
@@ -133,6 +155,7 @@ fn the_newest_version_string_in_the_player_is_its_version() {
 }
 
 // On Windows the file version of `UnityPlayer.dll` is the Unity version.
+#[cfg(feature = "alloc")]
 #[test]
 fn the_player_file_version_is_the_unity_version() {
     let player = unity_player_image((2021, 3, 11, 23713));
@@ -175,25 +198,6 @@ fn the_executable_carries_the_unity_version_when_there_is_no_player() {
             assert_eq!(
                 Module::unity_version(process, super::BinaryFormat::PE),
                 Some((5, 6, 7, 3267))
-            );
-        },
-    );
-}
-
-#[cfg(not(feature = "alloc"))]
-#[test]
-fn without_alloc_a_game_with_no_player_has_no_version() {
-    let executable = unity_player_image((5, 6, 7, 3267));
-    with_modules(
-        &[(BASE, &executable)],
-        &[
-            ("game.exe", BASE, 0x1000),
-            ("mono.dll", BASE + 0x10000, 0x1000),
-        ],
-        |process| {
-            assert_eq!(
-                Module::unity_version(process, super::BinaryFormat::PE),
-                None
             );
         },
     );

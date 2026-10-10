@@ -1,23 +1,37 @@
 //! Support for attaching to Unity games that are using the standard Mono
 //! backend.
+//!
+//! Automatic attachment requires the `alloc` feature so that a game without
+//! a separate player module can be identified through its executable. A
+//! `no_std` auto splitter using allocation must provide a global allocator. Use
+//! [`Module::attach`] or [`Module::wait_attach`] with a known [`Profile`] to
+//! attach without allocation on Windows and Linux. macOS support requires
+//! `alloc` for Mach-O symbol lookup even with an explicit profile.
 
 #[cfg(feature = "alloc")]
 use crate::file_format::macho;
 use arrayvec::ArrayVec;
 use bytemuck::CheckedBitPattern;
+#[cfg(feature = "alloc")]
 use core::fmt;
+
+#[cfg(feature = "alloc")]
+use crate::print_limited;
 
 use crate::{
     file_format::{elf, pe},
     future::retry,
-    print_limited,
     signature::Signature,
     string::ArrayCString,
     Address, Address32, Error, PointerSize, Process,
 };
 
+// The tables also supply the allocation-free profile constants. Their lookup
+// helpers are only used by automatic attachment, which requires `alloc`.
+#[cfg_attr(not(feature = "alloc"), allow(dead_code))]
 mod builds;
 mod image;
+#[cfg_attr(not(feature = "alloc"), allow(dead_code))]
 mod linux_builds;
 #[cfg(feature = "alloc")]
 mod mac_builds;
@@ -33,8 +47,10 @@ pub use offsets::{
     ImageOffsets, MonoVTableOffsets, Profile, TypeOffsets,
 };
 #[cfg(all(test, not(target_family = "wasm")))]
-mod collections_tests;
+mod attachment_tests;
 #[cfg(all(test, not(target_family = "wasm")))]
+mod collections_tests;
+#[cfg(all(test, feature = "alloc", not(target_family = "wasm")))]
 mod identity_tests;
 #[cfg(all(test, not(target_family = "wasm")))]
 mod profiles_tests;
@@ -68,6 +84,7 @@ pub enum Library {
 
 /// The identity of one exact runtime binary, and the module it was read
 /// from, so a build nobody has measured is reported as the file to look at.
+#[cfg(feature = "alloc")]
 enum Identity {
     Debug(pe::DebugId),
     Build(elf::BuildId, &'static str),
@@ -75,6 +92,7 @@ enum Identity {
     Uuid(macho::Uuid),
 }
 
+#[cfg(feature = "alloc")]
 impl Identity {
     /// Reads what names the Mono library's build. On ELF the library's own
     /// build ID answers whenever it has one, and `UnityPlayer.so`'s answers
@@ -118,6 +136,7 @@ impl Identity {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl fmt::Debug for Identity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -135,12 +154,17 @@ impl Module {
     /// measured for that exact build. Otherwise it uses the newest build of
     /// the same runtime library at or below the game's Unity version. On
     /// Windows, a game older than every build doesn't attach. On Linux and
-    /// Mac, it gets the oldest build. A game that ships
-    /// no player module (Windows games before Unity 2017.2, Mac and Linux
-    /// games for some versions more) carries its version in its own
-    /// executable, and reading it there needs the `alloc` feature.
+    /// Mac, it gets the oldest build.
+    ///
+    /// This requires the `alloc` feature. A game without a separate player
+    /// module carries its version in its executable, and finding that
+    /// executable allocates its path. No fixed-size path buffer is used.
+    /// A `no_std` auto splitter must provide a global allocator.
     /// If you know the build in advance, use [`attach`](Self::attach) with
-    /// its profile instead.
+    /// its profile instead; on Windows and Linux, explicit-profile attachment
+    /// does not allocate.
+    #[cfg(feature = "alloc")]
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "alloc")))]
     pub fn attach_auto_detect(process: &Process) -> Option<Self> {
         let (module_range, format, name, library) = Self::find_runtime_module(process)?;
         let pointer_size = Self::pointer_size(process, module_range, format)?;
@@ -190,8 +214,10 @@ impl Module {
     /// with the provided measured [`Profile`]. The profile's pointer width
     /// and runtime library must match the target process. Use a built-in
     /// [`profiles`] constant for a known player, or construct a custom
-    /// profile for another measured layout. If the target is not known in
-    /// advance, use [`attach_auto_detect`](Self::attach_auto_detect) instead.
+    /// profile for another measured layout. On Windows and Linux, this does
+    /// not allocate or require the `alloc` feature. macOS requires `alloc`
+    /// for Mach-O symbol lookup. If the target is not known in advance,
+    /// enable `alloc` and use `Module::attach_auto_detect` instead.
     pub fn attach(process: &Process, profile: Profile) -> Option<Self> {
         let (module_range, format, _, library) = Self::find_runtime_module(process)?;
         let pointer_size = Self::pointer_size(process, module_range, format)?;
@@ -229,6 +255,7 @@ impl Module {
     /// of `UnityPlayer.dll`. On Linux and Mac the player carries it as a
     /// string. A game without a player module keeps both in its executable,
     /// which only the `alloc` feature can name.
+    #[cfg(feature = "alloc")]
     fn unity_version(process: &Process, format: BinaryFormat) -> Option<(u16, u16, u16, u16)> {
         let player = match format {
             BinaryFormat::PE => process.get_module_range("UnityPlayer.dll").ok(),
@@ -238,7 +265,6 @@ impl Module {
             #[allow(unreachable_patterns)]
             _ => None,
         };
-        #[cfg(feature = "alloc")]
         let player = player.or_else(|| process.get_main_module_range().ok());
         let player = player?;
 
@@ -263,6 +289,7 @@ impl Module {
     /// the letter of the release counts, so a date or a build number in the
     /// same module is passed over. A player can hold older version strings
     /// too, so this returns the newest one.
+    #[cfg(feature = "alloc")]
     fn version_string(process: &Process, module: (Address, u64)) -> Option<(u16, u16, u16, u16)> {
         const FOUR_DIGITS: Signature<6> = Signature::new("00 3? 3? 3? 3? 2E");
         const ONE_DIGIT: Signature<4> = Signature::new("00 3? 2E 3?");
@@ -279,6 +306,7 @@ impl Module {
 
     /// Parses `major.minor.patch` followed by a release letter out of the
     /// head of `text`.
+    #[cfg(feature = "alloc")]
     fn parse_version(text: &[u8]) -> Option<(u16, u16, u16, u16)> {
         // Reads a number of up to four digits and returns what follows it.
         fn number(text: &[u8]) -> Option<(u16, &[u8])> {
@@ -734,14 +762,21 @@ impl Module {
     ///
     /// This is the `await`able version of the
     /// [`attach_auto_detect`](Self::attach_auto_detect) function, yielding back
-    /// to the runtime between each try.
+    /// to the runtime between each try. It requires the `alloc` feature so
+    /// that the executable's path can be allocated when no player module is
+    /// present. For allocation-free attachment, use [`wait_attach`](Self::wait_attach)
+    /// with a known profile instead.
+    #[cfg(feature = "alloc")]
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "alloc")))]
     pub async fn wait_attach_auto_detect(process: &Process) -> Module {
         retry(|| Self::attach_auto_detect(process)).await
     }
 
     /// Attaches to a Unity game that is using the standard Mono backend with
     /// the provided measured [`Profile`]. The profile's pointer width and
-    /// runtime library must match the target process.
+    /// runtime library must match the target process. On Windows and Linux,
+    /// this does not allocate or require the `alloc` feature. macOS requires
+    /// `alloc` for Mach-O symbol lookup.
     ///
     /// This is the `await`able version of [`attach`](Self::attach), yielding
     /// back to the runtime between each try.

@@ -55,6 +55,7 @@ pub fn with_modules<R>(
 /// A `UnityPlayer.dll` image of 0x1000 bytes: a PE32+ header for x64 whose
 /// resource directory holds one version resource carrying the given file
 /// version as its four parts.
+#[cfg(feature = "alloc")]
 pub fn unity_player_image(unity: (u16, u16, u16, u16)) -> Vec<u8> {
     fn put(image: &mut [u8], at: usize, bytes: &[u8]) {
         image[at..at + bytes.len()].copy_from_slice(bytes);
