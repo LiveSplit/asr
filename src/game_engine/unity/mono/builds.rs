@@ -242,7 +242,7 @@ pub(super) const BUILDS: &[Build] = &[
     // Unity 2017.1.0, mono-2.0-bdwgc.dll, x64.
     Build {
         debug_id: debug_id("f6e9366e-08b8-4e78-bafe-7c8aafaaf7b8", 1),
-        unity: (2017, 1, 0, 9747),
+        unity: (2017, 1, 0, 32737),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
             library: Library::MonoBdwgc,
@@ -291,7 +291,7 @@ pub(super) const BUILDS: &[Build] = &[
     // Unity 2017.1.0, mono-2.0-bdwgc.dll, x86.
     Build {
         debug_id: debug_id("aef8adb1-0052-4953-88f2-fd56544ccb87", 1),
-        unity: (2017, 1, 0, 9747),
+        unity: (2017, 1, 0, 32737),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
             library: Library::MonoBdwgc,

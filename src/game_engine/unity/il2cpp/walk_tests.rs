@@ -118,7 +118,7 @@ impl Player {
     }
 }
 
-const MEASURED_2019: (u16, u16, u16, u16) = (2019, 1, 0, 11155);
+const MEASURED_2019: (u16, u16, u16, u16) = (2019, 1, 0, 21026);
 const MEASURED_2022: (u16, u16, u16, u16) = (2022, 2, 0, 56532);
 const MEASURED_6000_5: (u16, u16, u16, u16) = (6000, 5, 0, 46204);
 
