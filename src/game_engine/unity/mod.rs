@@ -89,6 +89,8 @@ pub use managed::{DictionaryOffsets, HashSetOffsets, ListOffsets, ManagedString}
 pub mod mono;
 pub mod scene_manager;
 
+use crate::{signature::Signature, Address, Process};
+
 const CSTR: usize = 128;
 
 #[derive(Copy, Clone, PartialEq, Hash, Debug)]
@@ -97,6 +99,49 @@ enum BinaryFormat {
     PE,
     ELF,
     MachO,
+}
+
+/// Finds the Unity version string in a player, `2021.3.11f1` for
+/// example, and returns its three numbers. The fourth part of a file
+/// version has no equal in the string, so it is 0. A NUL heads the
+/// string, and only a run of the shape `major.minor.patch` followed by
+/// the letter of the release counts, so a date or a build number in the
+/// same module is passed over. A player can hold older version strings
+/// too, so this returns the newest one.
+fn version_string(process: &Process, module: (Address, u64)) -> Option<(u16, u16, u16, u16)> {
+    const FOUR_DIGITS: Signature<6> = Signature::new("00 3? 3? 3? 3? 2E");
+    const ONE_DIGIT: Signature<4> = Signature::new("00 3? 2E 3?");
+
+    FOUR_DIGITS
+        .scan_iter(process, module)
+        .chain(ONE_DIGIT.scan_iter(process, module))
+        .filter_map(|at| {
+            let text = process.read::<[u8; 16]>(at + 1).ok()?;
+            parse_version(&text)
+        })
+        .max()
+}
+
+/// Parses `major.minor.patch` followed by a release letter out of the
+/// head of `text`.
+fn parse_version(text: &[u8]) -> Option<(u16, u16, u16, u16)> {
+    // Reads a number of up to four digits and returns what follows it.
+    fn number(text: &[u8]) -> Option<(u16, &[u8])> {
+        let digits = text.iter().take_while(|byte| byte.is_ascii_digit()).count();
+        if digits == 0 || digits > 4 {
+            return None;
+        }
+        let value = text[..digits]
+            .iter()
+            .fold(0_u16, |value, byte| value * 10 + (byte - b'0') as u16);
+        Some((value, &text[digits..]))
+    }
+
+    let (major, rest) = number(text)?;
+    let (minor, rest) = number(rest.strip_prefix(b".")?)?;
+    let (patch, rest) = number(rest.strip_prefix(b".")?)?;
+    matches!(rest.first(), Some(b'a' | b'b' | b'f' | b'p' | b'x'))
+        .then_some((major, minor, patch, 0))
 }
 
 /// If the field name is an auto-property, extract the backing field name.

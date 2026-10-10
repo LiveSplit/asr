@@ -2,7 +2,7 @@
 //! the anchor of the build is scanned in the engine module, every match
 //! must point at the same global, and the global holds the manager.
 
-use super::{builds, Scene, SceneManager};
+use super::{builds, linux_builds, Scene, SceneManager};
 use crate::{runtime::mock::with_modules, Address, PointerSize, Process};
 use std::format;
 use std::vec;
@@ -64,6 +64,12 @@ fn nearest_is_the_build_itself_on_a_measured_player() {
         assert_eq!(found.unity, build.unity);
         assert_eq!(found.profile.pointer_size, build.profile.pointer_size);
     }
+    for build in linux_builds::BUILDS {
+        assert_eq!(
+            linux_builds::nearest(build.unity).unwrap().unity,
+            build.unity
+        );
+    }
 }
 
 // Checks the rule against every entry of the table, so an entry added or
@@ -105,9 +111,14 @@ fn a_player_takes_the_newest_build_at_or_below_its_patch() {
 
 #[test]
 fn table_reads_oldest_to_newest() {
-    for pointer_size in [PointerSize::Bit64, PointerSize::Bit32] {
+    let tables = [
+        (builds::BUILDS, PointerSize::Bit64),
+        (builds::BUILDS, PointerSize::Bit32),
+        (linux_builds::BUILDS, PointerSize::Bit64),
+    ];
+    for (table, pointer_size) in tables {
         let mut last = (0, 0, 0, 0);
-        for build in builds::BUILDS {
+        for build in table {
             if build.profile.pointer_size != pointer_size {
                 continue;
             }
@@ -119,8 +130,13 @@ fn table_reads_oldest_to_newest() {
 
 #[test]
 fn each_build_differs_from_the_one_before_it() {
-    for pointer_size in [PointerSize::Bit64, PointerSize::Bit32] {
-        let table: Vec<_> = builds::BUILDS
+    let tables = [
+        (builds::BUILDS, PointerSize::Bit64),
+        (builds::BUILDS, PointerSize::Bit32),
+        (linux_builds::BUILDS, PointerSize::Bit64),
+    ];
+    for (table, pointer_size) in tables {
+        let table: Vec<_> = table
             .iter()
             .filter(|build| build.profile.pointer_size == pointer_size)
             .collect();
@@ -264,7 +280,7 @@ fn the_old_x86_anchor_leaves_the_scene_list_offset_open() {
 fn pe_header(image: &mut [u8]) {
     put(image, 0, b"MZ");
     put(image, 0x3C, &0x80_u32.to_le_bytes());
-    put(image, 0x80, b"PE  ");
+    put(image, 0x80, b"PE\0\0");
     put(image, 0x84, &0x8664_u16.to_le_bytes());
     put(image, 0x94, &0xF0_u16.to_le_bytes());
     put(image, 0x98, &0x20B_u16.to_le_bytes());
@@ -305,4 +321,59 @@ fn the_engine_module_is_the_executable_when_there_is_no_player() {
             assert_eq!(format, super::BinaryFormat::PE);
         },
     );
+}
+
+// An older Linux player links the engine into its executable, which is an
+// ELF.
+#[cfg(feature = "alloc")]
+#[test]
+fn the_engine_module_is_the_linux_executable_when_there_is_no_player() {
+    let mut executable = vec![0; 0x200];
+    put(&mut executable, 0, b"\x7fELF\x02\x01\x01");
+    with_modules(
+        &[(BASE, &executable)],
+        &[("fixture", BASE, MODULE)],
+        |process| {
+            let (range, format) = SceneManager::engine_module(process).unwrap();
+            assert_eq!(range, (Address::new(BASE), MODULE));
+            assert_eq!(format, super::BinaryFormat::ELF);
+        },
+    );
+}
+
+// A Linux player takes its build by the version string in `UnityPlayer.so`.
+// The 2022.3.5 build keeps scene paths inline and the roots at 0xe8.
+#[test]
+fn a_linux_player_takes_the_build_measured_on_linux() {
+    let mut image = vec![0; 0x2000];
+    put(&mut image, 0, b"\x7fELF\x02\x01\x01");
+    let text = b"\x002022.3.5f1\0";
+    put(&mut image, 0x300, text);
+    // push rbp; push r15; push r14; push r13; push r12; push rbx; push rax;
+    // mov r14, [global]; cmp dword ptr [r14 + 0x18], 0; je
+    put(
+        &mut image,
+        0x100,
+        &[
+            0x55, 0x41, 0x57, 0x41, 0x56, 0x41, 0x55, 0x41, 0x54, 0x53, 0x50, 0x4C, 0x8B, 0x35,
+        ],
+    );
+    let displacement = (0x800 - (0x100 + 14 + 4)) as i32;
+    put(&mut image, 0x100 + 14, &displacement.to_le_bytes());
+    put(
+        &mut image,
+        0x100 + 18,
+        &[0x41, 0x83, 0x7E, 0x18, 0x00, 0x74],
+    );
+    put(&mut image, 0x800, &(BASE + 0x900).to_le_bytes());
+
+    let manager = with_modules(
+        &[(BASE, &image)],
+        &[("UnityPlayer.so", BASE, MODULE)],
+        SceneManager::attach,
+    )
+    .unwrap();
+    assert_eq!(manager.address, Address::new(BASE + 0x900));
+    assert_eq!(manager.profile.path, super::offsets::PathShape::InlineNul);
+    assert_eq!(manager.profile.scene.roots, 0xe8);
 }

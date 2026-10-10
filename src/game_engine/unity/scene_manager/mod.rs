@@ -15,6 +15,7 @@ use crate::{
 };
 
 mod builds;
+mod linux_builds;
 
 mod game_objects;
 
@@ -58,10 +59,10 @@ pub struct SceneManager {
 }
 
 impl SceneManager {
-    /// Attaches to the scene manager in the given process. On Windows, the
-    /// Unity version and pointer size of the game select a measured build:
-    /// the newest build whose patch is at or below the game's patch. A game
-    /// below every build does not attach.
+    /// Attaches to the scene manager in the given process. On Windows, and
+    /// on x64 Linux, the Unity version and pointer size of the game select a
+    /// measured build: the newest build whose patch is at or below the
+    /// game's patch. A game below every build does not attach.
     pub fn attach(process: &Process) -> Option<Self> {
         let (unity_player, format) = Self::engine_module(process)?;
 
@@ -71,30 +72,40 @@ impl SceneManager {
                     pe::MachineType::read(process, unity_player.0)?.pointer_size()?;
                 let unity = Self::unity_version(process, unity_player.0)?;
                 let build = builds::nearest(unity, pointer_size)?;
-                print_limited::<128>(&format_args!(
-                    "scene manager: unity {}.{}.{}.{} takes the build measured on {}.{}.{}.{}",
-                    unity.0,
-                    unity.1,
-                    unity.2,
-                    unity.3,
-                    build.unity.0,
-                    build.unity.1,
-                    build.unity.2,
-                    build.unity.3,
-                ));
+                Self::print_build(unity, build);
                 &build.profile
             }
-            BinaryFormat::ELF => match elf::pointer_size(process, unity_player.0)? {
-                PointerSize::Bit64 => &builds::ELF_AND_MACHO_X64,
-                _ => return None,
-            },
+            BinaryFormat::ELF => {
+                if elf::pointer_size(process, unity_player.0)? != PointerSize::Bit64 {
+                    return None;
+                }
+                let unity = super::version_string(process, unity_player)?;
+                let build = linux_builds::nearest(unity)?;
+                Self::print_build(unity, build);
+                &build.profile
+            }
             BinaryFormat::MachO => match macho::pointer_size(process, unity_player)? {
-                PointerSize::Bit64 => &builds::ELF_AND_MACHO_X64,
+                PointerSize::Bit64 => &builds::MACHO_X64,
                 _ => return None,
             },
         };
 
         Self::attach_with(process, unity_player, profile)
+    }
+
+    /// Logs which measured build the game takes.
+    fn print_build(unity: (u16, u16, u16, u16), build: &builds::Build) {
+        print_limited::<128>(&format_args!(
+            "scene manager: unity {}.{}.{}.{} takes the build measured on {}.{}.{}.{}",
+            unity.0,
+            unity.1,
+            unity.2,
+            unity.3,
+            build.unity.0,
+            build.unity.1,
+            build.unity.2,
+            build.unity.3,
+        ));
     }
 
     /// Attaches to the scene manager in the given process.
@@ -106,9 +117,10 @@ impl SceneManager {
     }
 
     /// Finds the module that holds the engine: `UnityPlayer.dll` and its
-    /// Linux and Mac siblings, or the game's own executable before Unity
-    /// 2017.2, which linked the engine in. Finding the executable needs its
-    /// name, so that part needs the `alloc` feature.
+    /// Linux and Mac siblings, or the game's own executable, which linked the
+    /// engine in before Unity 2017.2 on Windows and on older Linux players.
+    /// Finding the executable needs its name, so that part needs the `alloc`
+    /// feature.
     fn engine_module(process: &Process) -> Option<((Address, u64), BinaryFormat)> {
         let player = [
             ("UnityPlayer.dll", BinaryFormat::PE),
@@ -130,8 +142,11 @@ impl SceneManager {
         #[cfg(feature = "alloc")]
         let player = player.or_else(|| {
             let executable = process.get_main_module_range().ok()?;
-            pe::MachineType::read(process, executable.0)?;
-            Some((executable, BinaryFormat::PE))
+            if pe::MachineType::read(process, executable.0).is_some() {
+                return Some((executable, BinaryFormat::PE));
+            }
+            elf::pointer_size(process, executable.0)?;
+            Some((executable, BinaryFormat::ELF))
         });
 
         player

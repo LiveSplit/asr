@@ -4,8 +4,11 @@ use arrayvec::ArrayVec;
 use bytemuck::CheckedBitPattern;
 
 use crate::{
-    file_format::pe, future::retry, print_limited, string::ArrayCString, Address, Error,
-    PointerSize, Process,
+    file_format::{elf, pe},
+    future::retry,
+    print_limited,
+    string::ArrayCString,
+    Address, Error, PointerSize, Process,
 };
 
 mod builds;
@@ -34,7 +37,7 @@ mod readers_tests;
 #[cfg(all(test, not(target_family = "wasm")))]
 mod walk_tests;
 
-use super::{managed, DictionaryOffsets, HashSetOffsets, ListOffsets, ManagedString};
+use super::{managed, BinaryFormat, DictionaryOffsets, HashSetOffsets, ListOffsets, ManagedString};
 
 /// Represents access to a Unity game that is using the IL2CPP backend.
 pub struct Module {
@@ -49,12 +52,12 @@ impl Module {
     /// game gets the offsets of the newest measured build whose patch is at
     /// or below its own patch. A game below every build does not attach.
     pub fn attach_auto_detect(process: &Process) -> Option<Self> {
-        let il2cpp_module = Self::find_runtime_module(process)?;
-        let pointer_size = pe::MachineType::read(process, il2cpp_module.0)?.pointer_size()?;
-        let unity = Self::unity_version(process)?;
+        let (il2cpp_module, format) = Self::find_runtime_module(process)?;
+        let pointer_size = Self::pointer_size(process, il2cpp_module, format)?;
+        let unity = Self::unity_version(process, format)?;
         let build = builds::nearest(unity, pointer_size)?;
 
-        let module = Self::attach_with(process, il2cpp_module, build.profile)?;
+        let module = Self::attach_with(process, il2cpp_module, format, build.profile)?;
         print_limited::<128>(&format_args!(
             "il2cpp: unity {}.{}.{}.{} takes the build measured on {}.{}.{}.{}",
             unity.0,
@@ -76,22 +79,47 @@ impl Module {
     /// layout. If the target is not known in advance, use
     /// [`attach_auto_detect`](Self::attach_auto_detect) instead.
     pub fn attach(process: &Process, profile: Profile) -> Option<Self> {
-        let il2cpp_module = Self::find_runtime_module(process)?;
-        let pointer_size = pe::MachineType::read(process, il2cpp_module.0)?.pointer_size()?;
+        let (il2cpp_module, format) = Self::find_runtime_module(process)?;
+        let pointer_size = Self::pointer_size(process, il2cpp_module, format)?;
         (pointer_size == profile.pointer_size).then_some(())?;
 
-        Self::attach_with(process, il2cpp_module, profile)
+        Self::attach_with(process, il2cpp_module, format, profile)
     }
 
-    fn find_runtime_module(process: &Process) -> Option<(Address, u64)> {
-        let address = process.get_module_address("GameAssembly.dll").ok()?;
-        let size = pe::read_size_of_image(process, address)? as u64;
-        Some((address, size))
+    /// Finds the module the runtime is compiled into, which is
+    /// `GameAssembly.dll` on Windows and `GameAssembly.so` on Linux.
+    fn find_runtime_module(process: &Process) -> Option<((Address, u64), BinaryFormat)> {
+        if let Ok(address) = process.get_module_address("GameAssembly.dll") {
+            let size = pe::read_size_of_image(process, address)? as u64;
+            return Some(((address, size), BinaryFormat::PE));
+        }
+        // The mapped range of `GameAssembly.so` ends with the file, but the
+        // globals sit in `.bss` past it, so the range runs to the end of the
+        // last load segment instead.
+        let (address, size) = process.get_module_range("GameAssembly.so").ok()?;
+        let size = elf::read_size_of_image(process, address).unwrap_or(size);
+        Some(((address, size), BinaryFormat::ELF))
     }
 
-    /// Reads the Unity version stamped on the player, all four parts of
-    /// `UnityPlayer.dll`'s file version.
-    fn unity_version(process: &Process) -> Option<(u16, u16, u16, u16)> {
+    fn pointer_size(
+        process: &Process,
+        module: (Address, u64),
+        format: BinaryFormat,
+    ) -> Option<PointerSize> {
+        match format {
+            BinaryFormat::PE => pe::MachineType::read(process, module.0)?.pointer_size(),
+            _ => elf::pointer_size(process, module.0),
+        }
+    }
+
+    /// Reads the Unity version of the game. On Windows it is all four parts
+    /// of `UnityPlayer.dll`'s file version. On Linux it is the version string
+    /// in `UnityPlayer.so`.
+    fn unity_version(process: &Process, format: BinaryFormat) -> Option<(u16, u16, u16, u16)> {
+        if format != BinaryFormat::PE {
+            let unity_player = process.get_module_range("UnityPlayer.so").ok()?;
+            return super::version_string(process, unity_player);
+        }
         let unity_player = process.get_module_address("UnityPlayer.dll").ok()?;
         let file_version = pe::FileVersion::read(process, unity_player)?;
         Some((
@@ -105,11 +133,13 @@ impl Module {
     fn attach_with(
         process: &Process,
         il2cpp_module: (Address, u64),
+        format: BinaryFormat,
         profile: Profile,
     ) -> Option<Self> {
         let pointer_size = profile.pointer_size;
-        let assemblies = globals::assemblies(process, il2cpp_module, pointer_size)?;
-        let table = globals::type_info_definition_table(process, il2cpp_module, pointer_size)?;
+        let assemblies = globals::assemblies(process, il2cpp_module, format, pointer_size)?;
+        let table =
+            globals::type_info_definition_table(process, il2cpp_module, format, pointer_size)?;
         let (assemblies, type_info_definition_table) =
             Self::inside(il2cpp_module, assemblies, table)?;
 

@@ -5,8 +5,8 @@
 //! numbers of those two players, copied by hand from their PDBs, so the walk
 //! is checked against the layout rather than against itself.
 
-use super::{Module, Profile, UnityPointer};
-use crate::runtime::mock::{poll_once, put_exports, with_process};
+use super::{super::BinaryFormat, Module, Profile, UnityPointer};
+use crate::runtime::mock::{poll_once, put_exports, with_modules, with_process};
 use crate::{Address, PointerSize, Process};
 
 use core::task::Poll;
@@ -126,6 +126,83 @@ fn measured(unity: (u16, u16, u16, u16), pointer_size: PointerSize) -> Profile {
     super::builds::nearest(unity, pointer_size).unwrap().profile
 }
 
+// A Linux player ships the runtime as `GameAssembly.so`.
+#[test]
+fn the_runtime_module_is_found_on_linux_too() {
+    let image = vec![0; 0x1000];
+    with_modules(
+        &[(GAME_ASSEMBLY, &image)],
+        &[("GameAssembly.so", GAME_ASSEMBLY, 0x1000)],
+        |process| {
+            assert_eq!(
+                Module::find_runtime_module(process),
+                Some(((Address::new(GAME_ASSEMBLY), 0x1000), BinaryFormat::ELF))
+            );
+        },
+    );
+}
+
+// Proton can map less of `GameAssembly.dll` than the image holds, so the
+// range comes from the size of image in its header.
+#[test]
+fn the_windows_runtime_module_takes_its_size_of_image() {
+    let mut image = Player::game_assembly();
+    put(&mut image, 0x98 + 0x38, &0x3000_u32.to_le_bytes());
+    with_modules(
+        &[(GAME_ASSEMBLY, &image)],
+        &[("GameAssembly.dll", GAME_ASSEMBLY, 0x1000)],
+        |process| {
+            assert_eq!(
+                Module::find_runtime_module(process),
+                Some(((Address::new(GAME_ASSEMBLY), 0x3000), BinaryFormat::PE))
+            );
+        },
+    );
+}
+
+// The globals sit in `.bss`, which the mapped range of `GameAssembly.so`
+// leaves out, so the range runs to the end of the last load segment.
+#[test]
+fn the_linux_runtime_module_reaches_the_end_of_its_load_segments() {
+    let mut image = vec![0; 0x1000];
+    put(&mut image, 0x00, b"\x7fELF\x02\x01\x01");
+    put(&mut image, 0x20, &0x40_u64.to_le_bytes());
+    put(&mut image, 0x36, &0x38_u16.to_le_bytes());
+    put(&mut image, 0x38, &1_u16.to_le_bytes());
+    put(&mut image, 0x40, &1_u32.to_le_bytes());
+    put(&mut image, 0x60, &0x1000_u64.to_le_bytes());
+    put(&mut image, 0x68, &0x3000_u64.to_le_bytes());
+    with_modules(
+        &[(GAME_ASSEMBLY, &image)],
+        &[("GameAssembly.so", GAME_ASSEMBLY, 0x1000)],
+        |process| {
+            assert_eq!(
+                Module::find_runtime_module(process),
+                Some(((Address::new(GAME_ASSEMBLY), 0x3000), BinaryFormat::ELF))
+            );
+        },
+    );
+}
+
+// A Linux player has no file version, so the version comes from the
+// version string in `UnityPlayer.so`.
+#[test]
+fn the_unity_version_comes_from_the_player_string_on_linux() {
+    let mut image = vec![0; 0x2000];
+    let text = b"\x002022.3.5f1\0";
+    image[0x100..0x100 + text.len()].copy_from_slice(text);
+    with_modules(
+        &[(UNITY_PLAYER, &image)],
+        &[("UnityPlayer.so", UNITY_PLAYER, 0x2000)],
+        |process| {
+            assert_eq!(
+                Module::unity_version(process, BinaryFormat::ELF),
+                Some((2022, 3, 5, 0))
+            );
+        },
+    );
+}
+
 // A game on a measured player attaches with the offsets measured on that
 // player.
 #[test]
@@ -211,6 +288,7 @@ fn attach_with(process: &Process, pointer_size: PointerSize) -> Option<Module> {
     Module::attach_with(
         process,
         (Address::new(BASE), 0x1000),
+        BinaryFormat::PE,
         measured(MEASURED_6000_5, pointer_size),
     )
 }
