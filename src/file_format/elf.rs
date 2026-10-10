@@ -1012,6 +1012,62 @@ pub fn pointer_size(process: &Process, module_address: Address) -> Option<Pointe
     info.bitness.pointer_size()
 }
 
+/// Reads how many bytes the ELF module at the given address spans in memory,
+/// from its lowest load segment to the end of its last load segment. This counts the
+/// zero-filled memory at the end of a segment, such as `.bss`, which the
+/// module's mapped range leaves out. Returns `None` when a program header
+/// can't be read or a load segment ends past the address space. Only
+/// little-endian ELFs are supported.
+pub fn read_size_of_image(process: &Process, module_address: impl Into<Address>) -> Option<u64> {
+    let module_address: Address = module_address.into();
+    let header = process.read::<Header>(module_address).ok()?;
+    let info = Info::parse(bytemuck::bytes_of(&header))?;
+    if info.endian != Endian::Little {
+        return None;
+    }
+
+    let (e_phoff, e_phentsize, e_phnum) = if info.bitness.is_64() {
+        let header = process.read::<Elf64>(module_address).ok()?;
+        (header.e_phoff, header.e_phentsize as u64, header.e_phnum)
+    } else {
+        let header = process.read::<Elf32>(module_address).ok()?;
+        (
+            header.e_phoff as u64,
+            header.e_phentsize as u64,
+            header.e_phnum,
+        )
+    };
+
+    // A header that can't be read, or a segment whose end overflows, leaves
+    // the size unknown. Going on without it would give the size of only the
+    // segments that could be read.
+    let mut span: Option<(u64, u64)> = None;
+    for index in 0..e_phnum as u64 {
+        let offset = e_phentsize.checked_mul(index)?.checked_add(e_phoff)?;
+        let at = Address::new(module_address.value().checked_add(offset)?);
+        let (p_type, p_vaddr, p_memsz) = if info.bitness.is_64() {
+            let header = process.read::<ProgramHeader64>(at).ok()?;
+            (header.p_type, header.p_vaddr, header.p_memsz)
+        } else {
+            let header = process.read::<ProgramHeader32>(at).ok()?;
+            (header.p_type, header.p_vaddr as u64, header.p_memsz as u64)
+        };
+        if SegmentType(p_type) != SegmentType::PT_LOAD {
+            continue;
+        }
+        let end = p_vaddr.checked_add(p_memsz)?;
+        span = Some(match span {
+            Some((start, last)) => (start.min(p_vaddr), last.max(end)),
+            None => (p_vaddr, end),
+        });
+    }
+
+    // An executable's addresses are absolute, so the size counts from the
+    // lowest load segment, which holds the header.
+    let (start, end) = span?;
+    Some(end - start)
+}
+
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 #[repr(C)]
 struct ProgramHeader32 {
@@ -1324,7 +1380,7 @@ pub fn build_id(process: &Process, range: (Address, u64)) -> Option<BuildId> {
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
-    use super::{build_id, BuildId};
+    use super::{build_id, read_size_of_image, BuildId};
     use crate::runtime::mock::with_process;
 
     use std::{format, vec, vec::Vec};
@@ -1379,6 +1435,46 @@ mod tests {
         put(&mut image, 0x22C, b"GNU\0");
         put(&mut image, 0x230, &BUILD_ID);
         image
+    }
+
+    #[test]
+    fn counts_the_zero_filled_end_of_the_last_load_segment() {
+        // The load segment holds 0x400 bytes of the file and runs on to
+        // 0x3000 in memory, the way a segment ending in `.bss` does.
+        let mut image = image(true);
+        put(&mut image, 0x60, &0x400_u64.to_le_bytes());
+        put(&mut image, 0x68, &0x3000_u64.to_le_bytes());
+        with_process(&[(BASE, &image)], |process| {
+            assert_eq!(read_size_of_image(process, BASE), Some(0x3000));
+        });
+    }
+
+    #[test]
+    fn has_no_size_when_a_program_header_is_unreadable() {
+        // The first of two program headers is a load segment ending at
+        // 0x1000. It fills the end of the mapped image, so the second one
+        // can't be read.
+        let mut image = image(true);
+        put(&mut image, 0x20, &0x3C8_u64.to_le_bytes());
+        put(&mut image, 0x3C8, &1_u32.to_le_bytes());
+        put(&mut image, 0x3F0, &0x1000_u64.to_le_bytes());
+        with_process(&[(BASE, &image)], |process| {
+            assert_eq!(read_size_of_image(process, BASE), None);
+        });
+    }
+
+    #[test]
+    fn has_no_size_when_a_load_segment_ends_past_the_address_space() {
+        // The first load segment ends at 0x1000, and the second one starts
+        // so high that its end overflows.
+        let mut image = image(true);
+        put(&mut image, 0x68, &0x1000_u64.to_le_bytes());
+        put(&mut image, 0x78, &1_u32.to_le_bytes());
+        put(&mut image, 0x88, &(u64::MAX - 0x10).to_le_bytes());
+        put(&mut image, 0xA0, &0x100_u64.to_le_bytes());
+        with_process(&[(BASE, &image)], |process| {
+            assert_eq!(read_size_of_image(process, BASE), None);
+        });
     }
 
     #[test]

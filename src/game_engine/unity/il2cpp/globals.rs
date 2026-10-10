@@ -6,18 +6,32 @@
 
 use arrayvec::ArrayVec;
 
-use super::instruction::{decode, Flow};
-use crate::{file_format::pe, Address, PointerSize, Process};
+use super::{
+    super::BinaryFormat,
+    instruction::{decode, Flow},
+};
+use crate::{
+    file_format::{elf, pe},
+    string::ArrayCString,
+    Address, PointerSize, Process,
+};
 
 /// Finds the address of a function the module exports by this name.
-fn export(process: &Process, module: (Address, u64), name: &str) -> Option<Address> {
-    pe::symbols(process, module.0)
-        .find(|symbol| {
-            symbol
-                .get_name::<48>(process)
-                .is_ok_and(|symbol_name| symbol_name.matches(name))
-        })
-        .map(|symbol| symbol.address)
+fn export(
+    process: &Process,
+    module: (Address, u64),
+    format: BinaryFormat,
+    name: &str,
+) -> Option<Address> {
+    let matches = |symbol_name: ArrayCString<48>| symbol_name.matches(name);
+    match format {
+        BinaryFormat::PE => pe::symbols(process, module.0)
+            .find(|symbol| symbol.get_name::<48>(process).is_ok_and(matches))
+            .map(|symbol| symbol.address),
+        _ => elf::symbols(process, module.0)
+            .find(|symbol| symbol.get_name::<48>(process).is_ok_and(matches))
+            .map(|symbol| symbol.address),
+    }
 }
 
 /// Finds `s_Assemblies` through `il2cpp_domain_get_assemblies`. A release
@@ -26,15 +40,23 @@ fn export(process: &Process, module: (Address, u64), name: &str) -> Option<Addre
 pub(super) fn assemblies(
     process: &Process,
     module: (Address, u64),
+    format: BinaryFormat,
     pointer_size: PointerSize,
 ) -> Option<Address> {
-    let start = export(process, module, "il2cpp_domain_get_assemblies")?;
-    walk(process, module, start, pointer_size, 1, |code| {
+    let start = export(process, module, format, "il2cpp_domain_get_assemblies")?;
+    let linux = format == BinaryFormat::ELF;
+    walk(process, module, format, start, pointer_size, 1, |code| {
         if pointer_size == PointerSize::Bit64 {
-            // lea rax, [s_Assemblies]; ret, or mov rax, [s_Assemblies]; ret
-            let load =
-                bytes_at(code, 0, &[0x48, 0x8D, 0x05]) || bytes_at(code, 0, &[0x48, 0x8B, 0x05]);
-            (load && bytes_at(code, 7, &[0xC3])).then_some(3)
+            // lea rax, [s_Assemblies]; ret, or mov rax, [s_Assemblies]; ret.
+            // On Linux a getter can pop between the two to keep its stack
+            // aligned, and the master export can go on with sub rcx, rax.
+            let lea = bytes_at(code, 0, &[0x48, 0x8D, 0x05]);
+            let mov = bytes_at(code, 0, &[0x48, 0x8B, 0x05]);
+            let popped =
+                linux && matches!(code.get(7), Some(0x58..=0x5F)) && bytes_at(code, 8, &[0xC3]);
+            let returned = (lea || mov) && (bytes_at(code, 7, &[0xC3]) || popped);
+            let subtracted = linux && mov && bytes_at(code, 7, &[0x48, 0x29, 0xC1]);
+            (returned || subtracted).then_some(3)
         } else {
             // mov eax, s_Assemblies; ret, or mov eax, [s_Assemblies]; pop ebp; ret
             let getter = bytes_at(code, 0, &[0xB8]) && bytes_at(code, 5, &[0xC3]);
@@ -52,18 +74,27 @@ pub(super) fn assemblies(
 pub(super) fn type_info_definition_table(
     process: &Process,
     module: (Address, u64),
+    format: BinaryFormat,
     pointer_size: PointerSize,
 ) -> Option<Address> {
-    let start = export(process, module, "il2cpp_image_get_class")
-        .or_else(|| export(process, module, "il2cpp_type_get_class_or_element_class"))?;
-    walk(process, module, start, pointer_size, 4, |code| {
+    let start = export(process, module, format, "il2cpp_image_get_class").or_else(|| {
+        export(
+            process,
+            module,
+            format,
+            "il2cpp_type_get_class_or_element_class",
+        )
+    })?;
+    let linux = format == BinaryFormat::ELF;
+    walk(process, module, format, start, pointer_size, 4, |code| {
         if pointer_size == PointerSize::Bit64 {
             // mov rax, [table]; then cmp qword ptr [reg + rax], 0, or
             // lea rsi or r14, [rax + reg * 8]
             let compared = bytes_at(code, 7, &[0x48, 0x83, 0x3C]) && bytes_at(code, 11, &[0]);
             let addressed =
                 matches!(code.get(7), Some(0x48 | 0x4C)) && bytes_at(code, 8, &[0x8D, 0x34]);
-            (bytes_at(code, 0, &[0x48, 0x8B, 0x05]) && (compared || addressed)).then_some(3)
+            let windows = bytes_at(code, 0, &[0x48, 0x8B, 0x05]) && (compared || addressed);
+            (windows || (linux && indexed_load(code))).then_some(3)
         } else {
             // mov eax, [table]; then cmp dword ptr [eax + reg * 4], 0, or
             // mov esi, dword ptr [eax + reg * 4]
@@ -72,6 +103,53 @@ pub(super) fn type_info_definition_table(
             (bytes_at(code, 0, &[0xA1]) && (compared || loaded)).then_some(1)
         }
     })
+}
+
+/// Checks whether `code` starts with a load of a global into a register that
+/// one of the next 2 instructions reads at an index times 8, the way clang
+/// compiles the type accessor on Linux. A return, jump, call or branch ends
+/// the search, since the code after it may never run.
+fn indexed_load(code: &[u8]) -> bool {
+    let (Some(&rex), Some(&0x8B), Some(&modrm)) = (code.first(), code.get(1), code.get(2)) else {
+        return false;
+    };
+    if !matches!(rex, 0x48 | 0x4C) || modrm & 0xC7 != 0x05 {
+        return false;
+    }
+    let register = ((rex & 0x04) << 1) | ((modrm >> 3) & 7);
+    let mut at = 7;
+    for _ in 0..2 {
+        let Some(next) = code.get(at..).and_then(|rest| decode(rest, true)) else {
+            return false;
+        };
+        if next.flow != Flow::Next {
+            return false;
+        }
+        if reads_scaled(&code[at..at + next.len], register) {
+            return true;
+        }
+        at += next.len;
+    }
+    false
+}
+
+/// Checks whether an instruction reads memory at `[register + index * 8]`. A
+/// base of rbp or r13 with mod 00 means a displacement and no base register.
+fn reads_scaled(instruction: &[u8], register: u8) -> bool {
+    let (rex, rest) = match instruction.first() {
+        Some(&byte @ 0x40..=0x4F) => (byte, &instruction[1..]),
+        _ => (0, instruction),
+    };
+    let rest = match rest.first() {
+        Some(0x0F) => rest.get(1..).unwrap_or_default(),
+        _ => rest,
+    };
+    let (Some(&modrm), Some(&sib)) = (rest.get(1), rest.get(2)) else {
+        return false;
+    };
+    let base = ((rex & 0x01) << 3) | (sib & 7);
+    let displacement = modrm >> 6 == 0 && sib & 7 == 5;
+    modrm >> 6 != 3 && modrm & 7 == 4 && sib >> 6 == 3 && !displacement && base == register
 }
 
 /// Checks whether `code` holds `bytes` at `at`.
@@ -99,6 +177,7 @@ const STEPS: usize = 2048;
 fn walk(
     process: &Process,
     module: (Address, u64),
+    format: BinaryFormat,
     start: Address,
     pointer_size: PointerSize,
     depth: usize,
@@ -118,12 +197,13 @@ fn walk(
             if done.contains(&function) || done.try_push(function).is_err() {
                 continue;
             }
-            // x64 images list where each function starts and ends, so the walk
+            // An x64 PE image lists where each function starts and ends, and an
+            // ELF image gives the size of each exported function, so the walk
             // stops at the end even after a call that never returns.
-            let bounds = if x64 {
-                function_range(process, module.0, function)
-            } else {
-                None
+            let bounds = match format {
+                BinaryFormat::PE if x64 => function_range(process, module.0, function),
+                BinaryFormat::PE => None,
+                _ => symbol_range(process, module.0, function),
             };
             let function_end = bounds.map_or(end, |(_, to)| to);
             let mut branches = ArrayVec::<Address, BRANCHES>::new();
@@ -138,6 +218,10 @@ fn walk(
                 {
                     steps += 1;
                     let Some(bytes) = code.at(at) else { break };
+                    // The bytes past the function's end belong to other code,
+                    // so neither the decoder nor `look` gets to see them.
+                    let left = (function_end.value() - at.value()) as usize;
+                    let bytes = &bytes[..bytes.len().min(left)];
                     let Some(instruction) = decode(bytes, x64) else {
                         break;
                     };
@@ -243,6 +327,21 @@ fn function_range(
         }
     }
     None
+}
+
+/// Finds the start and end of the exported function that holds `address`,
+/// from the sizes the ELF dynamic symbols carry. Returns `None` for a function
+/// nothing exports.
+fn symbol_range(
+    process: &Process,
+    module: Address,
+    address: Address,
+) -> Option<(Address, Address)> {
+    elf::symbols(process, module)
+        .find(|symbol| {
+            symbol.size != 0 && address >= symbol.address && address < symbol.address + symbol.size
+        })
+        .map(|symbol| (symbol.address, symbol.address + symbol.size))
 }
 
 /// The longest instruction is 15 bytes, and the patterns the walk looks for

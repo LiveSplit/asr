@@ -2,9 +2,9 @@
 //! test builds a small `GameAssembly.dll` with an export table and the code
 //! shape one kind of build has.
 
-use super::globals;
+use super::{super::BinaryFormat, globals};
 use crate::{
-    runtime::mock::{put_exports, with_process},
+    runtime::mock::{put_elf_exports, put_exports, with_process},
     Address, PointerSize,
 };
 
@@ -43,7 +43,12 @@ fn assemblies(pointer_size: PointerSize, code: &[(u32, &[u8])]) -> Option<Addres
         code,
     );
     with_process(&[(BASE, &image)], |process| {
-        globals::assemblies(process, (Address::new(BASE), SIZE as u64), pointer_size)
+        globals::assemblies(
+            process,
+            (Address::new(BASE), SIZE as u64),
+            BinaryFormat::PE,
+            pointer_size,
+        )
     })
 }
 
@@ -182,6 +187,7 @@ fn finds_no_s_assemblies_without_the_export() {
         globals::assemblies(
             process,
             (Address::new(BASE), SIZE as u64),
+            BinaryFormat::PE,
             PointerSize::Bit64,
         )
     });
@@ -194,6 +200,7 @@ fn table(pointer_size: PointerSize, export: &str, code: &[(u32, &[u8])]) -> Opti
         globals::type_info_definition_table(
             process,
             (Address::new(BASE), SIZE as u64),
+            BinaryFormat::PE,
             pointer_size,
         )
     })
@@ -415,6 +422,7 @@ fn stops_reading_at_the_module_end() {
         globals::type_info_definition_table(
             process,
             (Address::new(BASE), 0x1100),
+            BinaryFormat::PE,
             PointerSize::Bit64,
         )
     });
@@ -441,6 +449,7 @@ fn prefers_il2cpp_image_get_class_when_both_are_exported() {
         globals::type_info_definition_table(
             process,
             (Address::new(BASE), SIZE as u64),
+            BinaryFormat::PE,
             PointerSize::Bit64,
         )
     });
@@ -609,10 +618,272 @@ fn stops_at_the_end_of_a_function_after_a_call_that_does_not_return() {
         globals::assemblies(
             process,
             (Address::new(BASE), SIZE as u64),
+            BinaryFormat::PE,
             PointerSize::Bit64,
         )
     });
     assert_eq!(found, Some(Address::new(BASE + 0x3000)));
+}
+
+/// Builds a Linux `GameAssembly.so` image with the given exports and code.
+/// Each export is a name, the offset of its code and the size of that code.
+fn elf_image(exports: &[(&str, u32, u32)], code: &[(u32, &[u8])]) -> Vec<u8> {
+    let mut image = vec![0; SIZE];
+    put_elf_exports(&mut image, BASE, exports);
+    for (at, bytes) in code {
+        let at = *at as usize;
+        image[at..at + bytes.len()].copy_from_slice(bytes);
+    }
+    image
+}
+
+#[test]
+fn finds_s_assemblies_through_an_elf_export() {
+    // call getter; ret. The getter is lea rax, [s_Assemblies]; ret.
+    let call = [&[0xE8][..], &displacement(0x1005, 0x1100), &[0xC3]].concat();
+    let getter = [
+        &[0x48, 0x8D, 0x05][..],
+        &displacement(0x1107, 0x3000),
+        &[0xC3],
+    ]
+    .concat();
+    let image = elf_image(
+        &[("il2cpp_domain_get_assemblies", 0x1000, 6)],
+        &[(0x1000, &call), (0x1100, &getter)],
+    );
+    let found = with_process(&[(BASE, &image)], |process| {
+        globals::assemblies(
+            process,
+            (Address::new(BASE), SIZE as u64),
+            BinaryFormat::ELF,
+            PointerSize::Bit64,
+        )
+    });
+    assert_eq!(found, Some(Address::new(BASE + 0x3000)));
+}
+
+#[test]
+fn stops_at_the_end_of_an_elf_export_after_a_call_that_does_not_return() {
+    // The same shape as the PE test above, with the export's end taken from
+    // the size its symbol carries.
+    let call = [&[0xE8][..], &displacement(0x1005, 0x1200)].concat();
+    let next = [
+        &[0x48, 0x8D, 0x05][..],
+        &displacement(0x100C, 0x3800),
+        &[0xC3],
+    ]
+    .concat();
+    let getter = [
+        &[0x48, 0x8D, 0x05][..],
+        &displacement(0x1207, 0x3000),
+        &[0xC3],
+    ]
+    .concat();
+    let image = elf_image(
+        &[("il2cpp_domain_get_assemblies", 0x1000, 5)],
+        &[(0x1000, &call), (0x1005, &next), (0x1200, &getter)],
+    );
+    let found = with_process(&[(BASE, &image)], |process| {
+        globals::assemblies(
+            process,
+            (Address::new(BASE), SIZE as u64),
+            BinaryFormat::ELF,
+            PointerSize::Bit64,
+        )
+    });
+    assert_eq!(found, Some(Address::new(BASE + 0x3000)));
+}
+
+fn elf_assemblies(code: &[(u32, &[u8])]) -> Option<Address> {
+    let image = elf_image(&[("il2cpp_domain_get_assemblies", 0x1000, 0x40)], code);
+    with_process(&[(BASE, &image)], |process| {
+        globals::assemblies(
+            process,
+            (Address::new(BASE), SIZE as u64),
+            BinaryFormat::ELF,
+            PointerSize::Bit64,
+        )
+    })
+}
+
+fn elf_table(code: &[(u32, &[u8])]) -> Option<Address> {
+    let image = elf_image(&[("il2cpp_image_get_class", 0x1000, 0x40)], code);
+    with_process(&[(BASE, &image)], |process| {
+        globals::type_info_definition_table(
+            process,
+            (Address::new(BASE), SIZE as u64),
+            BinaryFormat::ELF,
+            PointerSize::Bit64,
+        )
+    })
+}
+
+#[test]
+fn finds_s_assemblies_through_a_getter_that_aligns_its_stack() {
+    // call getter; ret. The getter ends in lea rax, [s_Assemblies]; pop rcx;
+    // ret, the way a Linux release build compiles it to keep the stack aligned.
+    let call = [&[0xE8][..], &displacement(0x1005, 0x1100), &[0xC3]].concat();
+    let getter = [
+        &[0x48, 0x8D, 0x05][..],
+        &displacement(0x1107, 0x3000),
+        &[0x59, 0xC3],
+    ]
+    .concat();
+    assert_eq!(
+        elf_assemblies(&[(0x1000, &call), (0x1100, &getter)]),
+        Some(Address::new(BASE + 0x3000))
+    );
+}
+
+#[test]
+fn finds_s_assemblies_in_the_linux_master_export() {
+    // mov rcx, [s_Assemblies + 8]; mov rax, [s_Assemblies]; sub rcx, rax;
+    // sar rcx, 3; mov [rsi], rcx; ret
+    let code = [
+        &[0x48, 0x8B, 0x0D][..],
+        &displacement(0x1007, 0x3008),
+        &[0x48, 0x8B, 0x05],
+        &displacement(0x100E, 0x3000),
+        &[
+            0x48, 0x29, 0xC1, 0x48, 0xC1, 0xF9, 0x03, 0x48, 0x89, 0x0E, 0xC3,
+        ],
+    ]
+    .concat();
+    assert_eq!(
+        elf_assemblies(&[(0x1000, &code)]),
+        Some(Address::new(BASE + 0x3000))
+    );
+}
+
+#[test]
+fn finds_the_table_through_a_linux_indexed_load() {
+    // mov rcx, [table]; cdqe; mov rax, [rcx + rax * 8]; ret
+    let code = [
+        &[0x48, 0x8B, 0x0D][..],
+        &displacement(0x1007, 0x3000),
+        &[0x48, 0x98, 0x48, 0x8B, 0x04, 0xC1, 0xC3],
+    ]
+    .concat();
+    assert_eq!(
+        elf_table(&[(0x1000, &code)]),
+        Some(Address::new(BASE + 0x3000))
+    );
+
+    // mov r12, [table]; movsxd r13, edi; mov r14, [r12 + r13 * 8]; ret
+    let code = [
+        &[0x4C, 0x8B, 0x25][..],
+        &displacement(0x1007, 0x3000),
+        &[0x4C, 0x63, 0xEF, 0x4F, 0x8B, 0x34, 0xEC, 0xC3],
+    ]
+    .concat();
+    assert_eq!(
+        elf_table(&[(0x1000, &code)]),
+        Some(Address::new(BASE + 0x3000))
+    );
+}
+
+#[test]
+fn skips_a_load_that_another_register_indexes() {
+    // mov rcx, [other]; cdqe; mov rax, [rdx + rax * 8]; ret. The indexed read
+    // goes through rdx, not the register the global was loaded into.
+    let code = [
+        &[0x48, 0x8B, 0x0D][..],
+        &displacement(0x1007, 0x3000),
+        &[0x48, 0x98, 0x48, 0x8B, 0x04, 0xC2, 0xC3],
+    ]
+    .concat();
+    assert_eq!(elf_table(&[(0x1000, &code)]), None);
+}
+
+#[test]
+fn skips_a_load_read_through_a_bare_displacement() {
+    // mov rbp, [other]; mov rax, [rcx * 8 + 0x10]; ret. A SIB base of rbp
+    // with mod 00 means a displacement and no base, so rbp is never read.
+    let code = [
+        &[0x48, 0x8B, 0x2D][..],
+        &displacement(0x1007, 0x3000),
+        &[0x48, 0x8B, 0x04, 0xCD, 0x10, 0, 0, 0, 0xC3],
+    ]
+    .concat();
+    assert_eq!(elf_table(&[(0x1000, &code)]), None);
+}
+
+#[test]
+fn skips_an_indexed_load_past_a_return() {
+    // mov rax, [other]; ret; mov rax, [rax + rcx * 8]; ret. The indexed read
+    // comes after the return, so the function never reads other at an index.
+    let code = [
+        &[0x48, 0x8B, 0x05][..],
+        &displacement(0x1007, 0x3000),
+        &[0xC3, 0x48, 0x8B, 0x04, 0xC8, 0xC3],
+    ]
+    .concat();
+    assert_eq!(elf_table(&[(0x1000, &code)]), None);
+}
+
+#[test]
+fn skips_an_indexed_load_past_the_export_end() {
+    // The export is only mov rcx, [other]. The cdqe; mov rax, [rcx + rax * 8]
+    // right after it belongs to whatever code comes next.
+    let code = [
+        &[0x48, 0x8B, 0x0D][..],
+        &displacement(0x1007, 0x3000),
+        &[0x48, 0x98, 0x48, 0x8B, 0x04, 0xC1, 0xC3],
+    ]
+    .concat();
+    let image = elf_image(&[("il2cpp_image_get_class", 0x1000, 7)], &[(0x1000, &code)]);
+    let found = with_process(&[(BASE, &image)], |process| {
+        globals::type_info_definition_table(
+            process,
+            (Address::new(BASE), SIZE as u64),
+            BinaryFormat::ELF,
+            PointerSize::Bit64,
+        )
+    });
+    assert_eq!(found, None);
+}
+
+#[test]
+fn skips_the_linux_code_shapes_in_a_windows_image() {
+    // The getter ends in lea rax, [s_Assemblies]; pop rcx; ret.
+    let call = [&[0xE8][..], &displacement(0x1005, 0x1100), &[0xC3]].concat();
+    let getter = [
+        &[0x48, 0x8D, 0x05][..],
+        &displacement(0x1107, 0x3000),
+        &[0x59, 0xC3],
+    ]
+    .concat();
+    assert_eq!(
+        assemblies(PointerSize::Bit64, &[(0x1000, &call), (0x1100, &getter)]),
+        None
+    );
+
+    // mov rcx, [s_Assemblies + 8]; mov rax, [s_Assemblies]; sub rcx, rax; ret
+    let code = [
+        &[0x48, 0x8B, 0x0D][..],
+        &displacement(0x1007, 0x3008),
+        &[0x48, 0x8B, 0x05],
+        &displacement(0x100E, 0x3000),
+        &[0x48, 0x29, 0xC1, 0xC3],
+    ]
+    .concat();
+    assert_eq!(assemblies(PointerSize::Bit64, &[(0x1000, &code)]), None);
+
+    // mov rcx, [table]; cdqe; mov rax, [rcx + rax * 8]; ret
+    let code = [
+        &[0x48, 0x8B, 0x0D][..],
+        &displacement(0x1007, 0x3000),
+        &[0x48, 0x98, 0x48, 0x8B, 0x04, 0xC1, 0xC3],
+    ]
+    .concat();
+    assert_eq!(
+        table(
+            PointerSize::Bit64,
+            "il2cpp_image_get_class",
+            &[(0x1000, &code)]
+        ),
+        None
+    );
 }
 
 #[test]
@@ -648,6 +919,7 @@ fn counts_a_jump_inside_a_function_as_a_branch() {
         globals::type_info_definition_table(
             process,
             (Address::new(BASE), SIZE as u64),
+            BinaryFormat::PE,
             PointerSize::Bit64,
         )
     });
@@ -754,6 +1026,7 @@ fn reads_code_before_the_code_it_already_read() {
         globals::type_info_definition_table(
             process,
             (Address::new(BASE), SIZE as u64),
+            BinaryFormat::PE,
             PointerSize::Bit64,
         )
     });
@@ -773,6 +1046,7 @@ fn follows_a_conditional_tail_jump_outside_the_function_range() {
         globals::type_info_definition_table(
             process,
             (Address::new(BASE), SIZE as u64),
+            BinaryFormat::PE,
             PointerSize::Bit64,
         )
     });

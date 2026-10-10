@@ -145,6 +145,60 @@ pub fn put_exports(image: &mut [u8], pointer_size: crate::PointerSize, exports: 
     assert!(strings <= 0x300, "the export names run into the code");
 }
 
+/// Writes an ELF64 header and a dynamic symbol table into the start of a
+/// module image loaded at `base`. Each export is a name, the offset of its
+/// code and the size of that code. The dynamic section sits at 0x100, the
+/// symbols at 0x200 and the names after them, so code goes from 0x400 on. The
+/// table addresses are absolute, the way the loader leaves them in memory.
+pub fn put_elf_exports(image: &mut [u8], base: u64, exports: &[(&str, u32, u32)]) {
+    let mut put = |at: usize, bytes: &[u8]| image[at..at + bytes.len()].copy_from_slice(bytes);
+    const DYNAMIC: usize = 0x100;
+    const SYMBOLS: usize = 0x200;
+    put(0x00, b"\x7fELF");
+    put(0x04, &[2, 1, 1]);
+    put(0x12, &0x3E_u16.to_le_bytes());
+    put(0x20, &0x40_u64.to_le_bytes());
+    put(0x36, &0x38_u16.to_le_bytes());
+    put(0x38, &1_u16.to_le_bytes());
+
+    // One PT_DYNAMIC program header.
+    put(0x40, &2_u32.to_le_bytes());
+    put(0x50, &(DYNAMIC as u64).to_le_bytes());
+    put(0x68, &0x40_u64.to_le_bytes());
+
+    // A null symbol first, then the exports, then an end marker, then the
+    // names.
+    let names = SYMBOLS + (exports.len() + 2) * 24;
+    let mut strings = 1;
+    for (index, (name, at, size)) in exports.iter().enumerate() {
+        let symbol = SYMBOLS + (index + 1) * 24;
+        put(symbol, &(strings as u32).to_le_bytes());
+        put(symbol + 4, &[0x12]);
+        put(symbol + 8, &u64::from(*at).to_le_bytes());
+        put(symbol + 16, &u64::from(*size).to_le_bytes());
+        put(names + strings, name.as_bytes());
+        strings += name.len() + 1;
+    }
+    // A name offset past the string table ends the symbols.
+    put(SYMBOLS + (exports.len() + 1) * 24, &u32::MAX.to_le_bytes());
+    assert!(
+        names + strings <= 0x400,
+        "the export names run into the code"
+    );
+
+    for (index, (tag, value)) in [
+        (5_u64, base + names as u64),
+        (6, base + SYMBOLS as u64),
+        (10, strings as u64),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        put(DYNAMIC + index * 16, &tag.to_le_bytes());
+        put(DYNAMIC + index * 16 + 8, &value.to_le_bytes());
+    }
+}
+
 /// The host's log. Tests have no need to see it.
 #[no_mangle]
 const extern "C" fn runtime_print_message(_text_ptr: *const u8, _text_len: usize) {}
