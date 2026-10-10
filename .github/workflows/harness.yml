@@ -1,0 +1,43 @@
+name: Harness
+
+on:
+  pull_request:
+  push:
+    branches:
+      - "master"
+  workflow_dispatch:
+
+jobs:
+  run:
+    name: Run (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - name: Checkout Commit
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: hecrj/setup-rust-action@v2
+        with:
+          targets: wasm32-unknown-unknown
+
+      # The players are pinned to one commit of the fixtures repo, so the
+      # cache is keyed on that commit and only a new corpus downloads again.
+      - name: Read the fixtures commit
+        id: fixtures
+        shell: bash
+        run: |
+          commit=$(grep -o 'FIXTURES: &str = "[0-9a-f]*' harness/src/main.rs | cut -d '"' -f 2)
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the players
+        uses: actions/cache@v4
+        with:
+          path: harness/target/fixtures/*.zip
+          key: players-${{ runner.os }}-${{ steps.fixtures.outputs.commit }}
+
+      - name: Run the players
+        run: cargo run --release --manifest-path harness/Cargo.toml
