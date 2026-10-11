@@ -2,7 +2,11 @@
 //!
 //! Each constant is the layout for the platform and pointer size in its
 //! name, measured on the first player that has it. The layout holds until the
-//! version of the next constant for the same platform and pointer size.
+//! version of the next constant for the same platform and pointer size. Pass a
+//! profile directly to [`SceneManager::attach`](super::SceneManager::attach)
+//! or [`SceneManager::wait_attach`](super::SceneManager::wait_attach) when the
+//! target game is known. This avoids linking the automatic lookup tables and
+//! their other profiles into the final auto splitter.
 
 use super::{builds, linux_builds, Profile};
 
