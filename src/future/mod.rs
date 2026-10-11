@@ -81,7 +81,9 @@
 //! entire future will complete once all tasks have completed.
 //!
 //! ```no_run
+//! # #[cfg(feature = "alloc")]
 //! # use asr::future::run_tasks;
+//! # #[cfg(feature = "alloc")]
 //! # async fn example() {
 //! run_tasks(|tasks| async move {
 //!     // do some work
