@@ -93,7 +93,8 @@ pub struct ObjectOffsets {
 }
 
 /// A complete measured layout of the scene manager and the objects it
-/// reaches, with the anchor that finds the manager.
+/// reaches, with the anchor that finds the manager. Built-in measured
+/// profiles are available in [`profiles`](super::profiles).
 ///
 /// A custom profile lists the complete layout. Every field is written out on
 /// purpose: struct update syntax would let the custom profile silently take

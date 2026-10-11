@@ -19,11 +19,13 @@ use crate::{
 };
 use crate::{string::ArrayCString, Address, Error, PointerSize, Process};
 
-// The tables are also used by allocation-free tests of the scene readers.
-#[cfg(any(feature = "alloc", test))]
+// The tables also supply the allocation-free profile constants. Their lookup
+// helpers are only used by automatic attachment, which requires `alloc`.
+#[cfg_attr(not(feature = "alloc"), allow(dead_code))]
 mod builds;
-#[cfg(any(feature = "alloc", test))]
+#[cfg_attr(not(feature = "alloc"), allow(dead_code))]
 mod linux_builds;
+pub mod profiles;
 
 mod game_objects;
 
@@ -38,6 +40,9 @@ mod roots_tests;
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod components_tests;
+
+#[cfg(all(test, not(target_family = "wasm")))]
+mod profiles_tests;
 
 mod offsets;
 
