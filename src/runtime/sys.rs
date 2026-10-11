@@ -220,6 +220,16 @@ extern "C" {
     /// guaranteed to be valid UTF-8 and is not nul-terminated.
     /// Example values: `x86`, `x86_64`, `arm`, `aarch64`
     pub fn runtime_get_arch(buf_ptr: *mut u8, buf_len_ptr: *mut usize) -> bool;
+    /// Stores the file system path of the currently loaded splits file in the
+    /// buffer given. Returns `false` if the buffer is too small or the host has
+    /// no file. After this call, no matter whether it was successful or not, the
+    /// `buf_len_ptr` will be set to the required buffer size. If `false` is
+    /// returned and `buf_len_ptr` is 0, the host has no file. The path is
+    /// guaranteed to be valid UTF-8 and is not nul-terminated. It is a WASI
+    /// path (e.g. `/mnt/c/Users/.../file.lss` on Windows), suitable for
+    /// `std::fs`.
+    #[cfg(feature = "alloc")]
+    pub fn runtime_get_splits_path(buf_ptr: *mut u8, buf_len_ptr: *mut usize) -> bool;
 
     /// Adds a new boolean setting that the user can modify. This will return
     /// either the specified default value or the value that the user has set.
