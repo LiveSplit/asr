@@ -5,7 +5,9 @@
 //! a separate player module can be identified through its executable. A
 //! `no_std` auto splitter using allocation must provide a global allocator. Use
 //! [`Module::attach`] or [`Module::wait_attach`] with a known [`Profile`] to
-//! attach without allocation on Windows and Linux. macOS support requires
+//! attach without allocation on Windows and Linux.
+//! [`Module::attach_to_module`] does the same for a runtime the auto splitter
+//! finds itself. macOS support requires
 //! `alloc` for Mach-O symbol lookup even with an explicit profile.
 
 #[cfg(feature = "alloc")]
@@ -222,6 +224,28 @@ impl Module {
         let (module_range, format, _, library) = Self::find_runtime_module(process)?;
         let pointer_size = Self::pointer_size(process, module_range, format)?;
         if library != profile.library || pointer_size != profile.pointer_size {
+            return None;
+        }
+
+        Self::attach_with(process, module_range, format, profile)
+    }
+
+    /// Tries attaching to a Unity game that is using the standard Mono
+    /// backend, in the module at `mono_module`, with the provided measured
+    /// [`Profile`]. Use this when the runtime sits in a module
+    /// [`attach`](Self::attach) doesn't look for, such as a renamed runtime
+    /// library. [`Process::get_module_address`] finds a module by its name
+    /// without allocating. The module must be a PE or an ELF image whose
+    /// pointer width matches the profile and the profile's library must be
+    /// the runtime the module holds.
+    pub fn attach_to_module(
+        process: &Process,
+        mono_module: Address,
+        profile: Profile,
+    ) -> Option<Self> {
+        let (module_range, format) = super::module_at(process, mono_module)?;
+        let pointer_size = Self::pointer_size(process, module_range, format)?;
+        if pointer_size != profile.pointer_size {
             return None;
         }
 
@@ -737,6 +761,20 @@ impl Module {
     /// back to the runtime between each try.
     pub async fn wait_attach(process: &Process, profile: Profile) -> Self {
         retry(|| Self::attach(process, profile)).await
+    }
+
+    /// Attaches to a Unity game that is using the standard Mono backend, in
+    /// the module at `mono_module`, with the provided measured [`Profile`].
+    ///
+    /// This is the `await`able version of
+    /// [`attach_to_module`](Self::attach_to_module), yielding back to the
+    /// runtime between each try.
+    pub async fn wait_attach_to_module(
+        process: &Process,
+        mono_module: Address,
+        profile: Profile,
+    ) -> Self {
+        retry(|| Self::attach_to_module(process, mono_module, profile)).await
     }
 
     /// Looks for the specified binary [image](Image) inside the target process.
