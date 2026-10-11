@@ -89,7 +89,14 @@ pub use managed::{DictionaryOffsets, HashSetOffsets, ListOffsets, ManagedString}
 pub mod mono;
 pub mod scene_manager;
 
-use crate::{signature::Signature, Address, Process};
+#[cfg(all(test, not(target_family = "wasm")))]
+mod module_tests;
+
+use crate::{
+    file_format::{elf, pe},
+    signature::Signature,
+    Address, Process,
+};
 
 const CSTR: usize = 128;
 
@@ -100,6 +107,19 @@ enum BinaryFormat {
     ELF,
     #[cfg(feature = "alloc")]
     MachO,
+}
+
+/// Reads the format and the size of the module at `address` from its
+/// header. A PE image spans the size of image its optional header gives and
+/// an ELF image runs to the end of its last load segment. asr has no reader
+/// for a Mach-O image's size, so a Mach-O image gives `None` like any header
+/// it doesn't know.
+fn module_at(process: &Process, address: Address) -> Option<((Address, u64), BinaryFormat)> {
+    if let Some(size) = pe::read_size_of_image(process, address) {
+        return Some(((address, size as u64), BinaryFormat::PE));
+    }
+    let size = elf::read_size_of_image(process, address)?;
+    Some(((address, size), BinaryFormat::ELF))
 }
 
 /// Finds the Unity version string in a player, `2021.3.11f1` for

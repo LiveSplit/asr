@@ -418,9 +418,16 @@ fn a_linux_player_takes_the_build_measured_on_linux() {
 }
 
 // A Unity 5.6.7 Linux engine module, holding the manager at BASE + 0x900.
+// One load segment covers the module, so its size can be read from the
+// header.
 fn old_linux_engine() -> Vec<u8> {
     let mut image = vec![0; 0x2000];
     put(&mut image, 0, b"\x7fELF\x02\x01\x01");
+    put(&mut image, 0x20, &0x40_u64.to_le_bytes());
+    put(&mut image, 0x36, &56_u16.to_le_bytes());
+    put(&mut image, 0x38, &1_u16.to_le_bytes());
+    put(&mut image, 0x40, &1_u32.to_le_bytes());
+    put(&mut image, 0x68, &MODULE.to_le_bytes());
     put(&mut image, 0x300, b"\x005.6.7f1\0");
     // The old Linux anchor loads the manager global into rbp before
     // checking the scene count at 0x18.
@@ -451,6 +458,31 @@ fn a_given_profile_attaches_through_the_linux_player() {
             let profile = profiles::UNITY_5_6_2F1_LINUX_X86_64;
             let manager = SceneManager::attach(process, profile).unwrap();
             assert_eq!(manager.address, Address::new(BASE + 0x900));
+        },
+    );
+}
+
+// A game that keeps the engine in its executable attaches through the module
+// the auto splitter hands in, which doesn't need `alloc`.
+#[test]
+fn a_given_profile_attaches_through_a_given_module() {
+    let image = old_linux_engine();
+    with_modules(
+        &[(BASE, &image)],
+        &[("game.x86_64", BASE, MODULE)],
+        |process| {
+            let module = process.get_module_address("game.x86_64").unwrap();
+            let profile = profiles::UNITY_5_6_2F1_LINUX_X86_64;
+            #[cfg(not(feature = "alloc"))]
+            assert!(SceneManager::attach(process, profile).is_none());
+            let manager = SceneManager::attach_to_module(process, module, profile).unwrap();
+            assert_eq!(manager.address, Address::new(BASE + 0x900));
+            assert!(matches!(
+                crate::runtime::mock::poll_once(SceneManager::wait_attach_to_module(
+                    process, module, profile
+                )),
+                core::task::Poll::Ready(_),
+            ));
         },
     );
 }
