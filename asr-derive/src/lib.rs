@@ -89,6 +89,17 @@ use syn::{
 /// # }
 /// ```
 ///
+/// A settings button requires an `on_click` handler and the `alloc` feature.
+/// You also need to call `asr::export_settings_buttons!()` so the runtime can
+/// invoke it. Without that macro, the host ignores clicks.
+///
+/// ```no_run
+/// # struct Settings {
+/// #[button(on_click = clear_counters)]
+/// clear_counters: Button,
+/// # }
+/// ```
+///
 /// # Choices
 ///
 /// You can derive `Gui` for an enum to create a choice widget. You can mark one
@@ -132,7 +143,7 @@ use syn::{
 ///     use_game_time: Pair<bool>,
 /// }
 /// ```
-#[proc_macro_derive(Gui, attributes(default, heading_level, filter))]
+#[proc_macro_derive(Gui, attributes(default, heading_level, filter, button))]
 pub fn settings_macro(input: TokenStream) -> TokenStream {
     let ast: DeriveInput = syn::parse(input).unwrap();
 
@@ -162,6 +173,17 @@ fn generate_struct_settings(struct_name: Ident, struct_data: DataStruct) -> Resu
         let ident = field.ident.clone().unwrap();
         let ident_name = ident.to_string();
         field_names.push(ident);
+        if is_button_type(&field.ty)
+            && !field
+                .attrs
+                .iter()
+                .any(|attr| attr.path().is_ident("button"))
+        {
+            return Err(Error::new(
+                field.ty.span(),
+                "Button fields require #[button(on_click = ...)]",
+            ));
+        }
         field_tys.push(field.ty);
         let mut doc_string = String::new();
         let mut tooltip_string = String::new();
@@ -233,6 +255,8 @@ fn generate_struct_settings(struct_name: Ident, struct_data: DataStruct) -> Resu
                 Meta::List(list) => {
                     if list.path.is_ident("filter") {
                         Some(parse_filter(list))
+                    } else if list.path.is_ident("button") {
+                        Some(parse_button(list))
                     } else {
                         None
                     }
@@ -382,6 +406,28 @@ fn generate_enum_settings(enum_name: Ident, enum_data: DataEnum) -> Result<Token
         }
     }
     .into())
+}
+
+fn is_button_type(ty: &syn::Type) -> bool {
+    let syn::Type::Path(path) = ty else {
+        return false;
+    };
+    path.path
+        .segments
+        .last()
+        .is_some_and(|segment| segment.ident == "Button" && segment.arguments.is_empty())
+}
+
+fn parse_button(list: &MetaList) -> Result<proc_macro2::TokenStream> {
+    let span = list.span();
+    let nv: syn::MetaNameValue = list
+        .parse_args()
+        .map_err(|_| Error::new(span, "expected `#[button(on_click = ...)]`"))?;
+    if !nv.path.is_ident("on_click") {
+        return Err(Error::new(nv.path.span(), "expected `on_click`"));
+    }
+    let value = &nv.value;
+    Ok(quote_spanned! { span => args.on_click = #value; })
 }
 
 fn parse_filter(list: &MetaList) -> Result<proc_macro2::TokenStream> {
