@@ -12,6 +12,7 @@ use crate::{signature::Signature, PointerSize};
 
 /// One measured Unity player and the layout of its scene manager.
 pub(super) struct Build {
+    #[cfg(any(feature = "alloc", test))]
     pub(super) unity: (u16, u16, u16, u16),
     pub(super) profile: Profile,
 }
@@ -21,6 +22,7 @@ pub(super) struct Build {
 /// executable before Unity 2017.2, and the first three of them are the
 /// patch. A player takes the newest build whose patch is at or below its own
 /// patch. A player below every build takes none.
+#[cfg(any(feature = "alloc", test))]
 pub(super) fn nearest(
     unity: (u16, u16, u16, u16),
     pointer_size: PointerSize,
@@ -30,6 +32,7 @@ pub(super) fn nearest(
 
 /// Finds the build for a player in the given table by the rule of
 /// [`nearest`].
+#[cfg(any(feature = "alloc", test))]
 pub(super) fn nearest_in(
     builds: &'static [Build],
     unity: (u16, u16, u16, u16),
@@ -99,6 +102,7 @@ const SCENE_AT_GETTER_X86: Anchor = Anchor {
 pub(super) const BUILDS: &[Build] = &[
     // Unity 5.6.0f1, x64.
     Build {
+        #[cfg(any(feature = "alloc", test))]
         unity: (5, 6, 0, 23754),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
@@ -130,6 +134,7 @@ pub(super) const BUILDS: &[Build] = &[
     },
     // Unity 5.6.0f1, x86.
     Build {
+        #[cfg(any(feature = "alloc", test))]
         unity: (5, 6, 0, 23754),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
@@ -162,6 +167,7 @@ pub(super) const BUILDS: &[Build] = &[
     // Unity 5.6.2f1, x64. Same layout as 5.6.0, but with the DontDestroyOnLoad
     // scene.
     Build {
+        #[cfg(any(feature = "alloc", test))]
         unity: (5, 6, 2, 37180),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
@@ -194,6 +200,7 @@ pub(super) const BUILDS: &[Build] = &[
     // Unity 5.6.2f1, x86. Same layout as 5.6.0, but with the DontDestroyOnLoad
     // scene.
     Build {
+        #[cfg(any(feature = "alloc", test))]
         unity: (5, 6, 2, 37180),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
@@ -225,6 +232,7 @@ pub(super) const BUILDS: &[Build] = &[
     },
     // Unity 2017.1.0f1, x64.
     Build {
+        #[cfg(any(feature = "alloc", test))]
         unity: (2017, 1, 0, 32737),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
@@ -256,6 +264,7 @@ pub(super) const BUILDS: &[Build] = &[
     },
     // Unity 2017.1.0f1, x86.
     Build {
+        #[cfg(any(feature = "alloc", test))]
         unity: (2017, 1, 0, 32737),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
@@ -287,6 +296,7 @@ pub(super) const BUILDS: &[Build] = &[
     },
     // Unity 2017.3.0f1, x86.
     Build {
+        #[cfg(any(feature = "alloc", test))]
         unity: (2017, 3, 0, 20311),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
@@ -320,6 +330,7 @@ pub(super) const BUILDS: &[Build] = &[
     // pointer at its start here, so every member of a scene sits one pointer
     // further along than it does in 2018.1 and in 2018.3.
     Build {
+        #[cfg(any(feature = "alloc", test))]
         unity: (2018, 2, 0, 44229),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
@@ -351,6 +362,7 @@ pub(super) const BUILDS: &[Build] = &[
     },
     // Unity 2018.2.0f1, x86.
     Build {
+        #[cfg(any(feature = "alloc", test))]
         unity: (2018, 2, 0, 44229),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
@@ -382,6 +394,7 @@ pub(super) const BUILDS: &[Build] = &[
     },
     // Unity 2018.3.0f1, x64.
     Build {
+        #[cfg(any(feature = "alloc", test))]
         unity: (2018, 3, 0, 9156),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
@@ -413,6 +426,7 @@ pub(super) const BUILDS: &[Build] = &[
     },
     // Unity 2018.3.0f1, x86.
     Build {
+        #[cfg(any(feature = "alloc", test))]
         unity: (2018, 3, 0, 9156),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
@@ -444,6 +458,7 @@ pub(super) const BUILDS: &[Build] = &[
     },
     // Unity 2021.1.0f1, x64.
     Build {
+        #[cfg(any(feature = "alloc", test))]
         unity: (2021, 1, 0, 42313),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
@@ -475,6 +490,7 @@ pub(super) const BUILDS: &[Build] = &[
     },
     // Unity 2022.2.0f1, x86.
     Build {
+        #[cfg(any(feature = "alloc", test))]
         unity: (2022, 2, 0, 56532),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
@@ -506,6 +522,7 @@ pub(super) const BUILDS: &[Build] = &[
     },
     // Unity 2022.3.5f1, x64.
     Build {
+        #[cfg(any(feature = "alloc", test))]
         unity: (2022, 3, 5, 29734),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
@@ -537,6 +554,7 @@ pub(super) const BUILDS: &[Build] = &[
     },
     // Unity 2022.3.5f1, x86.
     Build {
+        #[cfg(any(feature = "alloc", test))]
         unity: (2022, 3, 5, 29734),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
@@ -568,6 +586,7 @@ pub(super) const BUILDS: &[Build] = &[
     },
     // Unity 2023.1.0f1, x64.
     Build {
+        #[cfg(any(feature = "alloc", test))]
         unity: (2023, 1, 0, 2298),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
@@ -599,6 +618,7 @@ pub(super) const BUILDS: &[Build] = &[
     },
     // Unity 2023.1.0f1, x86.
     Build {
+        #[cfg(any(feature = "alloc", test))]
         unity: (2023, 1, 0, 2298),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
@@ -630,6 +650,7 @@ pub(super) const BUILDS: &[Build] = &[
     },
     // Unity 2023.1.4f1, x64.
     Build {
+        #[cfg(any(feature = "alloc", test))]
         unity: (2023, 1, 4, 6702),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
@@ -661,6 +682,7 @@ pub(super) const BUILDS: &[Build] = &[
     },
     // Unity 2023.1.4f1, x86.
     Build {
+        #[cfg(any(feature = "alloc", test))]
         unity: (2023, 1, 4, 6702),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
@@ -692,6 +714,7 @@ pub(super) const BUILDS: &[Build] = &[
     },
     // Unity 2023.2.0f1, x64.
     Build {
+        #[cfg(any(feature = "alloc", test))]
         unity: (2023, 2, 0, 54845),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
@@ -723,6 +746,7 @@ pub(super) const BUILDS: &[Build] = &[
     },
     // Unity 2023.2.0f1, x86.
     Build {
+        #[cfg(any(feature = "alloc", test))]
         unity: (2023, 2, 0, 54845),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
@@ -754,6 +778,7 @@ pub(super) const BUILDS: &[Build] = &[
     },
     // Unity 6000.0.59f2, x86.
     Build {
+        #[cfg(any(feature = "alloc", test))]
         unity: (6000, 0, 59, 10268),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
@@ -785,6 +810,7 @@ pub(super) const BUILDS: &[Build] = &[
     },
     // Unity 6000.1.0f1, x86. Same layout as 2023.2.0.
     Build {
+        #[cfg(any(feature = "alloc", test))]
         unity: (6000, 1, 0, 41298),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
@@ -817,6 +843,7 @@ pub(super) const BUILDS: &[Build] = &[
     // Unity 6000.2.0f1, x64. Same layout as 2023.2.0, but the anchor changed
     // from PROLOGUE_LOAD_X64 to SCENE_COUNT_GETTER_X64.
     Build {
+        #[cfg(any(feature = "alloc", test))]
         unity: (6000, 2, 0, 53701),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
@@ -848,6 +875,7 @@ pub(super) const BUILDS: &[Build] = &[
     },
     // Unity 6000.2.2f1, x86. Same layout as 6000.0.59.
     Build {
+        #[cfg(any(feature = "alloc", test))]
         unity: (6000, 2, 2, 14734),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
@@ -879,6 +907,7 @@ pub(super) const BUILDS: &[Build] = &[
     },
     // Unity 6000.3.0f1, x64.
     Build {
+        #[cfg(any(feature = "alloc", test))]
         unity: (6000, 3, 0, 34572),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
@@ -910,6 +939,7 @@ pub(super) const BUILDS: &[Build] = &[
     },
     // Unity 6000.3.0f1, x86.
     Build {
+        #[cfg(any(feature = "alloc", test))]
         unity: (6000, 3, 0, 34572),
         profile: Profile {
             pointer_size: PointerSize::Bit32,
@@ -941,6 +971,7 @@ pub(super) const BUILDS: &[Build] = &[
     },
     // Unity 6000.5.0f1, x64.
     Build {
+        #[cfg(any(feature = "alloc", test))]
         unity: (6000, 5, 0, 46204),
         profile: Profile {
             pointer_size: PointerSize::Bit64,
@@ -972,6 +1003,7 @@ pub(super) const BUILDS: &[Build] = &[
     },
     // Unity 6000.5.0f1, x86.
     Build {
+        #[cfg(any(feature = "alloc", test))]
         unity: (6000, 5, 0, 46204),
         profile: Profile {
             pointer_size: PointerSize::Bit32,

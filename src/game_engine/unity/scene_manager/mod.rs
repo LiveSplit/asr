@@ -22,11 +22,7 @@ use crate::{
     Address, Error, PointerSize, Process,
 };
 
-// The tables also supply the allocation-free profile constants. Their lookup
-// helpers are only used by automatic attachment, which requires `alloc`.
-#[cfg_attr(not(feature = "alloc"), allow(dead_code))]
 mod builds;
-#[cfg_attr(not(feature = "alloc"), allow(dead_code))]
 mod linux_builds;
 pub mod profiles;
 
