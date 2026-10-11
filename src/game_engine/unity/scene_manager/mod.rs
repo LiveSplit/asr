@@ -44,7 +44,10 @@ mod offsets;
 mod transform;
 pub use transform::Transform;
 
-use offsets::Profile;
+pub use offsets::{
+    Anchor, GameObjectOffsets, ManagerOffsets, ObjectOffsets, PathShape, Profile, ReferenceShape,
+    SceneOffsets, TransformOffsets,
+};
 
 mod scene;
 pub use scene::Scene;
@@ -65,7 +68,7 @@ const SCENES: u32 = 1 << 12;
 pub struct SceneManager {
     pointer_size: PointerSize,
     address: Address,
-    profile: &'static Profile,
+    profile: Profile,
 }
 
 impl SceneManager {
@@ -91,7 +94,7 @@ impl SceneManager {
                 let unity = Self::unity_version(process, unity_player.0)?;
                 let build = builds::nearest(unity, pointer_size)?;
                 Self::print_build(unity, build);
-                &build.profile
+                build.profile
             }
             BinaryFormat::ELF => {
                 if elf::pointer_size(process, unity_player.0)? != PointerSize::Bit64 {
@@ -100,10 +103,10 @@ impl SceneManager {
                 let unity = super::version_string(process, unity_player)?;
                 let build = linux_builds::nearest(unity)?;
                 Self::print_build(unity, build);
-                &build.profile
+                build.profile
             }
             BinaryFormat::MachO => match macho::pointer_size(process, unity_player)? {
-                PointerSize::Bit64 => &builds::MACHO_X64,
+                PointerSize::Bit64 => builds::MACHO_X64,
                 _ => return None,
             },
         };
@@ -194,7 +197,7 @@ impl SceneManager {
     fn attach_with(
         process: &Process,
         unity_player: (Address, u64),
-        profile: &'static Profile,
+        profile: Profile,
     ) -> Option<Self> {
         let pointer_size = profile.pointer_size;
         let displacement = profile.anchor.displacement as u64;

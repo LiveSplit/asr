@@ -43,7 +43,7 @@ fn anchor_x86(image: &mut [u8], at: u64, global: u64) {
 }
 
 fn attach(image: &[u8], pointer_size: PointerSize) -> Option<SceneManager> {
-    let profile = &builds::nearest((6000, 3, 21, 9777), pointer_size)
+    let profile = builds::nearest((6000, 3, 21, 9777), pointer_size)
         .unwrap()
         .profile;
     let base = match pointer_size {
@@ -222,7 +222,7 @@ fn scenes_come_from_the_loaded_scene_array() {
         &[(BASE, &image)],
         &[("UnityPlayer.dll", BASE, MODULE)],
         |process: &Process| {
-            let profile = &builds::nearest((6000, 3, 21, 9777), PointerSize::Bit64)
+            let profile = builds::nearest((6000, 3, 21, 9777), PointerSize::Bit64)
                 .unwrap()
                 .profile;
             let manager =
@@ -258,7 +258,7 @@ fn anchor_old_x86(image: &mut [u8], at: u64, global: u64, scenes: u8) {
 
 #[test]
 fn the_old_x86_anchor_leaves_the_scene_list_offset_open() {
-    let profile = &builds::nearest((5, 6, 7, 3267), PointerSize::Bit32)
+    let profile = builds::nearest((5, 6, 7, 3267), PointerSize::Bit32)
         .unwrap()
         .profile;
     let mut image = vec![0; 0x2000];
@@ -406,10 +406,12 @@ fn an_executable_only_linux_player_attaches_automatically() {
     with_modules(&[(BASE, &image)], &[("fixture", BASE, MODULE)], |process| {
         let manager = SceneManager::attach(process).unwrap();
         assert_eq!(manager.address, Address::new(BASE + 0x900));
-        assert!(core::ptr::eq(
-            manager.profile,
-            &linux_builds::nearest((5, 6, 7, 0)).unwrap().profile,
-        ));
+        // `Signature` has no `PartialEq`, so the profiles compare by their
+        // debug output.
+        assert_eq!(
+            std::format!("{:?}", manager.profile),
+            std::format!("{:?}", linux_builds::nearest((5, 6, 7, 0)).unwrap().profile),
+        );
         assert!(matches!(
             crate::runtime::mock::poll_once(SceneManager::wait_attach(process)),
             core::task::Poll::Ready(_),
