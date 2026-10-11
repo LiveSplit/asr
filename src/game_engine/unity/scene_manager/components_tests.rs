@@ -33,7 +33,7 @@ fn manager(unity: (u16, u16, u16, u16)) -> SceneManager {
     SceneManager {
         pointer_size: PointerSize::Bit64,
         address: Address::new(BASE),
-        profile: &builds::nearest(unity, PointerSize::Bit64).unwrap().profile,
+        profile: builds::nearest(unity, PointerSize::Bit64).unwrap().profile,
     }
 }
 

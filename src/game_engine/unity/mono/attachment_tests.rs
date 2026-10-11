@@ -111,3 +111,29 @@ fn an_unknown_legacy_runtime_uses_the_executables_version() {
         },
     );
 }
+
+// A runtime under a file name `attach` doesn't look for still attaches
+// through the module the auto splitter hands in, which doesn't need `alloc`.
+// An address that holds no module doesn't attach.
+#[test]
+fn a_given_module_attaches_under_any_name() {
+    let runtime = runtime();
+    with_modules(
+        &[(RUNTIME, &runtime)],
+        &[("libmono-game.so", RUNTIME, runtime.len() as u64)],
+        |process| {
+            let profile = profiles::UNITY_5_6_0F1_LINUX_MONO_X86_64;
+            assert!(Module::attach(process, profile).is_none());
+            let module = process.get_module_address("libmono-game.so").unwrap();
+            let attached = Module::attach_to_module(process, module, profile).unwrap();
+            assert_eq!(attached.profile, profile);
+            assert!(Module::attach_to_module(process, module + 0x1000, profile).is_none());
+            let Poll::Ready(attached) =
+                poll_once(Module::wait_attach_to_module(process, module, profile))
+            else {
+                panic!("the given module should attach immediately");
+            };
+            assert_eq!(attached.profile, profile);
+        },
+    );
+}

@@ -220,6 +220,30 @@ fn attach_auto_detect_uses_a_measured_build() {
     assert_eq!(module.profile.class.static_fields, 0xA0);
 }
 
+// A runtime under a file name `attach` doesn't look for still attaches
+// through the module the auto splitter hands in. An address that holds no
+// module doesn't attach.
+#[test]
+fn a_given_module_attaches_under_any_name() {
+    let image = Player::game_assembly();
+    with_modules(
+        &[(GAME_ASSEMBLY, &image)],
+        &[("GameAssembly_x64.dll", GAME_ASSEMBLY, 0x1000)],
+        |process| {
+            let profile = super::profiles::UNITY_6000_5_0F1_X86_64;
+            assert!(Module::attach(process, profile).is_none());
+            let module = process.get_module_address("GameAssembly_x64.dll").unwrap();
+            let attached = Module::attach_to_module(process, module, profile).unwrap();
+            assert_eq!(attached.profile, profile);
+            assert!(Module::attach_to_module(process, module + 0x800, profile).is_none());
+            assert!(matches!(
+                poll_once(Module::wait_attach_to_module(process, module, profile)),
+                Poll::Ready(_)
+            ));
+        },
+    );
+}
+
 #[test]
 fn attach_uses_the_explicit_profile_and_checks_its_width() {
     let player = Player {
