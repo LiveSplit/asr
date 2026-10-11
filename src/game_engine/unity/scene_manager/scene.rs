@@ -88,12 +88,10 @@ impl Scene {
     /// Returns the length of the path kept inline in the field, or [`None`]
     /// when the field holds no inline path.
     fn inline_len(field: &[u8; 32], shape: PathShape) -> Option<usize> {
-        let len = if shape == PathShape::InlineNul {
-            field.iter().position(|&b| b == 0)?
-        } else if shape == PathShape::InlineSpare {
-            31_usize.checked_sub(field[31] as usize)?
-        } else {
-            return None;
+        let len = match shape {
+            PathShape::InlineNul => field.iter().position(|&b| b == 0)?,
+            PathShape::InlineSpare => 31_usize.checked_sub(field[31] as usize)?,
+            PathShape::Pointer => return None,
         };
         let terminated = len == 31 || field[len] == 0;
         (len <= 31 && terminated && !field[..len].contains(&0)).then_some(len)
