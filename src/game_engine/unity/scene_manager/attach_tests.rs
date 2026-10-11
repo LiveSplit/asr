@@ -2,7 +2,7 @@
 //! the anchor of the build is scanned in the engine module, every match
 //! must point at the same global, and the global holds the manager.
 
-use super::{builds, linux_builds, Scene, SceneManager};
+use super::{builds, linux_builds, profiles, Profile, Scene, SceneManager};
 use crate::{runtime::mock::with_modules, Address, PointerSize, Process};
 use std::format;
 use std::vec;
@@ -43,7 +43,7 @@ fn anchor_x86(image: &mut [u8], at: u64, global: u64) {
 }
 
 fn attach(image: &[u8], pointer_size: PointerSize) -> Option<SceneManager> {
-    let profile = &builds::nearest((6000, 3, 21, 9777), pointer_size)
+    let profile = builds::nearest((6000, 3, 21, 9777), pointer_size)
         .unwrap()
         .profile;
     let base = match pointer_size {
@@ -222,7 +222,7 @@ fn scenes_come_from_the_loaded_scene_array() {
         &[(BASE, &image)],
         &[("UnityPlayer.dll", BASE, MODULE)],
         |process: &Process| {
-            let profile = &builds::nearest((6000, 3, 21, 9777), PointerSize::Bit64)
+            let profile = builds::nearest((6000, 3, 21, 9777), PointerSize::Bit64)
                 .unwrap()
                 .profile;
             let manager =
@@ -258,7 +258,7 @@ fn anchor_old_x86(image: &mut [u8], at: u64, global: u64, scenes: u8) {
 
 #[test]
 fn the_old_x86_anchor_leaves_the_scene_list_offset_open() {
-    let profile = &builds::nearest((5, 6, 7, 3267), PointerSize::Bit32)
+    let profile = builds::nearest((5, 6, 7, 3267), PointerSize::Bit32)
         .unwrap()
         .profile;
     let mut image = vec![0; 0x2000];
@@ -277,7 +277,6 @@ fn the_old_x86_anchor_leaves_the_scene_list_offset_open() {
 
 // The least of a PE header: the DOS header pointing at the COFF header, an
 // x64 machine, and an optional header carrying the size of the image.
-#[cfg(feature = "alloc")]
 fn pe_header(image: &mut [u8]) {
     put(image, 0, b"MZ");
     put(image, 0x3C, &0x80_u32.to_le_bytes());
@@ -286,6 +285,43 @@ fn pe_header(image: &mut [u8]) {
     put(image, 0x94, &0xF0_u16.to_le_bytes());
     put(image, 0x98, &0x20B_u16.to_le_bytes());
     put(image, 0x98 + 0x38, &(MODULE as u32).to_le_bytes());
+}
+
+// A given profile attaches through the player module without reading the
+// version, so it needs no `alloc`. A profile for the other pointer size does
+// not attach. Read as an x86 absolute address, the displacement of the x64
+// load points at a pointer in low memory, so only the pointer size check
+// stops the wrong profile.
+#[test]
+fn a_given_profile_attaches_through_the_player() {
+    let mut player = vec![0; 0x2000];
+    pe_header(&mut player);
+    anchor_x64(&mut player, 0x200, BASE + 0x800);
+    put(&mut player, 0x800, &(BASE + 0x900).to_le_bytes());
+    let mut low = vec![0; 0x200];
+    put(
+        &mut low,
+        0x800 - (0x200 + 7) - 0x500,
+        &0x1234_u32.to_le_bytes(),
+    );
+    with_modules(
+        &[(BASE, &player), (0x500, &low)],
+        &[("UnityPlayer.dll", BASE, MODULE)],
+        |process| {
+            let profile = profiles::UNITY_6000_3_0F1_WINDOWS_X86_64;
+            let manager = SceneManager::attach(process, profile).unwrap();
+            assert_eq!(manager.address, Address::new(BASE + 0x900));
+            let x86 = Profile {
+                pointer_size: PointerSize::Bit32,
+                ..profile
+            };
+            assert!(SceneManager::attach(process, x86).is_none());
+            assert!(matches!(
+                crate::runtime::mock::poll_once(SceneManager::wait_attach(process, profile)),
+                core::task::Poll::Ready(_),
+            ));
+        },
+    );
 }
 
 #[cfg(feature = "alloc")]
@@ -373,7 +409,7 @@ fn a_linux_player_takes_the_build_measured_on_linux() {
     let manager = with_modules(
         &[(BASE, &image)],
         &[("UnityPlayer.so", BASE, MODULE)],
-        SceneManager::attach,
+        SceneManager::attach_auto_detect,
     )
     .unwrap();
     assert_eq!(manager.address, Address::new(BASE + 0x900));
@@ -381,9 +417,8 @@ fn a_linux_player_takes_the_build_measured_on_linux() {
     assert_eq!(manager.profile.scene.roots, 0xe8);
 }
 
-#[cfg(feature = "alloc")]
-#[test]
-fn an_executable_only_linux_player_attaches_automatically() {
+// A Unity 5.6.7 Linux engine module, holding the manager at BASE + 0x900.
+fn old_linux_engine() -> Vec<u8> {
     let mut image = vec![0; 0x2000];
     put(&mut image, 0, b"\x7fELF\x02\x01\x01");
     put(&mut image, 0x300, b"\x005.6.7f1\0");
@@ -402,16 +437,52 @@ fn an_executable_only_linux_player_attaches_automatically() {
         &[0x53, 0x8B, 0x45, 0x18, 0x85, 0xC0, 0x74],
     );
     put(&mut image, 0x800, &(BASE + 0x900).to_le_bytes());
+    image
+}
 
+// A given profile attaches through `UnityPlayer.so` too, without `alloc`.
+#[test]
+fn a_given_profile_attaches_through_the_linux_player() {
+    let image = old_linux_engine();
+    with_modules(
+        &[(BASE, &image)],
+        &[("UnityPlayer.so", BASE, MODULE)],
+        |process| {
+            let profile = profiles::UNITY_5_6_2F1_LINUX_X86_64;
+            let manager = SceneManager::attach(process, profile).unwrap();
+            assert_eq!(manager.address, Address::new(BASE + 0x900));
+        },
+    );
+}
+
+// With `alloc`, a given profile also finds the engine in the executable of a
+// game that has no player module.
+#[cfg(feature = "alloc")]
+#[test]
+fn a_given_profile_attaches_through_the_executable() {
+    let image = old_linux_engine();
     with_modules(&[(BASE, &image)], &[("fixture", BASE, MODULE)], |process| {
-        let manager = SceneManager::attach(process).unwrap();
+        let profile = profiles::UNITY_5_6_2F1_LINUX_X86_64;
+        let manager = SceneManager::attach(process, profile).unwrap();
         assert_eq!(manager.address, Address::new(BASE + 0x900));
-        assert!(core::ptr::eq(
-            manager.profile,
-            &linux_builds::nearest((5, 6, 7, 0)).unwrap().profile,
-        ));
+    });
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn an_executable_only_linux_player_attaches_automatically() {
+    let image = old_linux_engine();
+    with_modules(&[(BASE, &image)], &[("fixture", BASE, MODULE)], |process| {
+        let manager = SceneManager::attach_auto_detect(process).unwrap();
+        assert_eq!(manager.address, Address::new(BASE + 0x900));
+        // `Signature` has no `PartialEq`, so the profiles compare by their
+        // debug output.
+        assert_eq!(
+            std::format!("{:?}", manager.profile),
+            std::format!("{:?}", linux_builds::nearest((5, 6, 7, 0)).unwrap().profile),
+        );
         assert!(matches!(
-            crate::runtime::mock::poll_once(SceneManager::wait_attach(process)),
+            crate::runtime::mock::poll_once(SceneManager::wait_attach_auto_detect(process)),
             core::task::Poll::Ready(_),
         ));
     });
