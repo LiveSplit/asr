@@ -63,6 +63,25 @@ fn runtime() -> Vec<u8> {
     image
 }
 
+// An auto splitter that found the global itself hands it in and gets the
+// module `attach` would build from it.
+#[test]
+fn a_given_global_builds_the_attached_module() {
+    let runtime = runtime();
+    with_modules(
+        &[(RUNTIME, &runtime)],
+        &[("libmono.so", RUNTIME, runtime.len() as u64)],
+        |process| {
+            let profile = profiles::UNITY_5_6_0F1_LINUX_MONO_X86_64;
+            let found = Module::attach(process, profile).unwrap();
+            let given = Module::new(found.assemblies, profile);
+            assert_eq!(given.assemblies, found.assemblies);
+            assert_eq!(given.profile, found.profile);
+            assert_eq!(given.pointer_size, found.pointer_size);
+        },
+    );
+}
+
 #[test]
 fn an_explicit_profile_needs_neither_a_player_nor_alloc() {
     let runtime = runtime();

@@ -777,6 +777,19 @@ impl Module {
         retry(|| Self::attach_to_module(process, mono_module, profile)).await
     }
 
+    /// Creates a module from the address of the `loaded_assemblies` global,
+    /// the one that holds the pointer to the list, with the provided measured
+    /// [`Profile`]. Use this when the auto splitter finds the global itself
+    /// because [`attach`](Self::attach) doesn't find it in a game. Nothing
+    /// checks the address or the profile against the game.
+    pub const fn new(assemblies: Address, profile: Profile) -> Self {
+        Self {
+            assemblies,
+            profile,
+            pointer_size: profile.pointer_size,
+        }
+    }
+
     /// Looks for the specified binary [image](Image) inside the target process.
     /// An [image](Image) is a .NET DLL that is loaded
     /// by the game. The `Assembly-CSharp` [image](Image) is the main game

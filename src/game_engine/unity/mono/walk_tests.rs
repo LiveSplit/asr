@@ -327,6 +327,23 @@ fn images_resolve_by_name_through_both_routes() {
     });
 }
 
+// A module built from the `loaded_assemblies` global reads the same as one
+// `attach` built from it. The pointer width comes from the profile.
+#[test]
+fn given_assemblies_read_like_found_ones() {
+    with_process(&[(BASE, &image())], |process| {
+        let module = Module::new(Address::new(BASE), measured());
+        let image = module.get_default_image(process).unwrap();
+        assert!(image.get_class(process, &module, "GameManager").is_some());
+        assert_eq!(image.classes(process, &module).count(), 6);
+    });
+    let x86 = Module::new(
+        Address::new(BASE),
+        profiles::UNITY_2017_2_0F1_WINDOWS_MONO_BDWGC_X86,
+    );
+    assert_eq!(x86.get_pointer_size(), PointerSize::Bit32);
+}
+
 #[test]
 fn classes_resolve_by_name_and_namespace() {
     on_fixture(measured(), |process, module| {
