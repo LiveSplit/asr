@@ -287,7 +287,7 @@ impl<'a> Walker<'a> {
                 // hook only overwrites the first few bytes of it.
                 if at == function {
                     if let Some(len) = hook(bytes, at, self.x64, self.module) {
-                        at = at + len;
+                        at = self.behind_hook(function, at + len);
                         continue;
                     }
                 }
@@ -326,6 +326,20 @@ impl<'a> Walker<'a> {
             BinaryFormat::PE if self.x64 => function_range(self.process, self.module.0, function),
             BinaryFormat::PE => None,
             _ => symbol_range(self.process, self.module.0, function),
+        }
+    }
+
+    /// Finds where the walk goes on behind a hook that ends at `end`, which is
+    /// the end of the first prologue instruction that ends at or after `end`,
+    /// because the hook can end inside an instruction whose leftover bytes
+    /// decode as something else. Falls back to `end` when there is no unwind
+    /// info, since only an x64 PE image has it.
+    fn behind_hook(&self, function: Address, end: Address) -> Address {
+        match self.format {
+            BinaryFormat::PE if self.x64 => {
+                prologue_end(self.process, self.module.0, function, end).unwrap_or(end)
+            }
+            _ => end,
         }
     }
 
@@ -446,6 +460,14 @@ fn function_range(
     module: Address,
     address: Address,
 ) -> Option<(Address, Address)> {
+    let [from, to, _] = function_entry(process, module, address)?;
+    Some((module + from, module + to))
+}
+
+/// Returns the exception directory entry of the x64 function that holds
+/// `address`, with the function's start, end and unwind info relative to the
+/// module at `module`.
+fn function_entry(process: &Process, module: Address, address: Address) -> Option<[u32; 3]> {
     // The exception directory is the fourth data directory of a PE32+ header,
     // and each of its entries holds the start, end and unwind info of one
     // function, sorted by start.
@@ -456,19 +478,70 @@ fn function_range(
     let (mut low, mut high) = (0, size / 12);
     while low < high {
         let middle = (low + high) / 2;
-        let [from, to, _] = process
+        let entry = process
             .read::<[u32; 3]>(module + table + middle * 12)
             .ok()?;
-        if offset < from {
+        if offset < entry[0] {
             high = middle;
-        } else if offset >= to {
+        } else if offset >= entry[1] {
             low = middle + 1;
         } else {
-            return Some((module + from, module + to));
+            return Some(entry);
         }
     }
 
     None
+}
+
+/// Finds where the first prologue instruction of the x64 function at
+/// `function` that ends at or after `at` ends. Reads the ends from the
+/// function's unwind codes and the size of its prologue because each code
+/// holds where the instruction it describes ends.
+fn prologue_end(
+    process: &Process,
+    module: Address,
+    function: Address,
+    at: Address,
+) -> Option<Address> {
+    // Skips an entry that points at offset 0 because it has no unwind info,
+    // since the DOS header sits at offset 0.
+    let [_, _, unwind] = function_entry(process, module, function)?;
+    if unwind == 0 {
+        return None;
+    }
+    let [_, prologue, count, _] = process.read::<[u8; 4]>(module + unwind).ok()?;
+    let wanted = at.value().checked_sub(function.value())?;
+
+    let mut end = (u64::from(prologue) >= wanted).then_some(u64::from(prologue));
+    let mut slot = 0;
+    while slot < u32::from(count) {
+        let [offset, code] = process
+            .read::<[u8; 2]>(module + unwind + 4 + slot * 2)
+            .ok()?;
+        let (op, info) = (code & 0x0F, code >> 4);
+        // Skips epilog codes because they describe the epilog instead of a
+        // prologue instruction.
+        if op != 6 && u64::from(offset) >= wanted {
+            end = Some(end.map_or(u64::from(offset), |end| end.min(u64::from(offset))));
+        }
+        slot += 1 + u32::from(extra_slots(op, info));
+    }
+
+    end.map(|end| function + end)
+}
+
+/// Returns how many more slots an unwind code with this op takes after its
+/// own, because some ops keep a size or an offset there.
+const fn extra_slots(op: u8, info: u8) -> u8 {
+    match op {
+        // UWOP_ALLOC_LARGE: 1 slot for a size up to 512 KiB, 2 for a larger one
+        1 => 1 + (info != 0) as u8,
+        // UWOP_SAVE_NONVOL and UWOP_SAVE_XMM128
+        4 | 8 => 1,
+        // UWOP_SAVE_NONVOL_FAR and UWOP_SAVE_XMM128_FAR
+        5 | 9 => 2,
+        _ => 0,
+    }
 }
 
 /// Finds the start and end of the exported function that holds `address`,
