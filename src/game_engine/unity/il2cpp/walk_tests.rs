@@ -220,6 +220,30 @@ fn attach_auto_detect_uses_a_measured_build() {
     assert_eq!(module.profile.class.static_fields, 0xA0);
 }
 
+// A runtime under a file name `attach` doesn't look for still attaches
+// through the module the auto splitter hands in. An address that holds no
+// module doesn't attach.
+#[test]
+fn a_given_module_attaches_under_any_name() {
+    let image = Player::game_assembly();
+    with_modules(
+        &[(GAME_ASSEMBLY, &image)],
+        &[("GameAssembly_x64.dll", GAME_ASSEMBLY, 0x1000)],
+        |process| {
+            let profile = super::profiles::UNITY_6000_5_0F1_X86_64;
+            assert!(Module::attach(process, profile).is_none());
+            let module = process.get_module_address("GameAssembly_x64.dll").unwrap();
+            let attached = Module::attach_to_module(process, module, profile).unwrap();
+            assert_eq!(attached.profile, profile);
+            assert!(Module::attach_to_module(process, module + 0x800, profile).is_none());
+            assert!(matches!(
+                poll_once(Module::wait_attach_to_module(process, module, profile)),
+                Poll::Ready(_)
+            ));
+        },
+    );
+}
+
 #[test]
 fn attach_uses_the_explicit_profile_and_checks_its_width() {
     let player = Player {
@@ -666,6 +690,49 @@ fn type_counts_no_image_has_read_as_no_classes() {
         let image = module.get_default_image(process).unwrap();
         assert_eq!(image.classes(process, &module).count(), 0);
     });
+}
+
+// An auto splitter that found the two globals itself hands them in and gets
+// the module `attach` would build from them. The pointer width comes from the
+// profile.
+#[test]
+fn given_globals_read_like_found_ones() {
+    let found = Player {
+        unity: MEASURED_6000_5,
+    }
+    .attach()
+    .unwrap();
+    let given = Module::new(
+        found.assemblies,
+        found.type_info_definition_table,
+        found.profile,
+    );
+    assert_eq!(given.assemblies, found.assemblies);
+    assert_eq!(
+        given.type_info_definition_table,
+        found.type_info_definition_table
+    );
+    assert_eq!(given.profile, found.profile);
+    assert_eq!(given.pointer_size, found.pointer_size);
+
+    for unity in [MEASURED_2019, MEASURED_2022] {
+        with_process(&[(BASE, &image(unity))], |process| {
+            let module = Module::new(
+                Address::new(BASE),
+                Address::new(BASE + 0x10),
+                measured(unity, PointerSize::Bit64),
+            );
+            let image = module.get_default_image(process).unwrap();
+            assert!(image.get_class(process, &module, "GameManager").is_some());
+            assert_eq!(image.classes(process, &module).count(), 5);
+        });
+    }
+    let x86 = Module::new(
+        Address::new(BASE),
+        Address::new(BASE + 0x10),
+        measured(MEASURED_2019, PointerSize::Bit32),
+    );
+    assert_eq!(x86.get_pointer_size(), PointerSize::Bit32);
 }
 
 #[test]

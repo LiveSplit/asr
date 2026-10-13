@@ -86,6 +86,25 @@ impl Module {
         Self::attach_with(process, il2cpp_module, format, profile)
     }
 
+    /// Tries attaching to a Unity game that is using the IL2CPP backend, in
+    /// the module at `il2cpp_module`, with the provided measured [`Profile`].
+    /// Use this when the runtime sits in a module [`attach`](Self::attach)
+    /// doesn't look for, such as a renamed `GameAssembly.dll`.
+    /// [`Process::get_module_address`] finds a module by its name without
+    /// allocating. The module must be a PE or an ELF image whose pointer width
+    /// matches the profile.
+    pub fn attach_to_module(
+        process: &Process,
+        il2cpp_module: Address,
+        profile: Profile,
+    ) -> Option<Self> {
+        let (il2cpp_module, format) = super::module_at(process, il2cpp_module)?;
+        let pointer_size = Self::pointer_size(process, il2cpp_module, format)?;
+        (pointer_size == profile.pointer_size).then_some(())?;
+
+        Self::attach_with(process, il2cpp_module, format, profile)
+    }
+
     /// Finds the module the runtime is compiled into, which is
     /// `GameAssembly.dll` on Windows and `GameAssembly.so` on Linux.
     fn find_runtime_module(process: &Process) -> Option<((Address, u64), BinaryFormat)> {
@@ -478,6 +497,38 @@ impl Module {
     /// back to the runtime between each try.
     pub async fn wait_attach(process: &Process, profile: Profile) -> Module {
         retry(|| Self::attach(process, profile)).await
+    }
+
+    /// Attaches to a Unity game that is using the IL2CPP backend, in the
+    /// module at `il2cpp_module`, with the provided measured [`Profile`].
+    ///
+    /// This is the `await`able version of
+    /// [`attach_to_module`](Self::attach_to_module), yielding back to the
+    /// runtime between each try.
+    pub async fn wait_attach_to_module(
+        process: &Process,
+        il2cpp_module: Address,
+        profile: Profile,
+    ) -> Module {
+        retry(|| Self::attach_to_module(process, il2cpp_module, profile)).await
+    }
+
+    /// Creates a module from the addresses of the `s_Assemblies` vector and
+    /// the `s_TypeInfoDefinitionTable` pointer, with the provided measured
+    /// [`Profile`]. Use this when the auto splitter finds the two globals
+    /// itself because [`attach`](Self::attach) doesn't find them in a game.
+    /// Nothing checks the addresses or the profile against the game.
+    pub const fn new(
+        assemblies: Address,
+        type_info_definition_table: Address,
+        profile: Profile,
+    ) -> Self {
+        Self {
+            assemblies,
+            type_info_definition_table,
+            profile,
+            pointer_size: profile.pointer_size,
+        }
     }
 
     /// Looks for the specified binary [image](Image) inside the target process.

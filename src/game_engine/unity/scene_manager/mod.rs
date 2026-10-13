@@ -2,8 +2,12 @@
 //!
 //! Automatic attachment requires the `alloc` feature so that a game without
 //! a separate player module can be identified through its executable. A
-//! `no_std` auto splitter must provide a global allocator. Reading scenes,
-//! transforms, and components does not require allocation.
+//! `no_std` auto splitter must provide a global allocator. Attaching to a
+//! player module with a known [`Profile`] through [`SceneManager::attach`]
+//! doesn't allocate on Windows and Linux. Neither does
+//! [`SceneManager::attach_to_module`], where the auto splitter hands in the
+//! module itself. Reading scenes, transforms, and components doesn't allocate
+//! either.
 
 // References:
 // https://gist.githubusercontent.com/just-ero/92457b51baf85bd1e5b8c87de8c9835e/raw/8aa3e6b8da01fd03ff2ff0c03cbd018e522ef988/UnityScene.hpp
@@ -12,18 +16,17 @@
 // Transforms and GameObjects is taken from https://github.com/Micrologist/UnityInstanceDumper
 
 #[cfg(feature = "alloc")]
+use crate::{file_format::macho, print_limited};
 use crate::{
-    file_format::{elf, macho, pe},
+    file_format::{elf, pe},
     future::retry,
-    print_limited,
+    string::ArrayCString,
+    Address, Error, PointerSize, Process,
 };
-use crate::{string::ArrayCString, Address, Error, PointerSize, Process};
 
-// The tables are also used by allocation-free tests of the scene readers.
-#[cfg(any(feature = "alloc", test))]
 mod builds;
-#[cfg(any(feature = "alloc", test))]
 mod linux_builds;
+pub mod profiles;
 
 mod game_objects;
 
@@ -39,19 +42,23 @@ mod roots_tests;
 #[cfg(all(test, not(target_family = "wasm")))]
 mod components_tests;
 
+#[cfg(all(test, not(target_family = "wasm")))]
+mod profiles_tests;
+
 mod offsets;
 
 mod transform;
 pub use transform::Transform;
 
-use offsets::Profile;
+pub use offsets::{
+    Anchor, GameObjectOffsets, ManagerOffsets, ObjectOffsets, PathShape, Profile, ReferenceShape,
+    SceneOffsets, TransformOffsets,
+};
 
 mod scene;
 pub use scene::Scene;
 
-#[cfg(feature = "alloc")]
-use super::BinaryFormat;
-use super::CSTR;
+use super::{BinaryFormat, CSTR};
 
 /// The most scenes a game can have loaded at once. No game comes anywhere
 /// near 4,096.
@@ -65,7 +72,7 @@ const SCENES: u32 = 1 << 12;
 pub struct SceneManager {
     pointer_size: PointerSize,
     address: Address,
-    profile: &'static Profile,
+    profile: Profile,
 }
 
 impl SceneManager {
@@ -78,10 +85,11 @@ impl SceneManager {
     /// module keeps the engine in its executable, and finding that executable
     /// allocates its path. A `no_std` auto splitter must provide a global
     /// allocator. Basic scene, transform, and component reads do not require
-    /// allocation.
+    /// allocation. If you know the build in advance, use
+    /// [`attach`](Self::attach) with its profile instead.
     #[cfg(feature = "alloc")]
     #[cfg_attr(doc_cfg, doc(cfg(feature = "alloc")))]
-    pub fn attach(process: &Process) -> Option<Self> {
+    pub fn attach_auto_detect(process: &Process) -> Option<Self> {
         let (unity_player, format) = Self::engine_module(process)?;
 
         let profile = match format {
@@ -91,7 +99,7 @@ impl SceneManager {
                 let unity = Self::unity_version(process, unity_player.0)?;
                 let build = builds::nearest(unity, pointer_size)?;
                 Self::print_build(unity, build);
-                &build.profile
+                build.profile
             }
             BinaryFormat::ELF => {
                 if elf::pointer_size(process, unity_player.0)? != PointerSize::Bit64 {
@@ -100,10 +108,10 @@ impl SceneManager {
                 let unity = super::version_string(process, unity_player)?;
                 let build = linux_builds::nearest(unity)?;
                 Self::print_build(unity, build);
-                &build.profile
+                build.profile
             }
             BinaryFormat::MachO => match macho::pointer_size(process, unity_player)? {
-                PointerSize::Bit64 => &builds::MACHO_X64,
+                PointerSize::Bit64 => builds::MACHO_X64,
                 _ => return None,
             },
         };
@@ -129,27 +137,104 @@ impl SceneManager {
 
     /// Attaches to the scene manager in the given process.
     ///
-    /// This is the `await`able version of the [`attach`](Self::attach)
-    /// function, yielding back to the runtime between each try. It requires
-    /// the `alloc` feature so that the executable's path can be allocated when
-    /// no player module is present. A `no_std` auto splitter must provide a
-    /// global allocator.
+    /// This is the `await`able version of the
+    /// [`attach_auto_detect`](Self::attach_auto_detect) function, yielding back
+    /// to the runtime between each try. It requires the `alloc` feature so that
+    /// the executable's path can be allocated when no player module is present.
+    /// A `no_std` auto splitter must provide a global allocator. For
+    /// allocation-free attachment, use [`wait_attach`](Self::wait_attach) with
+    /// a known profile instead.
     #[cfg(feature = "alloc")]
     #[cfg_attr(doc_cfg, doc(cfg(feature = "alloc")))]
-    pub async fn wait_attach(process: &Process) -> SceneManager {
-        retry(|| Self::attach(process)).await
+    pub async fn wait_attach_auto_detect(process: &Process) -> SceneManager {
+        retry(|| Self::attach_auto_detect(process)).await
     }
 
-    /// Finds the module that holds the engine: `UnityPlayer.dll` and its
-    /// Linux and Mac siblings, or the game's own executable, which linked the
-    /// engine in before Unity 2017.2 on Windows and on older Linux players.
-    /// Finding the executable needs its name, so that part needs the `alloc`
-    /// feature.
-    #[cfg(feature = "alloc")]
-    fn engine_module(process: &Process) -> Option<((Address, u64), BinaryFormat)> {
-        let player = [
+    /// Attaches to the scene manager in the given process with the provided
+    /// measured [`Profile`]. The profile's pointer width must match the game.
+    /// Use a built-in [`profiles`] constant for a known player, or construct a
+    /// custom profile for another measured layout.
+    ///
+    /// This looks for the engine in `UnityPlayer.dll` or `UnityPlayer.so`.
+    /// With the `alloc` feature, it also looks in `UnityPlayer.dylib`, and in
+    /// the game's own executable when there is no player module. Finding the
+    /// executable allocates its path, so without `alloc` a game that keeps the
+    /// engine in its executable needs [`attach_to_module`](Self::attach_to_module).
+    /// Finding a player module does not allocate on Windows and Linux.
+    pub fn attach(process: &Process, profile: Profile) -> Option<Self> {
+        #[cfg(feature = "alloc")]
+        let (unity_player, format) = Self::engine_module(process)?;
+        #[cfg(not(feature = "alloc"))]
+        let (unity_player, format) = Self::player_module(process)?;
+        Self::attach_in(process, unity_player, format, profile)
+    }
+
+    /// Attaches to the scene manager in the given process with the provided
+    /// measured [`Profile`]. The profile's pointer width must match the game.
+    /// Finding a player module does not allocate on Windows and Linux.
+    ///
+    /// This is the `await`able version of [`attach`](Self::attach), yielding
+    /// back to the runtime between each try.
+    pub async fn wait_attach(process: &Process, profile: Profile) -> SceneManager {
+        retry(|| Self::attach(process, profile)).await
+    }
+
+    /// Attaches to the scene manager in the module at `engine_module` with
+    /// the provided measured [`Profile`]. Use this when the engine sits in a
+    /// module [`attach`](Self::attach) doesn't look for, such as a renamed
+    /// player module or, without the `alloc` feature, the executable of a game
+    /// that has no player module. [`Process::get_module_address`] finds a
+    /// module by its name without allocating. The module must be a PE or an
+    /// ELF image whose pointer width matches the profile.
+    pub fn attach_to_module(
+        process: &Process,
+        engine_module: Address,
+        profile: Profile,
+    ) -> Option<Self> {
+        let (engine_module, format) = super::module_at(process, engine_module)?;
+        Self::attach_in(process, engine_module, format, profile)
+    }
+
+    /// Attaches to the scene manager in the module at `engine_module` with
+    /// the provided measured [`Profile`].
+    ///
+    /// This is the `await`able version of
+    /// [`attach_to_module`](Self::attach_to_module), yielding back to the
+    /// runtime between each try.
+    pub async fn wait_attach_to_module(
+        process: &Process,
+        engine_module: Address,
+        profile: Profile,
+    ) -> SceneManager {
+        retry(|| Self::attach_to_module(process, engine_module, profile)).await
+    }
+
+    /// Attaches through the anchor of the profile once the engine module is
+    /// known, if the module's pointer width matches the profile.
+    fn attach_in(
+        process: &Process,
+        engine_module: (Address, u64),
+        format: BinaryFormat,
+        profile: Profile,
+    ) -> Option<Self> {
+        let pointer_size = match format {
+            BinaryFormat::PE => pe::MachineType::read(process, engine_module.0)?.pointer_size()?,
+            BinaryFormat::ELF => elf::pointer_size(process, engine_module.0)?,
+            #[cfg(feature = "alloc")]
+            BinaryFormat::MachO => macho::pointer_size(process, engine_module)?,
+        };
+        (pointer_size == profile.pointer_size).then_some(())?;
+
+        Self::attach_with(process, engine_module, profile)
+    }
+
+    /// Finds the player module that holds the engine: `UnityPlayer.dll` and
+    /// its Linux sibling, plus its Mac sibling with the `alloc` feature.
+    fn player_module(process: &Process) -> Option<((Address, u64), BinaryFormat)> {
+        [
             ("UnityPlayer.dll", BinaryFormat::PE),
             ("UnityPlayer.so", BinaryFormat::ELF),
+            #[cfg(feature = "alloc")]
             ("UnityPlayer.dylib", BinaryFormat::MachO),
         ]
         .into_iter()
@@ -162,9 +247,17 @@ impl SceneManager {
                 ))
             }
             _ => Some((process.get_module_range(name).ok()?, format)),
-        });
+        })
+    }
 
-        player.or_else(|| {
+    /// Finds the module that holds the engine: `UnityPlayer.dll` and its
+    /// Linux and Mac siblings, or the game's own executable, which linked the
+    /// engine in before Unity 2017.2 on Windows and on older Linux players.
+    /// Finding the executable needs its name, so that part needs the `alloc`
+    /// feature.
+    #[cfg(feature = "alloc")]
+    fn engine_module(process: &Process) -> Option<((Address, u64), BinaryFormat)> {
+        Self::player_module(process).or_else(|| {
             let executable = process.get_main_module_range().ok()?;
             if pe::MachineType::read(process, executable.0).is_some() {
                 return Some((executable, BinaryFormat::PE));
@@ -190,11 +283,10 @@ impl SceneManager {
     /// Finds the scene manager in the engine module through the anchor of
     /// the profile. Every match of the anchor must name the same global,
     /// and the global must hold the manager.
-    #[cfg(any(feature = "alloc", test))]
     fn attach_with(
         process: &Process,
         unity_player: (Address, u64),
-        profile: &'static Profile,
+        profile: Profile,
     ) -> Option<Self> {
         let pointer_size = profile.pointer_size;
         let displacement = profile.anchor.displacement as u64;
