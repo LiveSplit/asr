@@ -376,6 +376,168 @@ fn finds_the_table_four_jumps_in() {
     );
 }
 
+/// Looks for the table in an image where the hook is at 0x1200, 2 jumps into
+/// `il2cpp_image_get_class`, and the table accessor sits right behind it.
+fn hooked_accessor(hook: &[u8]) -> Option<Address> {
+    let behind = 0x1200 + hook.len() as u32;
+    let accessor = [hook, &accessor_x64(behind)].concat();
+    let code = [
+        (0x1000, jmp(0x1000, 0x1100)),
+        (0x1100, jmp(0x1100, 0x1200)),
+        (0x1200, accessor),
+    ];
+    let code: Vec<(u32, &[u8])> = code.iter().map(|(at, bytes)| (*at, &bytes[..])).collect();
+    table(PointerSize::Bit64, "il2cpp_image_get_class", &code)
+}
+
+// MelonLoader replaces the first 6 bytes of the accessor with a jmp through a
+// pointer that sits outside the module.
+#[test]
+fn finds_the_table_behind_a_jump_through_a_pointer_outside_the_module() {
+    let hook = [&[0xFF, 0x25][..], &displacement(0x1206, 0x7000_0000)].concat();
+    assert_eq!(hooked_accessor(&hook), Some(Address::new(BASE + 0x3000)));
+}
+
+// The hook MelonLoader wrote into Big Walk, with its exception directory
+// entry. The pointer sits below the module, so the displacement is negative.
+#[test]
+fn finds_the_table_behind_the_hook_of_a_windows_player() {
+    let accessor = [
+        &[0xFF, 0x25, 0x3A, 0x47, 0x06, 0x80][..],
+        &accessor_x64(0x1206),
+    ]
+    .concat();
+    let code = [
+        (0x1000, jmp(0x1000, 0x1100)),
+        (0x1100, jmp(0x1100, 0x1200)),
+        (0x1200, accessor),
+    ];
+    let code: Vec<(u32, &[u8])> = code.iter().map(|(at, bytes)| (*at, &bytes[..])).collect();
+    let mut image = image(
+        PointerSize::Bit64,
+        &[("il2cpp_image_get_class", 0x1000)],
+        &code,
+    );
+    put_functions(
+        &mut image,
+        &[(0x1000, 0x1005), (0x1100, 0x1105), (0x1200, 0x1220)],
+    );
+
+    let found = with_process(&[(BASE, &image)], |process| {
+        globals::type_info_definition_table(
+            process,
+            (Address::new(BASE), SIZE as u64),
+            BinaryFormat::PE,
+            PointerSize::Bit64,
+        )
+    });
+    assert_eq!(found, Some(Address::new(BASE + 0x3000)));
+}
+
+// The hook check runs for the assemblies walk too, where the hooked function
+// is the getter the export calls.
+#[test]
+fn finds_s_assemblies_behind_a_hook_on_the_getter() {
+    let call = [
+        &[0x48, 0x83, 0xEC, 0x28, 0xE8][..],
+        &displacement(0x1009, 0x1100),
+    ]
+    .concat();
+    let getter = [
+        &[0xFF, 0x25][..],
+        &displacement(0x1106, 0x7000_0000),
+        &[0x48, 0x8D, 0x05],
+        &displacement(0x110D, 0x3000),
+        &[0xC3],
+    ]
+    .concat();
+    assert_eq!(
+        assemblies(PointerSize::Bit64, &[(0x1000, &call), (0x1100, &getter)]),
+        Some(Address::new(BASE + 0x3000))
+    );
+}
+
+#[test]
+fn finds_the_table_behind_a_hook_in_an_elf_export() {
+    let accessor = [
+        &[0xFF, 0x25][..],
+        &displacement(0x1006, 0x7000_0000),
+        &accessor_x64(0x1006),
+    ]
+    .concat();
+    let image = elf_image(
+        &[("il2cpp_image_get_class", 0x1000, 0x20)],
+        &[(0x1000, &accessor)],
+    );
+    let found = with_process(&[(BASE, &image)], |process| {
+        globals::type_info_definition_table(
+            process,
+            (Address::new(BASE), SIZE as u64),
+            BinaryFormat::ELF,
+            PointerSize::Bit64,
+        )
+    });
+    assert_eq!(found, Some(Address::new(BASE + 0x3000)));
+}
+
+// The walk doesn't treat a jump through a pointer kept right behind it as a
+// hook when the pointer holds an address inside the module.
+#[test]
+fn stops_at_a_jump_through_an_inline_pointer_inside_the_module() {
+    let inline = [
+        &[0xFF, 0x25, 0, 0, 0, 0][..],
+        &(BASE + 0x2000).to_le_bytes(),
+    ]
+    .concat();
+    assert_eq!(hooked_accessor(&inline), None);
+}
+
+// Other hooks jump through a pointer kept right behind the jump or jump
+// straight out of the module.
+#[test]
+fn finds_the_table_behind_the_other_jumps_out_of_the_module() {
+    let inline = [
+        &[0xFF, 0x25, 0, 0, 0, 0][..],
+        &0x7FFE_0000_0000_u64.to_le_bytes(),
+    ]
+    .concat();
+    assert_eq!(hooked_accessor(&inline), Some(Address::new(BASE + 0x3000)));
+    let straight = [&[0xE9][..], &displacement(0x1205, 0x7000_0000)].concat();
+    assert_eq!(
+        hooked_accessor(&straight),
+        Some(Address::new(BASE + 0x3000))
+    );
+}
+
+#[test]
+fn finds_the_x86_table_behind_a_jump_through_a_pointer_outside_the_module() {
+    let hook = [0xFF, 0x25, 0x00, 0x00, 0x00, 0x70];
+    // mov eax, [s_TypeInfoDefinitionTable]; cmp dword ptr [eax + esi*4], 0
+    let accessor = [
+        &hook[..],
+        &[0xA1],
+        &absolute(0x3000),
+        &[0x83, 0x3C, 0xB0, 0x00],
+    ]
+    .concat();
+    assert_eq!(
+        table(
+            PointerSize::Bit32,
+            "il2cpp_image_get_class",
+            &[(0x1000, &accessor)]
+        ),
+        Some(Address::new(BASE + 0x3000))
+    );
+}
+
+// The walk doesn't read past an import thunk because the thunk jumps through
+// a pointer inside the module and is the whole function.
+#[test]
+fn stops_at_a_jump_through_a_pointer_inside_the_module() {
+    let thunk = [&[0xFF, 0x25][..], &displacement(0x1206, 0x3800)].concat();
+    assert_eq!(hooked_accessor(&thunk), None);
+}
+
 #[test]
 fn searches_a_level_of_more_than_256_functions() {
     // The export calls 10 functions, and each of those calls 30 more. The

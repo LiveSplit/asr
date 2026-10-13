@@ -193,9 +193,9 @@ const STEPS: usize = 2048;
 
 /// Walks the functions reachable from `start`, breadth first and at most
 /// `depth` calls or jumps deep. Inside a function it follows every branch
-/// and stops at a return or a jump. `look` gets the bytes at each
-/// instruction and returns where an operand naming a global starts in them.
-/// Returns the first global found that way.
+/// and stops at a return or a jump, but skips a hook at the start. `look`
+/// gets the bytes at each instruction and returns where an operand naming a
+/// global starts in them. Returns the first global found that way.
 fn walk(
     process: &Process,
     module: (Address, u64),
@@ -282,6 +282,16 @@ impl<'a> Walker<'a> {
                 // so neither the decoder nor `look` gets to see them.
                 let left = (function_end.value() - at.value()) as usize;
                 let bytes = &bytes[..bytes.len().min(left)];
+
+                // Skips over a hook at the start of a function because the
+                // hook only overwrites the first few bytes of it.
+                if at == function {
+                    if let Some(len) = hook(bytes, at, self.x64, self.module) {
+                        at = at + len;
+                        continue;
+                    }
+                }
+
                 let Some(instruction) = decode(bytes, self.x64) else {
                     break;
                 };
@@ -386,6 +396,36 @@ fn operand(code: &[u8], at: Address, offset: usize, x64: bool) -> Option<Address
     })
 }
 
+/// Returns how many bytes the jump at the start of `code` takes up when it
+/// leaves the module, either straight to its target or through a pointer
+/// outside the module, because that is how a hook starts. Returns `None` for
+/// a jump through a pointer inside the module because that is an import
+/// thunk.
+fn hook(code: &[u8], at: Address, x64: bool, module: (Address, u64)) -> Option<u64> {
+    let word = |at: usize| Some(u32::from_le_bytes(code.get(at..at + 4)?.try_into().ok()?));
+    let outside = |address: Address| !contains(module, address);
+
+    match code {
+        // jmp rel32
+        [0xE9, ..] => outside(at + 5 + word(1)? as i32).then_some(5),
+        // jmp [rip + 0], with the 64-bit target right behind the jump
+        [0xFF, 0x25, 0, 0, 0, 0, ..] if x64 => {
+            let target = u64::from_le_bytes(code.get(6..14)?.try_into().ok()?);
+            outside(Address::new(target)).then_some(14)
+        }
+        // jmp [rip + disp32] on x64, jmp [disp32] on x86
+        [0xFF, 0x25, ..] => {
+            let pointer = if x64 {
+                at + 6 + word(2)? as i32
+            } else {
+                Address::new(word(2)?.into())
+            };
+            outside(pointer).then_some(6)
+        }
+        _ => None,
+    }
+}
+
 /// Checks whether `address` lies inside `module`.
 fn contains(module: (Address, u64), address: Address) -> bool {
     address >= module.0 && address < module.0 + module.1
@@ -447,7 +487,7 @@ fn symbol_range(
 }
 
 /// The longest instruction is 15 bytes, and the patterns the walk looks for
-/// reach 12 bytes past the start of one.
+/// reach 14 bytes past the start of one.
 const AHEAD: usize = 16;
 
 /// Code read from the process a block at a time, so the walk doesn't make a
