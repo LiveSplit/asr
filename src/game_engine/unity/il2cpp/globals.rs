@@ -24,6 +24,7 @@ fn export(
     name: &str,
 ) -> Option<Address> {
     let matches = |symbol_name: ArrayCString<48>| symbol_name.matches(name);
+
     match format {
         BinaryFormat::PE => pe::symbols(process, module.0)
             .find(|symbol| symbol.get_name::<48>(process).is_ok_and(matches))
@@ -44,26 +45,34 @@ pub(super) fn assemblies(
     pointer_size: PointerSize,
 ) -> Option<Address> {
     let start = export(process, module, format, "il2cpp_domain_get_assemblies")?;
+    let x64 = pointer_size == PointerSize::Bit64;
     let linux = format == BinaryFormat::ELF;
+
     walk(process, module, format, start, pointer_size, 1, |code| {
-        if pointer_size == PointerSize::Bit64 {
-            // lea rax, [s_Assemblies]; ret, or mov rax, [s_Assemblies]; ret.
-            // On Linux a getter can pop between the two to keep its stack
-            // aligned, and the master export can go on with sub rcx, rax.
-            let lea = bytes_at(code, 0, &[0x48, 0x8D, 0x05]);
-            let mov = bytes_at(code, 0, &[0x48, 0x8B, 0x05]);
-            let popped =
-                linux && matches!(code.get(7), Some(0x58..=0x5F)) && bytes_at(code, 8, &[0xC3]);
-            let returned = (lea || mov) && (bytes_at(code, 7, &[0xC3]) || popped);
-            let subtracted = linux && mov && bytes_at(code, 7, &[0x48, 0x29, 0xC1]);
-            (returned || subtracted).then_some(3)
-        } else {
-            // mov eax, s_Assemblies; ret, or mov eax, [s_Assemblies]; pop ebp; ret
-            let getter = bytes_at(code, 0, &[0xB8]) && bytes_at(code, 5, &[0xC3]);
-            let master = bytes_at(code, 0, &[0xA1]) && bytes_at(code, 5, &[0x5D, 0xC3]);
-            (getter || master).then_some(1)
-        }
+        assemblies_load(code, x64, linux)
     })
+}
+
+/// Returns where the operand pointing at `s_Assemblies` starts in `code`,
+/// when `code` starts with the load of a getter or a master export.
+fn assemblies_load(code: &[u8], x64: bool, linux: bool) -> Option<usize> {
+    if x64 {
+        // lea rax, [s_Assemblies]; ret, or mov rax, [s_Assemblies]; ret.
+        // On Linux a getter can pop between the two to keep its stack
+        // aligned, and the master export can go on with sub rcx, rax.
+        let lea = bytes_at(code, 0, &[0x48, 0x8D, 0x05]);
+        let mov = bytes_at(code, 0, &[0x48, 0x8B, 0x05]);
+        let popped =
+            linux && matches!(code.get(7), Some(0x58..=0x5F)) && bytes_at(code, 8, &[0xC3]);
+        let returned = (lea || mov) && (bytes_at(code, 7, &[0xC3]) || popped);
+        let subtracted = linux && mov && bytes_at(code, 7, &[0x48, 0x29, 0xC1]);
+        (returned || subtracted).then_some(3)
+    } else {
+        // mov eax, s_Assemblies; ret, or mov eax, [s_Assemblies]; pop ebp; ret
+        let getter = bytes_at(code, 0, &[0xB8]) && bytes_at(code, 5, &[0xC3]);
+        let master = bytes_at(code, 0, &[0xA1]) && bytes_at(code, 5, &[0x5D, 0xC3]);
+        (getter || master).then_some(1)
+    }
 }
 
 /// Finds `s_TypeInfoDefinitionTable` through `il2cpp_image_get_class`, or
@@ -85,24 +94,33 @@ pub(super) fn type_info_definition_table(
             "il2cpp_type_get_class_or_element_class",
         )
     })?;
+    let x64 = pointer_size == PointerSize::Bit64;
     let linux = format == BinaryFormat::ELF;
+
     walk(process, module, format, start, pointer_size, 4, |code| {
-        if pointer_size == PointerSize::Bit64 {
-            // mov rax, [table]; then cmp qword ptr [reg + rax], 0, or
-            // lea rsi or r14, [rax + reg * 8]
-            let compared = bytes_at(code, 7, &[0x48, 0x83, 0x3C]) && bytes_at(code, 11, &[0]);
-            let addressed =
-                matches!(code.get(7), Some(0x48 | 0x4C)) && bytes_at(code, 8, &[0x8D, 0x34]);
-            let windows = bytes_at(code, 0, &[0x48, 0x8B, 0x05]) && (compared || addressed);
-            (windows || (linux && indexed_load(code))).then_some(3)
-        } else {
-            // mov eax, [table]; then cmp dword ptr [eax + reg * 4], 0, or
-            // mov esi, dword ptr [eax + reg * 4]
-            let compared = bytes_at(code, 5, &[0x83, 0x3C]) && bytes_at(code, 8, &[0]);
-            let loaded = bytes_at(code, 5, &[0x8B, 0x34]);
-            (bytes_at(code, 0, &[0xA1]) && (compared || loaded)).then_some(1)
-        }
+        table_load(code, x64, linux)
     })
+}
+
+/// Returns where the operand pointing at `s_TypeInfoDefinitionTable` starts
+/// in `code`, when `code` starts with the type accessor's load of the table
+/// and the read at the type index right after it.
+fn table_load(code: &[u8], x64: bool, linux: bool) -> Option<usize> {
+    if x64 {
+        // mov rax, [table]; then cmp qword ptr [reg + rax], 0, or
+        // lea rsi or r14, [rax + reg * 8]
+        let compared = bytes_at(code, 7, &[0x48, 0x83, 0x3C]) && bytes_at(code, 11, &[0]);
+        let addressed =
+            matches!(code.get(7), Some(0x48 | 0x4C)) && bytes_at(code, 8, &[0x8D, 0x34]);
+        let windows = bytes_at(code, 0, &[0x48, 0x8B, 0x05]) && (compared || addressed);
+        (windows || (linux && indexed_load(code))).then_some(3)
+    } else {
+        // mov eax, [table]; then cmp dword ptr [eax + reg * 4], 0, or
+        // mov esi, dword ptr [eax + reg * 4]
+        let compared = bytes_at(code, 5, &[0x83, 0x3C]) && bytes_at(code, 8, &[0]);
+        let loaded = bytes_at(code, 5, &[0x8B, 0x34]);
+        (bytes_at(code, 0, &[0xA1]) && (compared || loaded)).then_some(1)
+    }
 }
 
 /// Checks whether `code` starts with a load of a global into a register that
@@ -116,6 +134,7 @@ fn indexed_load(code: &[u8]) -> bool {
     if !matches!(rex, 0x48 | 0x4C) || modrm & 0xC7 != 0x05 {
         return false;
     }
+
     let register = ((rex & 0x04) << 1) | ((modrm >> 3) & 7);
     let mut at = 7;
     for _ in 0..2 {
@@ -130,6 +149,7 @@ fn indexed_load(code: &[u8]) -> bool {
         }
         at += next.len;
     }
+
     false
 }
 
@@ -144,11 +164,13 @@ fn reads_scaled(instruction: &[u8], register: u8) -> bool {
         Some(0x0F) => rest.get(1..).unwrap_or_default(),
         _ => rest,
     };
+
     let (Some(&modrm), Some(&sib)) = (rest.get(1), rest.get(2)) else {
         return false;
     };
     let base = ((rex & 0x01) << 3) | (sib & 7);
     let displacement = modrm >> 6 == 0 && sib & 7 == 5;
+
     modrm >> 6 != 3 && modrm & 7 == 4 && sib >> 6 == 3 && !displacement && base == register
 }
 
@@ -171,9 +193,9 @@ const STEPS: usize = 2048;
 
 /// Walks the functions reachable from `start`, breadth first and at most
 /// `depth` calls or jumps deep. Inside a function it follows every branch
-/// and stops at a return or a jump. `look` gets the bytes at each
-/// instruction and returns where an operand naming a global starts in them.
-/// Returns the first global found that way.
+/// and stops at a return or a jump, but skips a hook at the start. `look`
+/// gets the bytes at each instruction and returns where an operand naming a
+/// global starts in them. Returns the first global found that way.
 fn walk(
     process: &Process,
     module: (Address, u64),
@@ -183,119 +205,251 @@ fn walk(
     depth: usize,
     mut look: impl FnMut(&[u8]) -> Option<usize>,
 ) -> Option<Address> {
-    let x64 = pointer_size == PointerSize::Bit64;
-    let end = module.0 + module.1;
-    let inside = |address: Address| address >= module.0 && address < end;
-    let mut code = Code::new(process, end);
-    let mut done = ArrayVec::<Address, FUNCTIONS>::new();
+    let mut walker = Walker::new(process, module, format, pointer_size);
     let mut level = ArrayVec::<Address, LEVEL>::new();
     level.push(start);
 
     for _ in 0..=depth {
         let mut next = ArrayVec::<Address, LEVEL>::new();
         for &function in &level {
-            if done.contains(&function) || done.try_push(function).is_err() {
-                continue;
-            }
-            // An x64 PE image lists where each function starts and ends, and an
-            // ELF image gives the size of each exported function, so the walk
-            // stops at the end even after a call that never returns.
-            let bounds = match format {
-                BinaryFormat::PE if x64 => function_range(process, module.0, function),
-                BinaryFormat::PE => None,
-                _ => symbol_range(process, module.0, function),
-            };
-            let function_end = bounds.map_or(end, |(_, to)| to);
-            let mut branches = ArrayVec::<Address, BRANCHES>::new();
-            let mut walked = ArrayVec::<(Address, Address), BRANCHES>::new();
-            branches.push(function);
-            let mut steps = 0;
-            while let Some(start) = branches.pop() {
-                let mut at = start;
-                while steps < STEPS
-                    && at < function_end
-                    && !walked.iter().any(|&(from, to)| at >= from && at < to)
-                {
-                    steps += 1;
-                    let Some(bytes) = code.at(at) else { break };
-                    // The bytes past the function's end belong to other code,
-                    // so neither the decoder nor `look` gets to see them.
-                    let left = (function_end.value() - at.value()) as usize;
-                    let bytes = &bytes[..bytes.len().min(left)];
-                    let Some(instruction) = decode(bytes, x64) else {
-                        break;
-                    };
-                    // A match whose global lies outside the module is some
-                    // other load, so the walk goes on past it.
-                    let global = look(bytes).and_then(|offset| {
-                        let operand = bytes.get(offset..offset + 4)?;
-                        let value =
-                            u32::from_le_bytes([operand[0], operand[1], operand[2], operand[3]]);
-                        Some(if x64 {
-                            at + offset as u64 + 4 + value as i32
-                        } else {
-                            Address::new(value as u64)
-                        })
-                    });
-                    if let Some(global) = global.filter(|&global| inside(global)) {
-                        return Some(global);
-                    }
-                    let after = at + instruction.len as u64;
-                    let target = |rel: i32| Some(after + rel).filter(|&target| inside(target));
-                    at = after;
-                    match instruction.flow {
-                        Flow::Next => {}
-                        Flow::Branch(rel) => match target(rel) {
-                            // A branch out of the function goes on in another
-                            // one, like a jump, and this one goes on too.
-                            Some(target)
-                                if bounds
-                                    .is_some_and(|(from, to)| target < from || target >= to) =>
-                            {
-                                if !next.contains(&target) {
-                                    let _ = next.try_push(target);
-                                }
-                            }
-                            Some(target) => {
-                                let _ = branches.try_push(target);
-                            }
-                            None => {}
-                        },
-                        Flow::Call(rel) => {
-                            if let Some(target) =
-                                target(rel).filter(|target| !next.contains(target))
-                            {
-                                let _ = next.try_push(target);
-                            }
-                        }
-                        Flow::Jump(rel) => {
-                            // A jump inside the function goes on with it. A
-                            // jump out of it goes on in another function.
-                            let inner = |target: &Address| {
-                                bounds.is_some_and(|(from, to)| *target >= from && *target < to)
-                            };
-                            match target(rel) {
-                                Some(target) if inner(&target) => {
-                                    let _ = branches.try_push(target);
-                                }
-                                Some(target) if !next.contains(&target) => {
-                                    let _ = next.try_push(target);
-                                }
-                                _ => {}
-                            }
-                            break;
-                        }
-                        Flow::Stop => break,
-                    }
-                }
-                if at > start {
-                    let _ = walked.try_push((start, at));
-                }
+            if let Some(global) = walker.function(function, &mut look, &mut next) {
+                return Some(global);
             }
         }
         level = next;
     }
+
     None
+}
+
+/// Keeps the module a walk reads, the code it read so far and the functions it
+/// already walked, for every function the walk goes through.
+struct Walker<'a> {
+    process: &'a Process,
+    module: (Address, u64),
+    format: BinaryFormat,
+    x64: bool,
+    code: Code<'a>,
+    done: ArrayVec<Address, FUNCTIONS>,
+}
+
+impl<'a> Walker<'a> {
+    fn new(
+        process: &'a Process,
+        module: (Address, u64),
+        format: BinaryFormat,
+        pointer_size: PointerSize,
+    ) -> Self {
+        Self {
+            process,
+            module,
+            format,
+            x64: pointer_size == PointerSize::Bit64,
+            code: Code::new(process, module.0 + module.1),
+            done: ArrayVec::new(),
+        }
+    }
+
+    /// Walks every branch of `function` and returns the first global `look`
+    /// finds in it. Calls and jumps out of the function go into `next`. Skips a
+    /// function the walk already went through.
+    fn function(
+        &mut self,
+        function: Address,
+        look: &mut impl FnMut(&[u8]) -> Option<usize>,
+        next: &mut ArrayVec<Address, LEVEL>,
+    ) -> Option<Address> {
+        if self.done.contains(&function) || self.done.try_push(function).is_err() {
+            return None;
+        }
+
+        let bounds = self.bounds(function);
+        let function_end = bounds.map_or(self.module.0 + self.module.1, |(_, to)| to);
+        let mut branches = ArrayVec::<Address, BRANCHES>::new();
+        let mut walked = ArrayVec::<(Address, Address), BRANCHES>::new();
+        let mut steps = 0;
+        branches.push(function);
+
+        while let Some(start) = branches.pop() {
+            let mut at = start;
+            while steps < STEPS
+                && at < function_end
+                && !walked.iter().any(|&(from, to)| at >= from && at < to)
+            {
+                steps += 1;
+                let Some(bytes) = self.code.at(at) else { break };
+                // The bytes past the function's end belong to other code,
+                // so neither the decoder nor `look` gets to see them.
+                let left = (function_end.value() - at.value()) as usize;
+                let bytes = &bytes[..bytes.len().min(left)];
+
+                // Skips over a hook at the start of a function because the
+                // hook only overwrites the first few bytes of it.
+                if at == function {
+                    if let Some(len) = hook(bytes, at, self.x64, self.module) {
+                        at = self.behind_hook(function, at + len);
+                        continue;
+                    }
+                }
+
+                let Some(instruction) = decode(bytes, self.x64) else {
+                    break;
+                };
+
+                // A match whose global lies outside the module is some
+                // other load, so the walk goes on past it.
+                let global = look(bytes).and_then(|offset| operand(bytes, at, offset, self.x64));
+                if let Some(global) = global.filter(|&global| contains(self.module, global)) {
+                    return Some(global);
+                }
+
+                at = at + instruction.len as u64;
+                if !self.follow(instruction.flow, at, bounds, &mut branches, next) {
+                    break;
+                }
+            }
+
+            if at > start {
+                let _ = walked.try_push((start, at));
+            }
+        }
+
+        None
+    }
+
+    /// Finds where `function` starts and ends. An x64 PE image lists where
+    /// each function starts and ends, and an ELF image gives the size of each
+    /// exported function, so the walk stops at the end even after a call that
+    /// never returns.
+    fn bounds(&self, function: Address) -> Option<(Address, Address)> {
+        match self.format {
+            BinaryFormat::PE if self.x64 => function_range(self.process, self.module.0, function),
+            BinaryFormat::PE => None,
+            _ => symbol_range(self.process, self.module.0, function),
+        }
+    }
+
+    /// Finds where the walk goes on behind a hook that ends at `end`, which is
+    /// the end of the first prologue instruction that ends at or after `end`,
+    /// because the hook can end inside an instruction whose leftover bytes
+    /// decode as something else. Falls back to `end` when there is no unwind
+    /// info, since only an x64 PE image has it.
+    fn behind_hook(&self, function: Address, end: Address) -> Address {
+        match self.format {
+            BinaryFormat::PE if self.x64 => {
+                prologue_end(self.process, self.module.0, function, end).unwrap_or(end)
+            }
+            _ => end,
+        }
+    }
+
+    /// Queues the places the code goes on to after an instruction with this
+    /// `flow`. Puts a branch or jump inside the function into `branches` and a
+    /// call or a jump out of the function into `next`. Returns whether the walk
+    /// goes on with the instruction at `after`.
+    fn follow(
+        &self,
+        flow: Flow,
+        after: Address,
+        bounds: Option<(Address, Address)>,
+        branches: &mut ArrayVec<Address, BRANCHES>,
+        next: &mut ArrayVec<Address, LEVEL>,
+    ) -> bool {
+        let target = |rel: i32| Some(after + rel).filter(|&target| contains(self.module, target));
+        let within =
+            |target: Address| bounds.is_some_and(|(from, to)| target >= from && target < to);
+
+        match flow {
+            Flow::Next => true,
+            Flow::Branch(rel) => {
+                match target(rel) {
+                    // A branch out of the function goes on in another
+                    // one, like a jump, and this one goes on too.
+                    Some(target) if bounds.is_some() && !within(target) => queue(next, target),
+                    Some(target) => {
+                        let _ = branches.try_push(target);
+                    }
+                    None => {}
+                }
+                true
+            }
+            Flow::Call(rel) => {
+                if let Some(target) = target(rel) {
+                    queue(next, target);
+                }
+                true
+            }
+            Flow::Jump(rel) => {
+                // A jump inside the function goes on with it. A
+                // jump out of it goes on in another function.
+                match target(rel) {
+                    Some(target) if within(target) => {
+                        let _ = branches.try_push(target);
+                    }
+                    Some(target) => queue(next, target),
+                    None => {}
+                }
+                false
+            }
+            Flow::Stop => false,
+        }
+    }
+}
+
+/// Returns the address the operand at `offset` in the instruction at `at`
+/// points at. Adds an x64 operand to the address right after the operand
+/// because x64 code holds the distance to the global there.
+fn operand(code: &[u8], at: Address, offset: usize, x64: bool) -> Option<Address> {
+    let bytes = code.get(offset..offset + 4)?;
+    let value = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+
+    Some(if x64 {
+        at + offset as u64 + 4 + value as i32
+    } else {
+        Address::new(value as u64)
+    })
+}
+
+/// Returns how many bytes the jump at the start of `code` takes up when it
+/// leaves the module, either straight to its target or through a pointer
+/// outside the module, because that is how a hook starts. Returns `None` for
+/// a jump through a pointer inside the module because that is an import
+/// thunk.
+fn hook(code: &[u8], at: Address, x64: bool, module: (Address, u64)) -> Option<u64> {
+    let word = |at: usize| Some(u32::from_le_bytes(code.get(at..at + 4)?.try_into().ok()?));
+    let outside = |address: Address| !contains(module, address);
+
+    match code {
+        // jmp rel32
+        [0xE9, ..] => outside(at + 5 + word(1)? as i32).then_some(5),
+        // jmp [rip + 0], with the 64-bit target right behind the jump
+        [0xFF, 0x25, 0, 0, 0, 0, ..] if x64 => {
+            let target = u64::from_le_bytes(code.get(6..14)?.try_into().ok()?);
+            outside(Address::new(target)).then_some(14)
+        }
+        // jmp [rip + disp32] on x64, jmp [disp32] on x86
+        [0xFF, 0x25, ..] => {
+            let pointer = if x64 {
+                at + 6 + word(2)? as i32
+            } else {
+                Address::new(word(2)?.into())
+            };
+            outside(pointer).then_some(6)
+        }
+        _ => None,
+    }
+}
+
+/// Checks whether `address` lies inside `module`.
+fn contains(module: (Address, u64), address: Address) -> bool {
+    address >= module.0 && address < module.0 + module.1
+}
+
+/// Adds `function` to `level` unless it's there already or `level` is full.
+fn queue(level: &mut ArrayVec<Address, LEVEL>, function: Address) {
+    if !level.contains(&function) {
+        let _ = level.try_push(function);
+    }
 }
 
 /// Finds the start and end of the x64 function that holds `address`, in the
@@ -306,27 +460,88 @@ fn function_range(
     module: Address,
     address: Address,
 ) -> Option<(Address, Address)> {
+    let [from, to, _] = function_entry(process, module, address)?;
+    Some((module + from, module + to))
+}
+
+/// Returns the exception directory entry of the x64 function that holds
+/// `address`, with the function's start, end and unwind info relative to the
+/// module at `module`.
+fn function_entry(process: &Process, module: Address, address: Address) -> Option<[u32; 3]> {
     // The exception directory is the fourth data directory of a PE32+ header,
     // and each of its entries holds the start, end and unwind info of one
     // function, sorted by start.
     let header = process.read::<u32>(module + 0x3C).ok()?;
     let [table, size] = process.read::<[u32; 2]>(module + header + 0xA0).ok()?;
     let offset = address.value().checked_sub(module.value())? as u32;
+
     let (mut low, mut high) = (0, size / 12);
     while low < high {
         let middle = (low + high) / 2;
-        let [from, to, _] = process
+        let entry = process
             .read::<[u32; 3]>(module + table + middle * 12)
             .ok()?;
-        if offset < from {
+        if offset < entry[0] {
             high = middle;
-        } else if offset >= to {
+        } else if offset >= entry[1] {
             low = middle + 1;
         } else {
-            return Some((module + from, module + to));
+            return Some(entry);
         }
     }
+
     None
+}
+
+/// Finds where the first prologue instruction of the x64 function at
+/// `function` that ends at or after `at` ends. Reads the ends from the
+/// function's unwind codes and the size of its prologue because each code
+/// holds where the instruction it describes ends.
+fn prologue_end(
+    process: &Process,
+    module: Address,
+    function: Address,
+    at: Address,
+) -> Option<Address> {
+    // Skips an entry that points at offset 0 because it has no unwind info,
+    // since the DOS header sits at offset 0.
+    let [_, _, unwind] = function_entry(process, module, function)?;
+    if unwind == 0 {
+        return None;
+    }
+    let [_, prologue, count, _] = process.read::<[u8; 4]>(module + unwind).ok()?;
+    let wanted = at.value().checked_sub(function.value())?;
+
+    let mut end = (u64::from(prologue) >= wanted).then_some(u64::from(prologue));
+    let mut slot = 0;
+    while slot < u32::from(count) {
+        let [offset, code] = process
+            .read::<[u8; 2]>(module + unwind + 4 + slot * 2)
+            .ok()?;
+        let (op, info) = (code & 0x0F, code >> 4);
+        // Skips epilog codes because they describe the epilog instead of a
+        // prologue instruction.
+        if op != 6 && u64::from(offset) >= wanted {
+            end = Some(end.map_or(u64::from(offset), |end| end.min(u64::from(offset))));
+        }
+        slot += 1 + u32::from(extra_slots(op, info));
+    }
+
+    end.map(|end| function + end)
+}
+
+/// Returns how many more slots an unwind code with this op takes after its
+/// own, because some ops keep a size or an offset there.
+const fn extra_slots(op: u8, info: u8) -> u8 {
+    match op {
+        // UWOP_ALLOC_LARGE: 1 slot for a size up to 512 KiB, 2 for a larger one
+        1 => 1 + (info != 0) as u8,
+        // UWOP_SAVE_NONVOL and UWOP_SAVE_XMM128
+        4 | 8 => 1,
+        // UWOP_SAVE_NONVOL_FAR and UWOP_SAVE_XMM128_FAR
+        5 | 9 => 2,
+        _ => 0,
+    }
 }
 
 /// Finds the start and end of the exported function that holds `address`,
@@ -345,7 +560,7 @@ fn symbol_range(
 }
 
 /// The longest instruction is 15 bytes, and the patterns the walk looks for
-/// reach 12 bytes past the start of one.
+/// reach 14 bytes past the start of one.
 const AHEAD: usize = 16;
 
 /// Code read from the process a block at a time, so the walk doesn't make a
@@ -375,6 +590,7 @@ impl<'a> Code<'a> {
     fn at(&mut self, at: Address) -> Option<&[u8]> {
         let left = self.end.value().checked_sub(at.value())? as usize;
         let offset = at.value().wrapping_sub(self.start.value()) as usize;
+
         if at < self.start || offset + AHEAD.min(left) > self.len {
             let len = self.bytes.len().min(left);
             self.process
@@ -384,6 +600,7 @@ impl<'a> Code<'a> {
             self.len = len;
             return Some(&self.bytes[..len]);
         }
+
         Some(&self.bytes[offset..self.len])
     }
 }

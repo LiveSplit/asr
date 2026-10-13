@@ -376,6 +376,168 @@ fn finds_the_table_four_jumps_in() {
     );
 }
 
+/// Looks for the table in an image where the hook is at 0x1200, 2 jumps into
+/// `il2cpp_image_get_class`, and the table accessor sits right behind it.
+fn hooked_accessor(hook: &[u8]) -> Option<Address> {
+    let behind = 0x1200 + hook.len() as u32;
+    let accessor = [hook, &accessor_x64(behind)].concat();
+    let code = [
+        (0x1000, jmp(0x1000, 0x1100)),
+        (0x1100, jmp(0x1100, 0x1200)),
+        (0x1200, accessor),
+    ];
+    let code: Vec<(u32, &[u8])> = code.iter().map(|(at, bytes)| (*at, &bytes[..])).collect();
+    table(PointerSize::Bit64, "il2cpp_image_get_class", &code)
+}
+
+// MelonLoader replaces the first 6 bytes of the accessor with a jmp through a
+// pointer that sits outside the module.
+#[test]
+fn finds_the_table_behind_a_jump_through_a_pointer_outside_the_module() {
+    let hook = [&[0xFF, 0x25][..], &displacement(0x1206, 0x7000_0000)].concat();
+    assert_eq!(hooked_accessor(&hook), Some(Address::new(BASE + 0x3000)));
+}
+
+// The hook MelonLoader wrote into Big Walk, with its exception directory
+// entry. The pointer sits below the module, so the displacement is negative.
+#[test]
+fn finds_the_table_behind_the_hook_of_a_windows_player() {
+    let accessor = [
+        &[0xFF, 0x25, 0x3A, 0x47, 0x06, 0x80][..],
+        &accessor_x64(0x1206),
+    ]
+    .concat();
+    let code = [
+        (0x1000, jmp(0x1000, 0x1100)),
+        (0x1100, jmp(0x1100, 0x1200)),
+        (0x1200, accessor),
+    ];
+    let code: Vec<(u32, &[u8])> = code.iter().map(|(at, bytes)| (*at, &bytes[..])).collect();
+    let mut image = image(
+        PointerSize::Bit64,
+        &[("il2cpp_image_get_class", 0x1000)],
+        &code,
+    );
+    put_functions(
+        &mut image,
+        &[(0x1000, 0x1005), (0x1100, 0x1105), (0x1200, 0x1220)],
+    );
+
+    let found = with_process(&[(BASE, &image)], |process| {
+        globals::type_info_definition_table(
+            process,
+            (Address::new(BASE), SIZE as u64),
+            BinaryFormat::PE,
+            PointerSize::Bit64,
+        )
+    });
+    assert_eq!(found, Some(Address::new(BASE + 0x3000)));
+}
+
+// The hook check runs for the assemblies walk too, where the hooked function
+// is the getter the export calls.
+#[test]
+fn finds_s_assemblies_behind_a_hook_on_the_getter() {
+    let call = [
+        &[0x48, 0x83, 0xEC, 0x28, 0xE8][..],
+        &displacement(0x1009, 0x1100),
+    ]
+    .concat();
+    let getter = [
+        &[0xFF, 0x25][..],
+        &displacement(0x1106, 0x7000_0000),
+        &[0x48, 0x8D, 0x05],
+        &displacement(0x110D, 0x3000),
+        &[0xC3],
+    ]
+    .concat();
+    assert_eq!(
+        assemblies(PointerSize::Bit64, &[(0x1000, &call), (0x1100, &getter)]),
+        Some(Address::new(BASE + 0x3000))
+    );
+}
+
+#[test]
+fn finds_the_table_behind_a_hook_in_an_elf_export() {
+    let accessor = [
+        &[0xFF, 0x25][..],
+        &displacement(0x1006, 0x7000_0000),
+        &accessor_x64(0x1006),
+    ]
+    .concat();
+    let image = elf_image(
+        &[("il2cpp_image_get_class", 0x1000, 0x20)],
+        &[(0x1000, &accessor)],
+    );
+    let found = with_process(&[(BASE, &image)], |process| {
+        globals::type_info_definition_table(
+            process,
+            (Address::new(BASE), SIZE as u64),
+            BinaryFormat::ELF,
+            PointerSize::Bit64,
+        )
+    });
+    assert_eq!(found, Some(Address::new(BASE + 0x3000)));
+}
+
+// The walk doesn't treat a jump through a pointer kept right behind it as a
+// hook when the pointer holds an address inside the module.
+#[test]
+fn stops_at_a_jump_through_an_inline_pointer_inside_the_module() {
+    let inline = [
+        &[0xFF, 0x25, 0, 0, 0, 0][..],
+        &(BASE + 0x2000).to_le_bytes(),
+    ]
+    .concat();
+    assert_eq!(hooked_accessor(&inline), None);
+}
+
+// Other hooks jump through a pointer kept right behind the jump or jump
+// straight out of the module.
+#[test]
+fn finds_the_table_behind_the_other_jumps_out_of_the_module() {
+    let inline = [
+        &[0xFF, 0x25, 0, 0, 0, 0][..],
+        &0x7FFE_0000_0000_u64.to_le_bytes(),
+    ]
+    .concat();
+    assert_eq!(hooked_accessor(&inline), Some(Address::new(BASE + 0x3000)));
+    let straight = [&[0xE9][..], &displacement(0x1205, 0x7000_0000)].concat();
+    assert_eq!(
+        hooked_accessor(&straight),
+        Some(Address::new(BASE + 0x3000))
+    );
+}
+
+#[test]
+fn finds_the_x86_table_behind_a_jump_through_a_pointer_outside_the_module() {
+    let hook = [0xFF, 0x25, 0x00, 0x00, 0x00, 0x70];
+    // mov eax, [s_TypeInfoDefinitionTable]; cmp dword ptr [eax + esi*4], 0
+    let accessor = [
+        &hook[..],
+        &[0xA1],
+        &absolute(0x3000),
+        &[0x83, 0x3C, 0xB0, 0x00],
+    ]
+    .concat();
+    assert_eq!(
+        table(
+            PointerSize::Bit32,
+            "il2cpp_image_get_class",
+            &[(0x1000, &accessor)]
+        ),
+        Some(Address::new(BASE + 0x3000))
+    );
+}
+
+// The walk doesn't read past an import thunk because the thunk jumps through
+// a pointer inside the module and is the whole function.
+#[test]
+fn stops_at_a_jump_through_a_pointer_inside_the_module() {
+    let thunk = [&[0xFF, 0x25][..], &displacement(0x1206, 0x3800)].concat();
+    assert_eq!(hooked_accessor(&thunk), None);
+}
+
 #[test]
 fn searches_a_level_of_more_than_256_functions() {
     // The export calls 10 functions, and each of those calls 30 more. The
@@ -575,14 +737,16 @@ fn ends_on_a_loop() {
     );
 }
 
+/// Where `put_functions` writes the exception directory in an image.
+const EXCEPTIONS: usize = 0x300;
+
 /// Writes an exception directory, the table x64 images keep of where each
-/// function starts and ends, at 0x300 of an image.
+/// function starts and ends, at `EXCEPTIONS` of an image.
 fn put_functions(image: &mut [u8], functions: &[(u32, u32)]) {
-    const TABLE: usize = 0x300;
-    image[0x120..0x124].copy_from_slice(&(TABLE as u32).to_le_bytes());
+    image[0x120..0x124].copy_from_slice(&(EXCEPTIONS as u32).to_le_bytes());
     image[0x124..0x128].copy_from_slice(&(functions.len() as u32 * 12).to_le_bytes());
     for (index, (begin, end)) in functions.iter().enumerate() {
-        let at = TABLE + index * 12;
+        let at = EXCEPTIONS + index * 12;
         image[at..at + 4].copy_from_slice(&begin.to_le_bytes());
         image[at + 4..at + 8].copy_from_slice(&end.to_le_bytes());
     }
@@ -616,6 +780,107 @@ fn stops_at_the_end_of_a_function_after_a_call_that_does_not_return() {
     );
     let found = with_process(&[(BASE, &image)], |process| {
         globals::assemblies(
+            process,
+            (Address::new(BASE), SIZE as u64),
+            BinaryFormat::PE,
+            PointerSize::Bit64,
+        )
+    });
+    assert_eq!(found, Some(Address::new(BASE + 0x3000)));
+}
+
+/// Writes version 2 unwind info at `at` for function `index` of the exception
+/// directory `put_functions` wrote, with the size of the prologue and the
+/// unwind codes, 2 bytes each.
+fn put_unwind(image: &mut [u8], index: usize, at: u32, prologue: u8, codes: &[[u8; 2]]) {
+    let entry = EXCEPTIONS + index * 12 + 8;
+    image[entry..entry + 4].copy_from_slice(&at.to_le_bytes());
+
+    let at = at as usize;
+    image[at..at + 4].copy_from_slice(&[2, prologue, codes.len() as u8, 0]);
+    for (slot, code) in codes.iter().enumerate() {
+        image[at + 4 + slot * 2..at + 6 + slot * 2].copy_from_slice(code);
+    }
+}
+
+// The walk goes on where the unwind info says the next prologue instruction
+// starts because a hook that ends inside an instruction leaves the rest of
+// that instruction behind and those bytes decode as something else.
+#[test]
+fn resumes_behind_a_hook_where_the_unwind_info_ends_an_instruction() {
+    // mov rax, rsp; mov [rax + 8], rbx; then the table load. The 6-byte hook
+    // ends inside mov [rax + 8], rbx and leaves its last byte behind.
+    let mut accessor = [
+        &[0x48, 0x8B, 0xC4, 0x48, 0x89, 0x58, 0x08][..],
+        &accessor_x64(0x1207),
+    ]
+    .concat();
+    let hook = [&[0xFF, 0x25][..], &displacement(0x1206, 0x7000_0000)].concat();
+    accessor[..6].copy_from_slice(&hook);
+    let code = [
+        (0x1000, jmp(0x1000, 0x1100)),
+        (0x1100, jmp(0x1100, 0x1200)),
+        (0x1200, accessor),
+    ];
+    let code: Vec<(u32, &[u8])> = code.iter().map(|(at, bytes)| (*at, &bytes[..])).collect();
+    let mut image = image(
+        PointerSize::Bit64,
+        &[("il2cpp_image_get_class", 0x1000)],
+        &code,
+    );
+    put_functions(&mut image, &[(0x1200, 0x1220)]);
+
+    // An epilog code, a code that ends at 14 and a save of rbx that ends at 7.
+    // A walk that took the epilog code's 6 or read the save's second slot,
+    // which holds 6, as a code of its own would go on at 6. A walk that took
+    // the first or the largest end would go on at 14, in the middle of the
+    // load.
+    put_unwind(
+        &mut image,
+        0,
+        0x2000,
+        14,
+        &[[6, 0x16], [14, 0x02], [7, 0x34], [6, 0]],
+    );
+
+    let found = with_process(&[(BASE, &image)], |process| {
+        globals::type_info_definition_table(
+            process,
+            (Address::new(BASE), SIZE as u64),
+            BinaryFormat::PE,
+            PointerSize::Bit64,
+        )
+    });
+    assert_eq!(found, Some(Address::new(BASE + 0x3000)));
+}
+
+// The walk reads all 255 slots unwind info can hold, even when the last code
+// takes 2 more slots than there are, because it counts the slots past 255.
+#[test]
+fn reads_unwind_info_with_the_most_slots() {
+    let mut accessor = [
+        &[0x48, 0x8B, 0xC4, 0x48, 0x89, 0x58, 0x08][..],
+        &accessor_x64(0x1007),
+    ]
+    .concat();
+    let hook = [&[0xFF, 0x25][..], &displacement(0x1006, 0x7000_0000)].concat();
+    accessor[..6].copy_from_slice(&hook);
+    let code = [(0x1000, accessor)];
+    let code: Vec<(u32, &[u8])> = code.iter().map(|(at, bytes)| (*at, &bytes[..])).collect();
+    let mut image = image(
+        PointerSize::Bit64,
+        &[("il2cpp_image_get_class", 0x1000)],
+        &code,
+    );
+    put_functions(&mut image, &[(0x1000, 0x1020)]);
+
+    // 254 pushes that end at 7 and a far save of rbx in the last slot.
+    let mut codes = vec![[7, 0x00]; 254];
+    codes.push([7, 0x15]);
+    put_unwind(&mut image, 0, 0x2000, 7, &codes);
+
+    let found = with_process(&[(BASE, &image)], |process| {
+        globals::type_info_definition_table(
             process,
             (Address::new(BASE), SIZE as u64),
             BinaryFormat::PE,
