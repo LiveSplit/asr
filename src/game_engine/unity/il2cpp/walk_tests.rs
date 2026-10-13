@@ -692,6 +692,49 @@ fn type_counts_no_image_has_read_as_no_classes() {
     });
 }
 
+// An auto splitter that found the two globals itself hands them in and gets
+// the module `attach` would build from them. The pointer width comes from the
+// profile.
+#[test]
+fn given_globals_read_like_found_ones() {
+    let found = Player {
+        unity: MEASURED_6000_5,
+    }
+    .attach()
+    .unwrap();
+    let given = Module::new(
+        found.assemblies,
+        found.type_info_definition_table,
+        found.profile,
+    );
+    assert_eq!(given.assemblies, found.assemblies);
+    assert_eq!(
+        given.type_info_definition_table,
+        found.type_info_definition_table
+    );
+    assert_eq!(given.profile, found.profile);
+    assert_eq!(given.pointer_size, found.pointer_size);
+
+    for unity in [MEASURED_2019, MEASURED_2022] {
+        with_process(&[(BASE, &image(unity))], |process| {
+            let module = Module::new(
+                Address::new(BASE),
+                Address::new(BASE + 0x10),
+                measured(unity, PointerSize::Bit64),
+            );
+            let image = module.get_default_image(process).unwrap();
+            assert!(image.get_class(process, &module, "GameManager").is_some());
+            assert_eq!(image.classes(process, &module).count(), 5);
+        });
+    }
+    let x86 = Module::new(
+        Address::new(BASE),
+        Address::new(BASE + 0x10),
+        measured(MEASURED_2019, PointerSize::Bit32),
+    );
+    assert_eq!(x86.get_pointer_size(), PointerSize::Bit32);
+}
+
 #[test]
 fn classes_resolve_by_name_and_namespace() {
     for unity in [MEASURED_2019, MEASURED_2022] {

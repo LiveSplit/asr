@@ -513,6 +513,24 @@ impl Module {
         retry(|| Self::attach_to_module(process, il2cpp_module, profile)).await
     }
 
+    /// Creates a module from the addresses of the `s_Assemblies` vector and
+    /// the `s_TypeInfoDefinitionTable` pointer, with the provided measured
+    /// [`Profile`]. Use this when the auto splitter finds the two globals
+    /// itself because [`attach`](Self::attach) doesn't find them in a game.
+    /// Nothing checks the addresses or the profile against the game.
+    pub const fn new(
+        assemblies: Address,
+        type_info_definition_table: Address,
+        profile: Profile,
+    ) -> Self {
+        Self {
+            assemblies,
+            type_info_definition_table,
+            profile,
+            pointer_size: profile.pointer_size,
+        }
+    }
+
     /// Looks for the specified binary [image](Image) inside the target process.
     /// An [image](Image) is a .NET DLL that is loaded
     /// by the game. The `Assembly-CSharp` [image](Image) is the main game
