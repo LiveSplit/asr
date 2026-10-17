@@ -76,6 +76,25 @@ pub struct Il2CppRuntime {
 }
 
 impl MonoRuntime {
+    /// Reads the address of a class's vtable in the first domain, which every
+    /// instance of the class begins with a pointer to.
+    pub fn vtable_address(
+        &self,
+        process: &Process,
+        pointer_size: PointerSize,
+        class: ClassRef,
+    ) -> Option<Address> {
+        let runtime_info = process
+            .read_pointer(class.address + self.runtime_info, pointer_size)
+            .ok()
+            .filter(|address| !address.is_null())?;
+
+        process
+            .read_pointer(runtime_info + pointer_size as u64, pointer_size)
+            .ok()
+            .filter(|address| !address.is_null())
+    }
+
     // The class whose count slot holds this class's count: a generic instance
     // carries the inflated fields itself but no count, so the definition it
     // was made from answers, reached through the instantiation descriptor.
@@ -174,15 +193,7 @@ impl Runtime {
     ) -> Option<Address> {
         let slot = match self {
             Self::Mono(mono) => {
-                let runtime_info = process
-                    .read_pointer(class.address + mono.runtime_info, pointer_size)
-                    .ok()
-                    .filter(|address| !address.is_null())?;
-
-                let vtables = process
-                    .read_pointer(runtime_info + pointer_size as u64, pointer_size)
-                    .ok()
-                    .filter(|address| !address.is_null())?;
+                let vtables = mono.vtable_address(process, pointer_size, class)?;
 
                 if mono.statics_in_vtable_data {
                     vtables + mono.vtable_size
